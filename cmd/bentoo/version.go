@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/obentoo/bentoo-tools/internal/common/version"
+	"github.com/obentoo/bentoolkit/internal/common/version"
 	"github.com/spf13/cobra"
 )
 

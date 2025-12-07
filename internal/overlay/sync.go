@@ -4,8 +4,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/obentoo/bentoo-tools/internal/common/config"
-	"github.com/obentoo/bentoo-tools/internal/common/git"
+	"github.com/obentoo/bentoolkit/internal/common/config"
+	"github.com/obentoo/bentoolkit/internal/common/git"
 )
 
 var (

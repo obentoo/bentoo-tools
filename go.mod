@@ -1,4 +1,4 @@
-module github.com/obentoo/bentoo-tools
+module github.com/obentoo/bentoolkit
 
 go 1.24.0
 

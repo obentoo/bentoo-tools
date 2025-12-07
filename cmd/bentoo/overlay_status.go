@@ -3,9 +3,9 @@ package main
 import (
 	"os"
 
-	"github.com/obentoo/bentoo-tools/internal/common/config"
-	"github.com/obentoo/bentoo-tools/internal/common/logger"
-	"github.com/obentoo/bentoo-tools/internal/overlay"
+	"github.com/obentoo/bentoolkit/internal/common/config"
+	"github.com/obentoo/bentoolkit/internal/common/logger"
+	"github.com/obentoo/bentoolkit/internal/overlay"
 	"github.com/spf13/cobra"
 )
 

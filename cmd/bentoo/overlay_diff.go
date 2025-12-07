@@ -4,8 +4,8 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/obentoo/bentoo-tools/internal/common/config"
-	"github.com/obentoo/bentoo-tools/internal/common/logger"
+	"github.com/obentoo/bentoolkit/internal/common/config"
+	"github.com/obentoo/bentoolkit/internal/common/logger"
 	"github.com/spf13/cobra"
 )
 

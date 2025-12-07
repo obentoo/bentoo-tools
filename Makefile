@@ -1,8 +1,8 @@
-# Bentoo Tools Makefile
+# Bentoolkit Makefile
 # Build, test, and install targets for bentoo CLI
 
 BINARY_NAME := bentoo
-MODULE := github.com/obentoo/bentoo-tools
+MODULE := github.com/obentoo/bentoolkit
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
@@ -108,7 +108,7 @@ check: lint test audit
 # Help target
 .PHONY: help
 help:
-	@echo "Bentoo Tools Makefile"
+	@echo "Bentoolkit Makefile"
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""

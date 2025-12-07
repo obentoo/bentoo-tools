@@ -8,7 +8,7 @@ import (
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
 	"github.com/leanovate/gopter/prop"
-	"github.com/obentoo/bentoo-tools/internal/common/git"
+	"github.com/obentoo/bentoolkit/internal/common/git"
 )
 
 // TestSyncWithoutConflictsSucceeds tests Property 3: Sync without conflicts succeeds

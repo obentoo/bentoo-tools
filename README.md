@@ -1,4 +1,4 @@
-# Bentoo Tools
+# Bentoolkit
 
 CLI tools for Bentoo Linux distribution maintainers and developers.
 
@@ -34,17 +34,17 @@ Then sync:
 emerge --sync bentoo
 ```
 
-### Install bentoo-tools
+### Install bentoolkit
 
 ```bash
-emerge --ask app-admin/bentoo-tools
+emerge --ask app-portage/bentoolkit
 ```
 
 ### Manual Build
 
 ```bash
-git clone https://github.com/lucascouts/bentoo-tools.git
-cd bentoo-tools
+git clone https://github.com/obentoo/bentoolkit.git
+cd bentoolkit
 make build
 sudo make install
 ```
@@ -229,7 +229,7 @@ go install golang.org/x/vuln/cmd/govulncheck@latest
 ### Project Structure
 
 ```
-bentoo-tools/
+bentoolkit/
 ├── cmd/bentoo/           # CLI commands
 │   ├── main.go           # Entry point
 │   ├── overlay_add.go    # overlay add command

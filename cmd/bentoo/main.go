@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/obentoo/bentoo-tools/internal/common/logger"
-	"github.com/obentoo/bentoo-tools/internal/common/output"
+	"github.com/obentoo/bentoolkit/internal/common/logger"
+	"github.com/obentoo/bentoolkit/internal/common/output"
 	"github.com/spf13/cobra"
 )
 

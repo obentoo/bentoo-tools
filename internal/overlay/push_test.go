@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/obentoo/bentoo-tools/internal/common/config"
-	"github.com/obentoo/bentoo-tools/internal/common/git"
+	"github.com/obentoo/bentoolkit/internal/common/config"
+	"github.com/obentoo/bentoolkit/internal/common/git"
 )
 
 // TestPushWithInvalidConfig tests Push with invalid configuration

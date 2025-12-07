@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/obentoo/bentoo-tools/internal/common/config"
+	"github.com/obentoo/bentoolkit/internal/common/config"
 )
 
 // ValidationResult contains overlay validation results
