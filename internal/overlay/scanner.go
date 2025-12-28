@@ -213,6 +213,13 @@ func FindLatestVersionFiltered(versions []string, ignoreLive bool) string {
 			// All versions are live, return the original latest
 			return FindLatestVersionFiltered(versions, false)
 		}
+
+		// Also filter out pre-release versions (alpha, beta, rc)
+		filtered = filterPreReleaseVersions(filtered)
+		if len(filtered) == 0 {
+			// All non-live versions are pre-releases, use them anyway
+			filtered = filterLiveVersions(versions)
+		}
 	}
 
 	if len(filtered) == 1 {
@@ -239,11 +246,31 @@ func isLiveVersion(version string) bool {
 	return strings.Contains(version, "9999")
 }
 
+// isPreReleaseVersion checks if a version is a pre-release (alpha, beta, rc)
+func isPreReleaseVersion(version string) bool {
+	// Pre-release versions use suffixes: _alpha, _beta, _rc
+	// Examples: 1.0_alpha1, 2.0_beta2, 3.0_rc1
+	return strings.Contains(version, "_alpha") ||
+		strings.Contains(version, "_beta") ||
+		strings.Contains(version, "_rc")
+}
+
 // filterLiveVersions removes live ebuild versions from a list
 func filterLiveVersions(versions []string) []string {
 	var filtered []string
 	for _, v := range versions {
 		if !isLiveVersion(v) {
+			filtered = append(filtered, v)
+		}
+	}
+	return filtered
+}
+
+// filterPreReleaseVersions removes pre-release versions from a list
+func filterPreReleaseVersions(versions []string) []string {
+	var filtered []string
+	for _, v := range versions {
+		if !isPreReleaseVersion(v) {
 			filtered = append(filtered, v)
 		}
 	}

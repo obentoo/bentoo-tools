@@ -174,6 +174,79 @@ func TestFindLatestVersion(t *testing.T) {
 	}
 }
 
+func TestFindLatestVersionFilteredWithPreReleases(t *testing.T) {
+	tests := []struct {
+		name       string
+		versions   []string
+		ignoreLive bool
+		expected   string
+	}{
+		{
+			name:       "ignore rc versions",
+			versions:   []string{"1.0", "2.0", "2.1_rc1"},
+			ignoreLive: true,
+			expected:   "2.0",
+		},
+		{
+			name:       "ignore alpha and beta",
+			versions:   []string{"1.0_alpha1", "1.0_beta1", "1.0"},
+			ignoreLive: true,
+			expected:   "1.0",
+		},
+		{
+			name:       "only pre-releases available",
+			versions:   []string{"1.0_alpha1", "1.0_beta1", "1.0_rc1"},
+			ignoreLive: true,
+			expected:   "1.0_rc1",
+		},
+		{
+			name:       "mixed with live",
+			versions:   []string{"9999", "1.0_rc1", "1.0"},
+			ignoreLive: true,
+			expected:   "1.0",
+		},
+		{
+			name:       "don't ignore when flag is false",
+			versions:   []string{"1.0", "2.0_rc1"},
+			ignoreLive: false,
+			expected:   "2.0_rc1",
+		},
+		{
+			name:       "ignore multiple pre-release types",
+			versions:   []string{"1.0", "1.1_alpha1", "1.2_beta1", "1.3_rc1"},
+			ignoreLive: true,
+			expected:   "1.0",
+		},
+		{
+			name:       "stable version newer than pre-release",
+			versions:   []string{"2.0", "2.1_rc1", "2.2_beta1"},
+			ignoreLive: true,
+			expected:   "2.0",
+		},
+		{
+			name:       "only live and pre-release",
+			versions:   []string{"9999", "1.0_rc1"},
+			ignoreLive: true,
+			expected:   "1.0_rc1",
+		},
+		{
+			name:       "complex version with pre-release suffix",
+			versions:   []string{"1.0.1", "1.0.2_rc1", "1.0.0"},
+			ignoreLive: true,
+			expected:   "1.0.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FindLatestVersionFiltered(tt.versions, tt.ignoreLive)
+			if result != tt.expected {
+				t.Errorf("Expected %s, got %s", tt.expected, result)
+			}
+		})
+	}
+}
+
 func TestPackageInfoFullName(t *testing.T) {
 	pkg := PackageInfo{
 		Category: "app-misc",
