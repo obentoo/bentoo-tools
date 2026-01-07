@@ -70,6 +70,22 @@ type ManifestUpdate struct {
 	Error    string
 }
 
+// ShouldBlockForVersionFiles determines if the operation should be blocked
+// due to version files being detected.
+// Returns true if operation should abort, false if it should proceed.
+func ShouldBlockForVersionFiles(versionFiles []VersionFile, force bool) bool {
+	// If no version files detected, don't block
+	if len(versionFiles) == 0 {
+		return false
+	}
+	// If force flag is set, don't block
+	if force {
+		return false
+	}
+	// Version files detected and no force flag - block the operation
+	return true
+}
+
 // Rename performs bulk ebuild renaming.
 // This is a placeholder that will be implemented in later tasks.
 func Rename(cfg *config.Config, spec *RenameSpec, opts *RenameOptions) (*RenameResult, error) {
