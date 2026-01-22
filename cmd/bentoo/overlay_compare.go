@@ -118,11 +118,26 @@ func runCompare(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	// Check rate limit for GitHub provider
+	// Check rate limit for GitHub provider - block if exhausted
 	if ghProv, ok := prov.(*provider.GitHubProvider); ok {
 		remaining, resetTime, err := ghProv.GetRateLimitInfo()
 		if err == nil {
-			if remaining < 10 {
+			if remaining == 0 {
+				logger.Error("GitHub API rate limit exceeded (resets at %s)", resetTime.Format("15:04:05"))
+				logger.Info("")
+				logger.Info("Options:")
+				logger.Info("  1. Use --clone to download the repository:")
+				logger.Info("     bentoo overlay compare %s --clone", repoName)
+				logger.Info("")
+				logger.Info("  2. Configure a local repository path in ~/.config/bentoo/config.yaml:")
+				logger.Info("     repositories:")
+				logger.Info("       gentoo-local:")
+				logger.Info("         provider: git")
+				logger.Info("         url: /var/db/repos/gentoo")
+				logger.Info("")
+				logger.Info("  3. Wait until %s for rate limit reset", resetTime.Format("15:04:05"))
+				os.Exit(1)
+			} else if remaining < 10 {
 				logger.Warn("GitHub API rate limit low: %d requests remaining (resets at %s)",
 					remaining, resetTime.Format("15:04:05"))
 				if !compareClone {
