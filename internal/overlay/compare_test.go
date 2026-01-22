@@ -112,8 +112,10 @@ func TestCompareWithAllResults(t *testing.T) {
 		{Category: "app-misc", Package: "hello", LatestVersion: "1.0"}, // up-to-date
 	}
 
+	// Test with IncludeSynced: true to include up-to-date packages
 	opts := CompareOptions{
-		OnlyOutdated: false,
+		OnlyOutdated:  false,
+		IncludeSynced: true,
 	}
 
 	report, err := Compare(localPackages, client, opts)
@@ -125,7 +127,7 @@ func TestCompareWithAllResults(t *testing.T) {
 		t.Errorf("Expected 1 up-to-date package, got %d", report.UpToDateCount)
 	}
 
-	// Should include up-to-date in results when OnlyOutdated is false
+	// Should include up-to-date in results when IncludeSynced is true
 	if len(report.Results) != 1 {
 		t.Errorf("Expected 1 result, got %d", len(report.Results))
 	}

@@ -58,6 +58,10 @@ func (s CompareStatus) String() string {
 type CompareOptions struct {
 	// OnlyOutdated filters results to only show outdated packages
 	OnlyOutdated bool
+	// IncludeSynced includes packages that have the same version (up-to-date)
+	// When true, StatusUpToDate packages are included in results
+	// This is independent of OnlyOutdated - both can be combined
+	IncludeSynced bool
 	// IncludeNotInRemote includes packages that don't exist in remote
 	IncludeNotInRemote bool
 	// ProgressCallback is called for each package processed
@@ -106,11 +110,21 @@ func Compare(localPackages []PackageInfo, client *github.Client, opts CompareOpt
 			report.ErrorCount++
 		}
 
-		// Filter based on options
-		if opts.OnlyOutdated && result.Status != StatusOutdated {
-			continue
+		// Filter based on options using switch for clarity
+		include := false
+		switch result.Status {
+		case StatusOutdated:
+			include = true // Always include outdated (primary use case)
+		case StatusUpToDate:
+			include = opts.IncludeSynced
+		case StatusNewer:
+			include = !opts.OnlyOutdated // Include if not filtering to outdated only
+		case StatusNotInRemote:
+			include = opts.IncludeNotInRemote
+		case StatusError:
+			include = true // Always include errors for visibility
 		}
-		if !opts.IncludeNotInRemote && result.Status == StatusNotInRemote {
+		if !include {
 			continue
 		}
 
@@ -158,11 +172,21 @@ func CompareWithProvider(localPackages []PackageInfo, prov provider.Provider, op
 			report.ErrorCount++
 		}
 
-		// Filter based on options
-		if opts.OnlyOutdated && result.Status != StatusOutdated {
-			continue
+		// Filter based on options using switch for clarity
+		include := false
+		switch result.Status {
+		case StatusOutdated:
+			include = true // Always include outdated (primary use case)
+		case StatusUpToDate:
+			include = opts.IncludeSynced
+		case StatusNewer:
+			include = !opts.OnlyOutdated // Include if not filtering to outdated only
+		case StatusNotInRemote:
+			include = opts.IncludeNotInRemote
+		case StatusError:
+			include = true // Always include errors for visibility
 		}
-		if !opts.IncludeNotInRemote && result.Status == StatusNotInRemote {
+		if !include {
 			continue
 		}
 
