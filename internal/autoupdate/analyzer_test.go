@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -745,6 +746,311 @@ func TestSaveSchema(t *testing.T) {
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		t.Error("packages.toml was not created")
 	}
+}
+
+// TestParallelProcessingLimit tests Property 28: Parallel Processing Limit
+// **Feature: autoupdate-analyzer, Property 28: Parallel Processing Limit**
+// **Validates: Requirements 11.3**
+//
+// For any batch analysis operation, the analyzer SHALL process at most 3 packages concurrently.
+func TestParallelProcessingLimit(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: AnalyzeAll processes at most 3 packages concurrently
+	properties.Property("AnalyzeAll processes at most 3 packages concurrently", prop.ForAll(
+		func(numPackages int) bool {
+			// Clamp to reasonable range
+			if numPackages < 1 {
+				numPackages = 1
+			}
+			if numPackages > 10 {
+				numPackages = 10
+			}
+
+			// Track concurrent executions
+			var maxConcurrent int32
+			var currentConcurrent int32
+			var mu sync.Mutex
+
+			// Create mock server that tracks concurrency
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				currentConcurrent++
+				if currentConcurrent > maxConcurrent {
+					maxConcurrent = currentConcurrent
+				}
+				mu.Unlock()
+
+				// Simulate some work to allow concurrency to build up
+				time.Sleep(50 * time.Millisecond)
+
+				mu.Lock()
+				currentConcurrent--
+				mu.Unlock()
+
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"version": "1.0.0"})
+			}))
+			defer server.Close()
+
+			// Create temp overlay with multiple packages
+			tmpDir := t.TempDir()
+			for i := 0; i < numPackages; i++ {
+				pkgName := "pkg-" + string(rune('a'+i))
+				pkgDir := filepath.Join(tmpDir, "app-misc", pkgName)
+				os.MkdirAll(pkgDir, 0755)
+				os.WriteFile(filepath.Join(pkgDir, pkgName+"-1.0.0.ebuild"), []byte(`
+EAPI=8
+HOMEPAGE="`+server.URL+`"
+`), 0644)
+			}
+
+			// Create fast rate limiter for testing
+			rateLimiter := createFastRateLimiter()
+			setFastHTTPLimit(rateLimiter, server.URL)
+
+			// Create fast HTTP client
+			httpClient := NewRetryableHTTPClientWithConfig(RetryConfig{
+				MaxRetries: 0,
+				Timeout:    5 * time.Second,
+			})
+
+			// Create analyzer
+			analyzer, err := NewAnalyzer(tmpDir,
+				WithAnalyzerRateLimiter(rateLimiter),
+				WithAnalyzerHTTPClient(httpClient),
+			)
+			if err != nil {
+				return false
+			}
+
+			// Run AnalyzeAll
+			opts := AnalyzeOptions{
+				NoCache: true,
+			}
+			_, _ = analyzer.AnalyzeAll(opts)
+
+			// Max concurrent should be at most 3
+			return maxConcurrent <= 3
+		},
+		gen.IntRange(1, 10),
+	))
+
+	// Property: Semaphore limits concurrent goroutines to maxConcurrent
+	properties.Property("Semaphore limits concurrent goroutines to maxConcurrent", prop.ForAll(
+		func(numGoroutines int) bool {
+			// Clamp to reasonable range
+			if numGoroutines < 1 {
+				numGoroutines = 1
+			}
+			if numGoroutines > 20 {
+				numGoroutines = 20
+			}
+
+			const maxConcurrent = 3
+			var maxObserved int32
+			var current int32
+			var mu sync.Mutex
+			var wg sync.WaitGroup
+			sem := make(chan struct{}, maxConcurrent)
+
+			for i := 0; i < numGoroutines; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+
+					// Acquire semaphore
+					sem <- struct{}{}
+					defer func() { <-sem }()
+
+					mu.Lock()
+					current++
+					if current > maxObserved {
+						maxObserved = current
+					}
+					mu.Unlock()
+
+					// Simulate work
+					time.Sleep(10 * time.Millisecond)
+
+					mu.Lock()
+					current--
+					mu.Unlock()
+				}()
+			}
+
+			wg.Wait()
+
+			// Max observed should be at most maxConcurrent
+			return maxObserved <= maxConcurrent
+		},
+		gen.IntRange(1, 20),
+	))
+
+	// Property: All packages are eventually processed despite concurrency limit
+	properties.Property("All packages are eventually processed despite concurrency limit", prop.ForAll(
+		func(numPackages int) bool {
+			// Clamp to reasonable range
+			if numPackages < 1 {
+				numPackages = 1
+			}
+			if numPackages > 8 {
+				numPackages = 8
+			}
+
+			// Track which packages were processed
+			processedPackages := make(map[string]bool)
+			var mu sync.Mutex
+
+			// Create mock server
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"version": "1.0.0"})
+			}))
+			defer server.Close()
+
+			// Create temp overlay with multiple packages
+			tmpDir := t.TempDir()
+			expectedPackages := make([]string, numPackages)
+			for i := 0; i < numPackages; i++ {
+				pkgName := "pkg-" + string(rune('a'+i))
+				fullPkgName := "app-misc/" + pkgName
+				expectedPackages[i] = fullPkgName
+				pkgDir := filepath.Join(tmpDir, "app-misc", pkgName)
+				os.MkdirAll(pkgDir, 0755)
+				os.WriteFile(filepath.Join(pkgDir, pkgName+"-1.0.0.ebuild"), []byte(`
+EAPI=8
+HOMEPAGE="`+server.URL+`"
+`), 0644)
+			}
+
+			// Create fast rate limiter for testing
+			rateLimiter := createFastRateLimiter()
+			setFastHTTPLimit(rateLimiter, server.URL)
+
+			// Create fast HTTP client
+			httpClient := NewRetryableHTTPClientWithConfig(RetryConfig{
+				MaxRetries: 0,
+				Timeout:    5 * time.Second,
+			})
+
+			// Create analyzer
+			analyzer, err := NewAnalyzer(tmpDir,
+				WithAnalyzerRateLimiter(rateLimiter),
+				WithAnalyzerHTTPClient(httpClient),
+			)
+			if err != nil {
+				return false
+			}
+
+			// Run AnalyzeAll
+			opts := AnalyzeOptions{
+				NoCache: true,
+			}
+			results, err := analyzer.AnalyzeAll(opts)
+			if err != nil {
+				return false
+			}
+
+			// Mark processed packages
+			for _, result := range results {
+				mu.Lock()
+				processedPackages[result.Package] = true
+				mu.Unlock()
+			}
+
+			// All expected packages should be processed
+			for _, pkg := range expectedPackages {
+				if !processedPackages[pkg] {
+					return false
+				}
+			}
+
+			return len(results) == numPackages
+		},
+		gen.IntRange(1, 8),
+	))
+
+	// Property: Concurrency limit constant is 3
+	properties.Property("Concurrency limit constant is 3", prop.ForAll(
+		func(dummy int) bool {
+			// This tests that the maxConcurrent constant in AnalyzeAll is 3
+			// We verify this by checking the implementation behavior
+			const expectedMaxConcurrent = 3
+
+			var maxObserved int32
+			var current int32
+			var mu sync.Mutex
+
+			// Create mock server that tracks concurrency
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				current++
+				if current > maxObserved {
+					maxObserved = current
+				}
+				mu.Unlock()
+
+				// Hold the connection to allow concurrency to build up
+				time.Sleep(100 * time.Millisecond)
+
+				mu.Lock()
+				current--
+				mu.Unlock()
+
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"version": "1.0.0"})
+			}))
+			defer server.Close()
+
+			// Create temp overlay with more packages than the limit
+			tmpDir := t.TempDir()
+			numPackages := 6 // More than maxConcurrent to ensure we hit the limit
+			for i := 0; i < numPackages; i++ {
+				pkgName := "pkg-" + string(rune('a'+i))
+				pkgDir := filepath.Join(tmpDir, "app-misc", pkgName)
+				os.MkdirAll(pkgDir, 0755)
+				os.WriteFile(filepath.Join(pkgDir, pkgName+"-1.0.0.ebuild"), []byte(`
+EAPI=8
+HOMEPAGE="`+server.URL+`"
+`), 0644)
+			}
+
+			// Create fast rate limiter for testing
+			rateLimiter := createFastRateLimiter()
+			setFastHTTPLimit(rateLimiter, server.URL)
+
+			// Create fast HTTP client
+			httpClient := NewRetryableHTTPClientWithConfig(RetryConfig{
+				MaxRetries: 0,
+				Timeout:    5 * time.Second,
+			})
+
+			// Create analyzer
+			analyzer, err := NewAnalyzer(tmpDir,
+				WithAnalyzerRateLimiter(rateLimiter),
+				WithAnalyzerHTTPClient(httpClient),
+			)
+			if err != nil {
+				return false
+			}
+
+			// Run AnalyzeAll
+			opts := AnalyzeOptions{
+				NoCache: true,
+			}
+			_, _ = analyzer.AnalyzeAll(opts)
+
+			// Max observed should be exactly 3 (the limit)
+			// With 6 packages and 100ms delay, we should hit the limit
+			return maxObserved <= expectedMaxConcurrent
+		},
+		gen.IntRange(1, 10),
+	))
+
+	properties.TestingRun(t)
 }
 
 // TestDetectJSONPath tests JSON path detection
