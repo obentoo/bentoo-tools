@@ -15,7 +15,7 @@ var (
 	// ErrPackagesConfigNotFound is returned when packages.toml is not found in the overlay
 	ErrPackagesConfigNotFound = errors.New("packages.toml not found in overlay")
 	// ErrInvalidParserType is returned when an invalid parser type is specified
-	ErrInvalidParserType = errors.New("invalid parser type: must be 'json' or 'regex'")
+	ErrInvalidParserType = errors.New("invalid parser type: must be 'json', 'regex', or 'html'")
 	// ErrMissingURL is returned when a package configuration is missing the required URL field
 	ErrMissingURL = errors.New("missing required field: url")
 	// ErrMissingParser is returned when a package configuration is missing the required parser field
@@ -24,6 +24,8 @@ var (
 	ErrMissingPath = errors.New("missing required field: path (required for json parser)")
 	// ErrMissingPattern is returned when a regex parser is missing the required pattern field
 	ErrMissingPattern = errors.New("missing required field: pattern (required for regex parser)")
+	// ErrMissingSelectorOrXPath is returned when an HTML parser is missing both selector and xpath fields
+	ErrMissingSelectorOrXPath = errors.New("missing required field: selector or xpath (required for html parser)")
 )
 
 // PackageConfig represents a single package's autoupdate configuration.
@@ -31,7 +33,7 @@ var (
 type PackageConfig struct {
 	// URL is the primary URL to query for version information
 	URL string `toml:"url"`
-	// Parser specifies the parser type: "json" or "regex"
+	// Parser specifies the parser type: "json", "regex", or "html"
 	Parser string `toml:"parser"`
 	// Path is the JSON path for extracting version (used with json parser)
 	Path string `toml:"path,omitempty"`
@@ -47,6 +49,22 @@ type PackageConfig struct {
 	FallbackPattern string `toml:"fallback_pattern,omitempty"`
 	// LLMPrompt is the prompt to use for LLM-based version extraction
 	LLMPrompt string `toml:"llm_prompt,omitempty"`
+
+	// New fields for HTML parser
+	// Selector is the CSS selector for extracting version (used with html parser)
+	Selector string `toml:"selector,omitempty"`
+	// XPath is the XPath expression for extracting version (used with html parser)
+	XPath string `toml:"xpath,omitempty"`
+
+	// New fields for authentication
+	// Headers contains custom HTTP headers to send with requests
+	Headers map[string]string `toml:"headers,omitempty"`
+
+	// New fields for version history
+	// VersionsPath is the JSON path for extracting version list
+	VersionsPath string `toml:"versions_path,omitempty"`
+	// VersionsSelector is the CSS selector for extracting version list
+	VersionsSelector string `toml:"versions_selector,omitempty"`
 }
 
 // PackagesConfig represents the entire packages.toml configuration file.
@@ -113,6 +131,10 @@ func ValidatePackageConfig(pkg string, cfg *PackageConfig) error {
 		if cfg.Pattern == "" {
 			return fmt.Errorf("package %s: %w", pkg, ErrMissingPattern)
 		}
+	case "html":
+		if cfg.Selector == "" && cfg.XPath == "" {
+			return fmt.Errorf("package %s: %w", pkg, ErrMissingSelectorOrXPath)
+		}
 	default:
 		return fmt.Errorf("package %s: %w: got %q", pkg, ErrInvalidParserType, cfg.Parser)
 	}
@@ -126,6 +148,8 @@ func ValidatePackageConfig(pkg string, cfg *PackageConfig) error {
 			if cfg.FallbackPattern == "" {
 				return fmt.Errorf("package %s: fallback_pattern required for regex fallback parser", pkg)
 			}
+		case "html":
+			// HTML fallback uses Selector or XPath from main config
 		default:
 			return fmt.Errorf("package %s: invalid fallback_parser type: %q", pkg, cfg.FallbackParser)
 		}
