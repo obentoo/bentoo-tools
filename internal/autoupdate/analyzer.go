@@ -386,11 +386,15 @@ func (a *Analyzer) schemaFromAnalysis(analysis *SchemaAnalysis, source *DataSour
 		}
 	}
 
-	// Set fallback if provided
+	// Set fallback if provided by LLM analysis
 	if analysis.FallbackType != "" {
 		schema.FallbackParser = analysis.FallbackType
 		schema.FallbackPattern = analysis.FallbackConfig
 	}
+
+	// Enhance schema with fallback if not already set
+	// This ensures every schema has a fallback configured
+	EnhanceSchemaWithFallback(schema)
 
 	return schema, nil
 }
@@ -419,6 +423,9 @@ func (a *Analyzer) generateDefaultSchema(content []byte, source *DataSource) (*P
 		schema.Parser = "regex"
 		schema.Pattern = `(\d+\.\d+(?:\.\d+)?)`
 	}
+
+	// Enhance schema with fallback
+	EnhanceSchemaWithFallback(schema)
 
 	return schema, nil
 }
