@@ -5,7 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
+
+	"github.com/leanovate/gopter"
+	"github.com/leanovate/gopter/gen"
+	"github.com/leanovate/gopter/prop"
 )
 
 // =============================================================================
@@ -106,12 +111,13 @@ func TestNewLLMClientDefaultModel(t *testing.T) {
 		Model:     "", // Empty model
 	}
 
-	client, err := NewLLMClient(cfg)
+	// Use NewClaudeClient directly to test default model
+	client, err := NewClaudeClient(cfg)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	if client.config.Model != "claude-3-haiku-20240307" {
-		t.Errorf("Expected default model 'claude-3-haiku-20240307', got %q", client.config.Model)
+	if client.GetModel() != "claude-3-haiku-20240307" {
+		t.Errorf("Expected default model 'claude-3-haiku-20240307', got %q", client.GetModel())
 	}
 }
 
@@ -168,9 +174,9 @@ func TestExtractVersionClaudeSuccess(t *testing.T) {
 	}
 
 	// Override HTTP client to use mock server
-	client.httpClient = &http.Client{
+	client.SetHTTPClient(&http.Client{
 		Transport: &mockTransport{server: server},
-	}
+	})
 
 	content := []byte(`{"version": "11.81.1", "notes": [{"version": "11.81.1"}]}`)
 	version, err := client.ExtractVersion(content, "Extract the version number")
@@ -227,9 +233,9 @@ func TestExtractVersionClaudeAPIError(t *testing.T) {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 
-	client.httpClient = &http.Client{
+	client.SetHTTPClient(&http.Client{
 		Transport: &mockTransport{server: server},
-	}
+	})
 
 	_, err = client.ExtractVersion([]byte("test content"), "Extract version")
 	if err == nil {
@@ -267,9 +273,9 @@ func TestExtractVersionClaudeEmptyResponse(t *testing.T) {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 
-	client.httpClient = &http.Client{
+	client.SetHTTPClient(&http.Client{
 		Transport: &mockTransport{server: server},
-	}
+	})
 
 	_, err = client.ExtractVersion([]byte("test content"), "Extract version")
 	if err != ErrLLMEmptyResponse {
@@ -294,9 +300,9 @@ func TestExtractVersionClaudeNetworkError(t *testing.T) {
 	}
 
 	// Use a transport that always fails
-	client.httpClient = &http.Client{
+	client.SetHTTPClient(&http.Client{
 		Transport: &failingTransport{},
-	}
+	})
 
 	_, err = client.ExtractVersion([]byte("test content"), "Extract version")
 	if err == nil {
@@ -483,9 +489,9 @@ func TestExtractVersionRequestFormat(t *testing.T) {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 
-	client.httpClient = &http.Client{
+	client.SetHTTPClient(&http.Client{
 		Transport: &mockTransport{server: server},
-	}
+	})
 
 	client.ExtractVersion([]byte("test content"), "Extract version")
 
@@ -534,9 +540,9 @@ func TestExtractVersionWithVersionPrefix(t *testing.T) {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 
-	client.httpClient = &http.Client{
+	client.SetHTTPClient(&http.Client{
 		Transport: &mockTransport{server: server},
-	}
+	})
 
 	version, err := client.ExtractVersion([]byte("test"), "")
 	if err != nil {
@@ -560,4 +566,185 @@ func findSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// =============================================================================
+// Property-Based Tests
+// =============================================================================
+
+// TestAPIKeyValidation tests Property 13: API Key Validation
+// **Feature: autoupdate-analyzer, Property 13: API Key Validation**
+// **Validates: Requirements 5.4**
+//
+// For any LLM provider (Claude, OpenAI) without the configured API key environment
+// variable set, NewLLMClient SHALL return ErrLLMAPIKeyMissing. Ollama SHALL NOT
+// require an API key.
+func TestAPIKeyValidation(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	// Property: Claude without API key returns ErrLLMAPIKeyMissing
+	properties.Property("Claude without API key returns ErrLLMAPIKeyMissing", prop.ForAll(
+		func(envVarName string) bool {
+			// Ensure the env var is not set
+			os.Unsetenv(envVarName)
+
+			cfg := LLMConfig{
+				Provider:  "claude",
+				APIKeyEnv: envVarName,
+				Model:     "claude-3-haiku-20240307",
+			}
+
+			_, err := NewClaudeClient(cfg)
+			if err == nil {
+				return false
+			}
+			return strings.Contains(err.Error(), ErrLLMAPIKeyMissing.Error())
+		},
+		gen.OneConstOf(
+			"TEST_CLAUDE_KEY_1",
+			"TEST_CLAUDE_KEY_2",
+			"TEST_CLAUDE_KEY_3",
+			"ANTHROPIC_API_KEY_TEST",
+		),
+	))
+
+	// Property: OpenAI without API key returns ErrLLMAPIKeyMissing
+	properties.Property("OpenAI without API key returns ErrLLMAPIKeyMissing", prop.ForAll(
+		func(envVarName string) bool {
+			// Ensure the env var is not set
+			os.Unsetenv(envVarName)
+
+			cfg := LLMConfig{
+				Provider:  "openai",
+				APIKeyEnv: envVarName,
+				Model:     "gpt-4o-mini",
+			}
+
+			_, err := NewOpenAIClient(cfg)
+			if err == nil {
+				return false
+			}
+			return strings.Contains(err.Error(), ErrLLMAPIKeyMissing.Error())
+		},
+		gen.OneConstOf(
+			"TEST_OPENAI_KEY_1",
+			"TEST_OPENAI_KEY_2",
+			"TEST_OPENAI_KEY_3",
+			"OPENAI_API_KEY_TEST",
+		),
+	))
+
+	// Property: Ollama does NOT require an API key
+	properties.Property("Ollama does NOT require an API key", prop.ForAll(
+		func(model string) bool {
+			cfg := LLMConfig{
+				Provider: "ollama",
+				Model:    model,
+				BaseURL:  "http://localhost:11434",
+			}
+
+			client, err := NewOllamaClient(cfg)
+			if err != nil {
+				return false
+			}
+			return client != nil
+		},
+		gen.OneConstOf(
+			"llama3",
+			"llama2",
+			"mistral",
+			"codellama",
+		),
+	))
+
+	// Property: Claude with valid API key succeeds
+	properties.Property("Claude with valid API key succeeds", prop.ForAll(
+		func(apiKey string) bool {
+			envVarName := "TEST_CLAUDE_VALID_KEY"
+			os.Setenv(envVarName, apiKey)
+			defer os.Unsetenv(envVarName)
+
+			cfg := LLMConfig{
+				Provider:  "claude",
+				APIKeyEnv: envVarName,
+				Model:     "claude-3-haiku-20240307",
+			}
+
+			client, err := NewClaudeClient(cfg)
+			if err != nil {
+				return false
+			}
+			return client != nil
+		},
+		gen.OneConstOf(
+			"sk-ant-api03-test-key-1",
+			"sk-ant-api03-test-key-2",
+			"test-api-key-12345",
+		),
+	))
+
+	// Property: OpenAI with valid API key succeeds
+	properties.Property("OpenAI with valid API key succeeds", prop.ForAll(
+		func(apiKey string) bool {
+			envVarName := "TEST_OPENAI_VALID_KEY"
+			os.Setenv(envVarName, apiKey)
+			defer os.Unsetenv(envVarName)
+
+			cfg := LLMConfig{
+				Provider:  "openai",
+				APIKeyEnv: envVarName,
+				Model:     "gpt-4o-mini",
+			}
+
+			client, err := NewOpenAIClient(cfg)
+			if err != nil {
+				return false
+			}
+			return client != nil
+		},
+		gen.OneConstOf(
+			"sk-test-key-1",
+			"sk-test-key-2",
+			"test-api-key-12345",
+		),
+	))
+
+	// Property: NewLLMProvider routes to correct provider
+	properties.Property("NewLLMProvider routes to correct provider", prop.ForAll(
+		func(provider string) bool {
+			envVarName := "TEST_PROVIDER_KEY"
+			os.Setenv(envVarName, "test-key")
+			defer os.Unsetenv(envVarName)
+
+			cfg := LLMConfig{
+				Provider:  provider,
+				APIKeyEnv: envVarName,
+				Model:     "test-model",
+				BaseURL:   "http://localhost:11434",
+			}
+
+			llmProvider, err := NewLLMProvider(cfg)
+			if err != nil {
+				return false
+			}
+
+			switch provider {
+			case "claude":
+				_, ok := llmProvider.(*ClaudeClient)
+				return ok
+			case "openai":
+				_, ok := llmProvider.(*OpenAIClient)
+				return ok
+			case "ollama":
+				_, ok := llmProvider.(*OllamaClient)
+				return ok
+			}
+			return false
+		},
+		gen.OneConstOf("claude", "openai", "ollama"),
+	))
+
+	properties.TestingRun(t)
 }

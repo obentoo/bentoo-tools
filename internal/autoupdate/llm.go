@@ -1,4 +1,4 @@
-// Package autoupdate provides LLM integration for version extraction.
+// Package autoupdate provides LLM integration for version extraction and schema analysis.
 package autoupdate
 
 import (
@@ -25,22 +25,63 @@ var (
 	ErrLLMRequestFailed = errors.New("LLM API request failed")
 	// ErrLLMEmptyResponse is returned when the LLM returns an empty response
 	ErrLLMEmptyResponse = errors.New("LLM returned empty response")
+	// ErrLLMProviderNotSupported is returned when an LLM provider is not supported
+	ErrLLMProviderNotSupported = errors.New("LLM provider not supported")
 )
+
+// LLMProvider defines the interface for LLM providers.
+// All LLM implementations (Claude, OpenAI, Ollama) must implement this interface.
+type LLMProvider interface {
+	// ExtractVersion extracts a version string from content using the LLM.
+	// The prompt provides additional context for the extraction.
+	ExtractVersion(content []byte, prompt string) (string, error)
+
+	// AnalyzeContent analyzes content and suggests a parser configuration.
+	// It uses ebuild metadata and optional hints to generate a schema analysis.
+	AnalyzeContent(content []byte, meta *EbuildMetadata, hint string) (*SchemaAnalysis, error)
+
+	// GetModel returns the model name being used by this provider.
+	GetModel() string
+}
+
+// SchemaAnalysis represents the LLM's suggested schema for version extraction.
+// It contains the parser configuration and fallback options.
+type SchemaAnalysis struct {
+	// ParserType is the suggested parser type ("json", "regex", "html")
+	ParserType string
+	// Path is the JSON path for JSON parser
+	Path string
+	// Pattern is the regex pattern for regex parser
+	Pattern string
+	// Selector is the CSS selector for HTML parser
+	Selector string
+	// XPath is the XPath expression for HTML parser
+	XPath string
+	// FallbackType is the fallback parser type
+	FallbackType string
+	// FallbackConfig is the fallback configuration (path, pattern, or selector)
+	FallbackConfig string
+	// Confidence is the confidence level (0.0-1.0)
+	Confidence float64
+	// Reasoning is the explanation for the suggested schema
+	Reasoning string
+}
 
 // LLMConfig holds LLM provider configuration.
 // It defines which LLM service to use and how to authenticate.
 type LLMConfig struct {
-	// Provider is the LLM provider name (e.g., "claude")
+	// Provider is the LLM provider name ("claude", "openai", "ollama")
 	Provider string
 	// APIKeyEnv is the environment variable name containing the API key
 	APIKeyEnv string
 	// Model is the specific model to use (e.g., "claude-3-haiku-20240307")
 	Model string
+	// BaseURL is the base URL for the API (used by Ollama)
+	BaseURL string
 }
 
-// LLMClient handles LLM API interactions for version extraction.
-// It supports the Claude API for extracting version information from content.
-type LLMClient struct {
+// ClaudeClient implements LLMProvider for Anthropic's Claude API.
+type ClaudeClient struct {
 	config     LLMConfig
 	httpClient *http.Client
 	apiKey     string
@@ -92,20 +133,26 @@ type claudeErrorResponse struct {
 	} `json:"error"`
 }
 
-// NewLLMClient creates a new LLM client from configuration.
-// It validates the configuration and retrieves the API key from the environment.
-// Returns an error if the provider is not configured or the API key is missing.
-func NewLLMClient(cfg LLMConfig) (*LLMClient, error) {
-	// Check if provider is configured
-	if cfg.Provider == "" {
+// NewLLMProvider creates a new LLM provider based on the configuration.
+// It returns the appropriate provider implementation (Claude, OpenAI, or Ollama).
+func NewLLMProvider(cfg LLMConfig) (LLMProvider, error) {
+	switch cfg.Provider {
+	case "claude":
+		return NewClaudeClient(cfg)
+	case "openai":
+		return NewOpenAIClient(cfg)
+	case "ollama":
+		return NewOllamaClient(cfg)
+	case "":
 		return nil, ErrLLMNotConfigured
-	}
-
-	// Validate provider
-	if cfg.Provider != "claude" {
+	default:
 		return nil, fmt.Errorf("%w: %s", ErrLLMUnsupportedProvider, cfg.Provider)
 	}
+}
 
+// NewClaudeClient creates a new Claude client from configuration.
+// It validates the configuration and retrieves the API key from the environment.
+func NewClaudeClient(cfg LLMConfig) (*ClaudeClient, error) {
 	// Check API key environment variable name
 	if cfg.APIKeyEnv == "" {
 		return nil, fmt.Errorf("%w: api_key_env not specified", ErrLLMNotConfigured)
@@ -123,9 +170,9 @@ func NewLLMClient(cfg LLMConfig) (*LLMClient, error) {
 		model = "claude-3-haiku-20240307"
 	}
 
-	return &LLMClient{
+	return &ClaudeClient{
 		config: LLMConfig{
-			Provider:  cfg.Provider,
+			Provider:  "claude",
 			APIKeyEnv: cfg.APIKeyEnv,
 			Model:     model,
 		},
@@ -136,30 +183,13 @@ func NewLLMClient(cfg LLMConfig) (*LLMClient, error) {
 	}, nil
 }
 
-// NewLLMClientWithHTTPClient creates a new LLM client with a custom HTTP client.
-// This is useful for testing with mock servers.
-func NewLLMClientWithHTTPClient(cfg LLMConfig, httpClient *http.Client) (*LLMClient, error) {
-	client, err := NewLLMClient(cfg)
-	if err != nil {
-		return nil, err
-	}
-	client.httpClient = httpClient
-	return client, nil
+// GetModel returns the model name being used by this Claude client.
+func (c *ClaudeClient) GetModel() string {
+	return c.config.Model
 }
 
-// ExtractVersion uses the LLM to extract a version string from content.
-// It sends the content along with the provided prompt to the LLM and
-// parses the response to extract the version number.
-func (c *LLMClient) ExtractVersion(content []byte, prompt string) (string, error) {
-	if c.config.Provider != "claude" {
-		return "", fmt.Errorf("%w: %s", ErrLLMUnsupportedProvider, c.config.Provider)
-	}
-
-	return c.extractVersionClaude(content, prompt)
-}
-
-// extractVersionClaude extracts version using Claude API
-func (c *LLMClient) extractVersionClaude(content []byte, prompt string) (string, error) {
+// ExtractVersion uses Claude to extract a version string from content.
+func (c *ClaudeClient) ExtractVersion(content []byte, prompt string) (string, error) {
 	// Build the user message with content and prompt
 	userMessage := buildVersionExtractionPrompt(content, prompt)
 
@@ -235,6 +265,83 @@ func (c *LLMClient) extractVersionClaude(content []byte, prompt string) (string,
 	return version, nil
 }
 
+// AnalyzeContent uses Claude to analyze content and suggest a parser configuration.
+func (c *ClaudeClient) AnalyzeContent(content []byte, meta *EbuildMetadata, hint string) (*SchemaAnalysis, error) {
+	// Build the analysis prompt
+	userMessage := buildSchemaAnalysisPrompt(content, meta, hint)
+
+	// Create request body with more tokens for analysis
+	reqBody := claudeRequest{
+		Model:     c.config.Model,
+		MaxTokens: 1000,
+		Messages: []claudeMessage{
+			{
+				Role:    "user",
+				Content: userMessage,
+			},
+		},
+	}
+
+	// Marshal request body
+	reqJSON, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(reqJSON))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set required headers
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", c.apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	// Send request
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrLLMRequestFailed, err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Check for error response
+	if resp.StatusCode != http.StatusOK {
+		var errResp claudeErrorResponse
+		if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error.Message != "" {
+			return nil, fmt.Errorf("%w: %s (status %d)", ErrLLMRequestFailed, errResp.Error.Message, resp.StatusCode)
+		}
+		return nil, fmt.Errorf("%w: status %d", ErrLLMRequestFailed, resp.StatusCode)
+	}
+
+	// Parse response
+	var claudeResp claudeResponse
+	if err := json.Unmarshal(body, &claudeResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Extract text from response
+	text := extractTextFromResponse(claudeResp)
+	if text == "" {
+		return nil, ErrLLMEmptyResponse
+	}
+
+	// Parse the schema analysis from the response
+	return parseSchemaAnalysis(text)
+}
+
+// SetHTTPClient sets a custom HTTP client (useful for testing)
+func (c *ClaudeClient) SetHTTPClient(client *http.Client) {
+	c.httpClient = client
+}
+
 // buildVersionExtractionPrompt creates the prompt for version extraction
 func buildVersionExtractionPrompt(content []byte, userPrompt string) string {
 	// Truncate content if too long (to avoid token limits)
@@ -261,6 +368,100 @@ func buildVersionExtractionPrompt(content []byte, userPrompt string) string {
 	sb.WriteString("Do not include any other text, explanation, or formatting.")
 
 	return sb.String()
+}
+
+// buildSchemaAnalysisPrompt creates the prompt for schema analysis
+func buildSchemaAnalysisPrompt(content []byte, meta *EbuildMetadata, hint string) string {
+	// Truncate content if too long
+	contentStr := string(content)
+	const maxContentLen = 4000
+	if len(contentStr) > maxContentLen {
+		contentStr = contentStr[:maxContentLen] + "\n... (truncated)"
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Analyze the following content and suggest the best way to extract version information.\n\n")
+
+	// Add metadata context if available
+	if meta != nil {
+		sb.WriteString("Package Information:\n")
+		if meta.Package != "" {
+			sb.WriteString(fmt.Sprintf("- Package: %s\n", meta.Package))
+		}
+		if meta.Version != "" {
+			sb.WriteString(fmt.Sprintf("- Current Version: %s\n", meta.Version))
+		}
+		if meta.Homepage != "" {
+			sb.WriteString(fmt.Sprintf("- Homepage: %s\n", meta.Homepage))
+		}
+		sb.WriteString("\n")
+	}
+
+	if hint != "" {
+		sb.WriteString("User Hint: ")
+		sb.WriteString(hint)
+		sb.WriteString("\n\n")
+	}
+
+	sb.WriteString("Content:\n```\n")
+	sb.WriteString(contentStr)
+	sb.WriteString("\n```\n\n")
+
+	sb.WriteString("Respond in JSON format with the following structure:\n")
+	sb.WriteString("{\n")
+	sb.WriteString("  \"parser_type\": \"json\" | \"regex\" | \"html\",\n")
+	sb.WriteString("  \"path\": \"JSON path if parser_type is json\",\n")
+	sb.WriteString("  \"pattern\": \"regex pattern if parser_type is regex\",\n")
+	sb.WriteString("  \"selector\": \"CSS selector if parser_type is html\",\n")
+	sb.WriteString("  \"xpath\": \"XPath expression if parser_type is html (alternative to selector)\",\n")
+	sb.WriteString("  \"fallback_type\": \"fallback parser type\",\n")
+	sb.WriteString("  \"fallback_config\": \"fallback configuration\",\n")
+	sb.WriteString("  \"confidence\": 0.0-1.0,\n")
+	sb.WriteString("  \"reasoning\": \"explanation of the choice\"\n")
+	sb.WriteString("}\n")
+
+	return sb.String()
+}
+
+// parseSchemaAnalysis parses the LLM response into a SchemaAnalysis struct
+func parseSchemaAnalysis(text string) (*SchemaAnalysis, error) {
+	// Try to find JSON in the response
+	start := strings.Index(text, "{")
+	end := strings.LastIndex(text, "}")
+	if start == -1 || end == -1 || end <= start {
+		return nil, fmt.Errorf("no valid JSON found in response")
+	}
+
+	jsonStr := text[start : end+1]
+
+	// Parse the JSON
+	var raw struct {
+		ParserType     string  `json:"parser_type"`
+		Path           string  `json:"path"`
+		Pattern        string  `json:"pattern"`
+		Selector       string  `json:"selector"`
+		XPath          string  `json:"xpath"`
+		FallbackType   string  `json:"fallback_type"`
+		FallbackConfig string  `json:"fallback_config"`
+		Confidence     float64 `json:"confidence"`
+		Reasoning      string  `json:"reasoning"`
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse schema analysis: %w", err)
+	}
+
+	return &SchemaAnalysis{
+		ParserType:     raw.ParserType,
+		Path:           raw.Path,
+		Pattern:        raw.Pattern,
+		Selector:       raw.Selector,
+		XPath:          raw.XPath,
+		FallbackType:   raw.FallbackType,
+		FallbackConfig: raw.FallbackConfig,
+		Confidence:     raw.Confidence,
+		Reasoning:      raw.Reasoning,
+	}, nil
 }
 
 // extractTextFromResponse extracts the text content from Claude's response
@@ -294,14 +495,68 @@ func cleanVersionString(version string) string {
 	return version
 }
 
+// =============================================================================
+// Legacy API compatibility - LLMClient wraps the new provider interface
+// =============================================================================
+
+// LLMClient handles LLM API interactions for version extraction.
+// This is maintained for backward compatibility with existing code.
+type LLMClient struct {
+	provider LLMProvider
+	config   LLMConfig
+}
+
+// NewLLMClient creates a new LLM client from configuration.
+// It validates the configuration and retrieves the API key from the environment.
+// Returns an error if the provider is not configured or the API key is missing.
+func NewLLMClient(cfg LLMConfig) (*LLMClient, error) {
+	// Check if provider is configured
+	if cfg.Provider == "" {
+		return nil, ErrLLMNotConfigured
+	}
+
+	// For backward compatibility, only support claude in the legacy API
+	if cfg.Provider != "claude" {
+		return nil, fmt.Errorf("%w: %s", ErrLLMUnsupportedProvider, cfg.Provider)
+	}
+
+	provider, err := NewClaudeClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LLMClient{
+		provider: provider,
+		config:   cfg,
+	}, nil
+}
+
+// NewLLMClientWithHTTPClient creates a new LLM client with a custom HTTP client.
+// This is useful for testing with mock servers.
+func NewLLMClientWithHTTPClient(cfg LLMConfig, httpClient *http.Client) (*LLMClient, error) {
+	client, err := NewLLMClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if claude, ok := client.provider.(*ClaudeClient); ok {
+		claude.SetHTTPClient(httpClient)
+	}
+	return client, nil
+}
+
+// ExtractVersion uses the LLM to extract a version string from content.
+func (c *LLMClient) ExtractVersion(content []byte, prompt string) (string, error) {
+	return c.provider.ExtractVersion(content, prompt)
+}
+
 // SetHTTPClient sets a custom HTTP client (useful for testing)
 func (c *LLMClient) SetHTTPClient(client *http.Client) {
-	c.httpClient = client
+	if claude, ok := c.provider.(*ClaudeClient); ok {
+		claude.SetHTTPClient(client)
+	}
 }
 
 // SetBaseURL is a no-op for production but allows tests to override the API URL
-// This method exists for API compatibility but the URL is hardcoded for security
 func (c *LLMClient) SetBaseURL(url string) {
 	// No-op in production - URL is hardcoded for security
-	// Tests should use httptest.Server and custom HTTP client
 }
