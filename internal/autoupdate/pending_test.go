@@ -151,7 +151,6 @@ func TestPendingListCompleteness(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // testPendingUpdate is a helper struct for generating test data
 type testPendingUpdate struct {
 	Package        string

@@ -450,7 +450,6 @@ func TestValidateAllInvalid(t *testing.T) {
 	}
 }
 
-
 // TestValidatePackageConfigHTMLMissingSelectorAndXPath tests validation for HTML parser without selector or xpath
 // _Requirements: 4.1, 4.2_
 func TestValidatePackageConfigHTMLMissingSelectorAndXPath(t *testing.T) {
@@ -546,7 +545,6 @@ func TestValidatePackageConfigValidHTMLWithVersionsSelector(t *testing.T) {
 	}
 }
 
-
 // genValidCSSSelector generates valid CSS selector strings
 func genValidCSSSelector() gopter.Gen {
 	return gen.RegexMatch(`^\.[a-z][a-z0-9-]{0,10}$`)
@@ -584,16 +582,16 @@ func genHeaders() gopter.Gen {
 func genPackageConfigHTML() gopter.Gen {
 	return gopter.CombineGens(
 		genValidURL(),
-		gen.Bool(),                // use selector (true) or xpath (false)
-		genValidCSSSelector(),     // selector
-		genValidXPath(),           // xpath
-		gen.Bool(),                // has pattern
-		genValidRegexPattern(),    // pattern
-		gen.Bool(),                // binary
-		gen.Bool(),                // has headers
-		genHeaders(),              // headers
-		gen.Bool(),                // has versions_selector
-		genValidCSSSelector(),     // versions_selector
+		gen.Bool(),             // use selector (true) or xpath (false)
+		genValidCSSSelector(),  // selector
+		genValidXPath(),        // xpath
+		gen.Bool(),             // has pattern
+		genValidRegexPattern(), // pattern
+		gen.Bool(),             // binary
+		gen.Bool(),             // has headers
+		genHeaders(),           // headers
+		gen.Bool(),             // has versions_selector
+		genValidCSSSelector(),  // versions_selector
 	).Map(func(values []interface{}) PackageConfig {
 		cfg := PackageConfig{
 			URL:    values[0].(string),
@@ -626,11 +624,11 @@ func genPackageConfigJSONWithVersionsPath() gopter.Gen {
 	return gopter.CombineGens(
 		genValidURL(),
 		genValidJSONPath(),
-		gen.Bool(),            // binary
-		gen.Bool(),            // has versions_path
-		genValidJSONPath(),    // versions_path
-		gen.Bool(),            // has headers
-		genHeaders(),          // headers
+		gen.Bool(),         // binary
+		gen.Bool(),         // has versions_path
+		genValidJSONPath(), // versions_path
+		gen.Bool(),         // has headers
+		genHeaders(),       // headers
 	).Map(func(values []interface{}) PackageConfig {
 		cfg := PackageConfig{
 			URL:    values[0].(string),

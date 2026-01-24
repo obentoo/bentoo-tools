@@ -50,7 +50,6 @@ func TestHTTPLimitValue(t *testing.T) {
 	}
 }
 
-
 // TestHTTPLimiterPerDomain tests that each domain gets its own limiter
 func TestHTTPLimiterPerDomain(t *testing.T) {
 	rl := NewRateLimiter()
@@ -160,7 +159,6 @@ func TestAllowHTTP(t *testing.T) {
 	}
 }
 
-
 // =============================================================================
 // Property-Based Tests
 // =============================================================================
@@ -200,7 +198,7 @@ func TestLLMRateLimiting(t *testing.T) {
 	properties.Property("Second immediate LLM request is not allowed", prop.ForAll(
 		func(dummy int) bool {
 			rl := NewRateLimiter()
-			_ = rl.AllowLLM() // First request
+			_ = rl.AllowLLM()     // First request
 			return !rl.AllowLLM() // Second should be denied
 		},
 		gen.IntRange(1, 100),
@@ -295,7 +293,6 @@ func TestLLMRateLimiting(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // TestHTTPRateLimiting tests Property 27: HTTP Rate Limiting
 // **Feature: autoupdate-analyzer, Property 27: HTTP Rate Limiting**
 // **Validates: Requirements 11.2**
@@ -341,7 +338,7 @@ func TestHTTPRateLimiting(t *testing.T) {
 	properties.Property("Second immediate HTTP request to same domain is not allowed", prop.ForAll(
 		func(domain string) bool {
 			rl := NewRateLimiter()
-			_ = rl.AllowHTTP(domain) // First request
+			_ = rl.AllowHTTP(domain)     // First request
 			return !rl.AllowHTTP(domain) // Second should be denied
 		},
 		gen.OneConstOf(

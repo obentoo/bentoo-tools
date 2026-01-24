@@ -249,6 +249,7 @@ func isLiveVersion(version string) bool {
 // isPreReleaseVersion checks if a version is a pre-release (alpha, beta, rc)
 func isPreReleaseVersion(version string) bool {
 	// Pre-release versions use suffixes: _alpha, _beta, _rc
+	// Note: _pre and _p are NOT filtered as they represent valid release versions
 	// Examples: 1.0_alpha1, 2.0_beta2, 3.0_rc1
 	return strings.Contains(version, "_alpha") ||
 		strings.Contains(version, "_beta") ||

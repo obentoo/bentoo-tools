@@ -54,7 +54,6 @@ type EbuildMetadata struct {
 	IsBinary bool
 }
 
-
 // Regular expressions for parsing ebuild variables
 var (
 	// homepageRegex matches HOMEPAGE="..." or HOMEPAGE='...'
@@ -80,7 +79,7 @@ var (
 	// nodeDepRegex matches Node.js-related dependencies
 	nodeDepRegex = regexp.MustCompile(`net-libs/nodejs|dev-nodejs/`)
 	// rustDepRegex matches Rust-related dependencies
-	rustDepRegex = regexp.MustCompile(`dev-lang/rust|virtual/rust`)
+	rustDepRegex = regexp.MustCompile(`dev-lang/rust|virtual/rust|dev-rust/`)
 )
 
 // ExtractEbuildMetadata extracts metadata from an ebuild file.
@@ -146,7 +145,6 @@ func ExtractEbuildMetadata(overlayPath, pkg string) (*EbuildMetadata, error) {
 
 	return meta, nil
 }
-
 
 // findEbuilds finds all ebuild files in a package directory
 func findEbuilds(pkgDir string) ([]string, error) {
@@ -282,7 +280,6 @@ func extractMultiLineVar(content []byte, varName string) string {
 	return strings.TrimSpace(result.String())
 }
 
-
 // extractDependencies extracts DEPEND and RDEPEND entries from ebuild content
 func extractDependencies(content []byte) []string {
 	var deps []string
@@ -411,7 +408,6 @@ func detectBinaryPackage(content []byte) bool {
 
 	return false
 }
-
 
 // DetectPackageType determines the package type from metadata.
 // It analyzes HOMEPAGE, SRC_URI, and dependencies to identify the ecosystem.

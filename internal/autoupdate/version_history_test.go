@@ -619,7 +619,6 @@ func TestExtractVersionHistoryNoConfig(t *testing.T) {
 	}
 }
 
-
 // =============================================================================
 // Property-Based Tests - Version History Limit
 // =============================================================================

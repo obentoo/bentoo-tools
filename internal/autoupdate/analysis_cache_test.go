@@ -156,7 +156,6 @@ func TestAnalysisCacheTTL(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // TestCacheBypass tests Property 25: Cache Bypass
 // **Feature: autoupdate-analyzer, Property 25: Cache Bypass**
 // **Validates: Requirements 10.3**

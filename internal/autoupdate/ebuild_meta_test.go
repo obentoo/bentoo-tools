@@ -57,7 +57,6 @@ func genEbuildSrcURI() gopter.Gen {
 	)
 }
 
-
 // =============================================================================
 // Property-Based Tests
 // =============================================================================
@@ -206,7 +205,6 @@ RDEPEND="app-misc/screen"
 
 	properties.TestingRun(t)
 }
-
 
 // =============================================================================
 // Unit Tests - ExtractEbuildMetadata
@@ -364,7 +362,6 @@ SRC_URI="https://example.com/file1.tar.gz
 		t.Error("Expected SRC_URI to be extracted")
 	}
 }
-
 
 // TestLiveEbuildDetection tests Property 6: Live Ebuild Detection
 // **Feature: autoupdate-analyzer, Property 6: Live Ebuild Detection**
@@ -540,7 +537,6 @@ HOMEPAGE="https://example.com"
 		})
 	}
 }
-
 
 // TestBinaryPackageDetection tests Property 7: Binary Package Detection
 // **Feature: autoupdate-analyzer, Property 7: Binary Package Detection**

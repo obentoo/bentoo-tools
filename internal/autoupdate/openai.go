@@ -21,10 +21,10 @@ type OpenAIClient struct {
 
 // openAIRequest represents the request body for OpenAI Chat Completions API
 type openAIRequest struct {
-	Model       string            `json:"model"`
-	Messages    []openAIMessage   `json:"messages"`
-	MaxTokens   int               `json:"max_tokens,omitempty"`
-	Temperature float64           `json:"temperature,omitempty"`
+	Model       string          `json:"model"`
+	Messages    []openAIMessage `json:"messages"`
+	MaxTokens   int             `json:"max_tokens,omitempty"`
+	Temperature float64         `json:"temperature,omitempty"`
 }
 
 // openAIMessage represents a message in the OpenAI conversation

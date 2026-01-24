@@ -58,7 +58,6 @@ var (
 	cratesURLRegex = regexp.MustCompile(`crates\.io/crates/([^/\s"'#?]+)`)
 )
 
-
 // DiscoverDataSources finds candidate URLs for version checking.
 // It analyzes ebuild metadata and returns a prioritized list of data sources.
 // If providedURL is non-empty, it is included as the highest priority source.
@@ -203,7 +202,6 @@ func extractPyPIPackageName(pkg string) string {
 
 	return parts[1]
 }
-
 
 // discoverNPMSource attempts to discover an npm registry API endpoint.
 // It checks HOMEPAGE, SRC_URI, and dependencies for npm indicators.

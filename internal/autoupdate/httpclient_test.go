@@ -596,7 +596,6 @@ func containsError(err, target error) bool {
 				err.Error()[:len(target.Error())] == target.Error())
 }
 
-
 // =============================================================================
 // Property-Based Tests for Header Support
 // =============================================================================
@@ -775,7 +774,6 @@ func TestHeaderStorageAndApplication(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // TestGitHubTokenIntegration tests Property 20: GitHub Token Integration
 // **Feature: autoupdate-analyzer, Property 20: GitHub Token Integration**
 // **Validates: Requirements 8.3**
@@ -908,7 +906,6 @@ func TestGitHubTokenIntegration(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // TestHeaderTemplateSubstitution tests Property 21: Header Template Substitution
 // **Feature: autoupdate-analyzer, Property 21: Header Template Substitution**

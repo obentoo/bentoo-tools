@@ -71,7 +71,6 @@ func WithAnalysisCacheNowFunc(fn func() time.Time) AnalysisCacheOption {
 	}
 }
 
-
 // NewAnalysisCache creates or loads an analysis cache from disk.
 // If the cache file exists, it loads existing entries.
 // If the cache file doesn't exist or is corrupted, it creates a new empty cache.
@@ -256,7 +255,6 @@ func (c *AnalysisCache) Cleanup() error {
 
 	return c.saveUnsafe()
 }
-
 
 // GetWithBypass retrieves a cached schema, optionally bypassing the cache.
 // If bypass is true (--no-cache flag), always returns cache miss.

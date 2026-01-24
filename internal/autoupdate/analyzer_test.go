@@ -1222,8 +1222,8 @@ func TestSchemaPreservation(t *testing.T) {
 
 			// Update the first schema
 			updatedSchema := &PackageConfig{
-				URL:    "https://example.com/updated",
-				Parser: "regex",
+				URL:     "https://example.com/updated",
+				Parser:  "regex",
 				Pattern: `v(\d+\.\d+\.\d+)`,
 			}
 			if err := analyzer.SaveSchema("app-misc/existing-a", updatedSchema); err != nil {
@@ -1341,7 +1341,6 @@ func TestSchemaPreservation(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // TestTOMLFormattingConsistency tests Property 31: TOML Formatting Consistency
 // **Feature: autoupdate-analyzer, Property 31: TOML Formatting Consistency**
@@ -1574,15 +1573,15 @@ func TestTOMLFormattingConsistency(t *testing.T) {
 
 			// Create a complex schema with all fields
 			complexSchema := PackageConfig{
-				URL:              "https://api.github.com/repos/test/test/releases",
-				Parser:           "json",
-				Path:             "[0].tag_name",
-				Binary:           true,
-				FallbackURL:      "https://example.com/fallback",
-				FallbackParser:   "regex",
-				FallbackPattern:  `v(\d+\.\d+\.\d+)`,
-				LLMPrompt:        "Extract version from content",
-				VersionsPath:     "[*].tag_name",
+				URL:             "https://api.github.com/repos/test/test/releases",
+				Parser:          "json",
+				Path:            "[0].tag_name",
+				Binary:          true,
+				FallbackURL:     "https://example.com/fallback",
+				FallbackParser:  "regex",
+				FallbackPattern: `v(\d+\.\d+\.\d+)`,
+				LLMPrompt:       "Extract version from content",
+				VersionsPath:    "[*].tag_name",
 				Headers: map[string]string{
 					"Authorization": "Bearer token",
 					"User-Agent":    "bentoolkit/1.0",

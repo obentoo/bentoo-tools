@@ -111,7 +111,6 @@ func WithPackagesConfig(config *PackagesConfig) CheckerOption {
 	}
 }
 
-
 // NewChecker creates a new checker instance for the given overlay.
 // It loads the packages configuration and initializes cache and pending list.
 func NewChecker(overlayPath string, opts ...CheckerOption) (*Checker, error) {
@@ -313,7 +312,6 @@ func (c *Checker) addToPending(pkg, currentVersion, newVersion string) error {
 	}
 	return c.pending.Add(update)
 }
-
 
 // fetchUpstreamVersion fetches and parses the upstream version for a package.
 // It tries the primary URL/parser first, then fallback if configured, then LLM if available.

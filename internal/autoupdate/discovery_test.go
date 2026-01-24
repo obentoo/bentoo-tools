@@ -96,7 +96,6 @@ func genRustDependency() gopter.Gen {
 	)
 }
 
-
 // =============================================================================
 // Property-Based Tests
 // =============================================================================
@@ -289,7 +288,6 @@ func TestEcosystemDetection(t *testing.T) {
 
 	properties.TestingRun(t)
 }
-
 
 // TestDataSourcePriority tests Property 4: Data Source Priority
 // **Feature: autoupdate-analyzer, Property 4: Data Source Priority**
@@ -726,9 +724,9 @@ func TestDiscoverDataSourcesNoDuplicateHomepage(t *testing.T) {
 // TestDiscoverDataSourcesContentType tests content type detection
 func TestDiscoverDataSourcesContentType(t *testing.T) {
 	testCases := []struct {
-		name        string
-		url         string
-		expected    string
+		name     string
+		url      string
+		expected string
 	}{
 		{"GitHub API", "https://api.github.com/repos/owner/repo/releases", ContentTypeJSON},
 		{"PyPI API", "https://pypi.org/pypi/requests/json", ContentTypeJSON},

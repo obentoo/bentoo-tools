@@ -149,7 +149,6 @@ func TestCheckPackageFiltering(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-
 // TestVersionComparisonTriggersPending tests Property 7: Version Comparison Triggers Pending Update
 // **Feature: ebuild-autoupdate, Property 7: Version Comparison Triggers Pending Update**
 // **Validates: Requirements 4.4, 4.5**
@@ -163,7 +162,7 @@ func TestVersionComparisonTriggersPending(t *testing.T) {
 		func(majorDiff int) bool {
 			// Generate versions where upstream is newer
 			currentMajor := 1
-			upstreamMajor := currentMajor + (majorDiff%5) + 1 // Ensure upstream is always newer
+			upstreamMajor := currentMajor + (majorDiff % 5) + 1 // Ensure upstream is always newer
 
 			currentVersion := genVersionString(currentMajor, 0, 0)
 			upstreamVersion := genVersionString(upstreamMajor, 0, 0)
@@ -362,7 +361,6 @@ func splitPackageName(pkg string) []string {
 	}
 	return nil
 }
-
 
 // =============================================================================
 // Unit Tests

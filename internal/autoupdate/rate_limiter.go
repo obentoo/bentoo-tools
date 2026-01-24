@@ -41,8 +41,8 @@ type Clock interface {
 // realClock implements Clock using actual time functions
 type realClock struct{}
 
-func (realClock) Now() time.Time         { return time.Now() }
-func (realClock) Sleep(d time.Duration)  { time.Sleep(d) }
+func (realClock) Now() time.Time        { return time.Now() }
+func (realClock) Sleep(d time.Duration) { time.Sleep(d) }
 
 // RateLimiterOption configures a RateLimiter
 type RateLimiterOption func(*RateLimiter)

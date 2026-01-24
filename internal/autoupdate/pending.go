@@ -67,7 +67,6 @@ type PendingUpdate struct {
 	Error string `json:"error,omitempty"`
 }
 
-
 // pendingFile represents the JSON structure stored on disk
 type pendingFile struct {
 	Updates map[string]PendingUpdate `json:"updates"`

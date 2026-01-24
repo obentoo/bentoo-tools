@@ -207,7 +207,6 @@ func TestHTMLParserCSSWhitespace(t *testing.T) {
 	}
 }
 
-
 // TestHTMLXPathExtraction tests Property 9: HTML XPath Extraction
 // **Feature: autoupdate-analyzer, Property 9: HTML XPath Extraction**
 // **Validates: Requirements 4.2**
@@ -406,7 +405,6 @@ func TestHTMLParserXPathWhitespace(t *testing.T) {
 	}
 }
 
-
 // TestFirstMatchBehavior tests Property 10: First Match Behavior
 // **Feature: autoupdate-analyzer, Property 10: First Match Behavior**
 // **Validates: Requirements 4.3**
@@ -556,7 +554,6 @@ func TestHTMLParserXPathFirstMatchNested(t *testing.T) {
 		t.Errorf("Expected '1.0.0' (first match), got %q", result)
 	}
 }
-
 
 // TestRegexPostProcessing tests Property 11: Regex Post-Processing
 // **Feature: autoupdate-analyzer, Property 11: Regex Post-Processing**

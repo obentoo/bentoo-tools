@@ -401,9 +401,9 @@ func TestSuggestFallbacksCount(t *testing.T) {
 // TestApplyFallbackToSchema tests applying fallback to schema
 func TestApplyFallbackToSchema(t *testing.T) {
 	tests := []struct {
-		name           string
-		fallbackType   string
-		expectPattern  bool
+		name            string
+		fallbackType    string
+		expectPattern   bool
 		expectLLMPrompt bool
 	}{
 		{"regex fallback", ParserTypeRegex, true, false},
