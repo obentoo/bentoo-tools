@@ -29,39 +29,77 @@ const (
 )
 
 // Options is everything a caller may decide about one rendering. It holds no
-// fact about the run — those all come from the report.
+// fact about the run — those all come from the sections it is rendering.
 //
-// # It is a screen concern, and only the screen modes take one
+// # One field, and the count is the design
 //
-// Every field below describes a terminal: a line budget, a list short enough to
-// scroll past, and a section this terminal has already shown. Plain, Inline and
-// Fullscreen are the modes printed to one, so all three take it — Inline is a
-// screen mode, so a --all it ignored would be a flag that worked in plain and
-// silently did nothing in the default mode (R2.2). An export has none of those
-// questions to answer, so Markdown and JSON take no Options at all — an
-// omission that is the requirement rather than an oversight (R9.3). Giving an
-// export path a parameter of this type would be giving it questions an export
-// must never ask.
+// Width is a line budget measured off the terminal the output is going to, and
+// nothing upstream of a renderer can know it. That is the whole of what a
+// renderer is entitled to decide, so it is the whole of this struct.
+//
+// # What is deliberately NOT here
+//
+// ShowAll and SkipPlan used to sit beside it, and they answer a different
+// question — whether a list is stated or only counted, whether a section is
+// stated at all. Neither is a fact about a device. Both now live on
+// report.SectionOptions, which is what a payload is ASKED when it builds its
+// sections (story 046, sub-task 2.3).
+//
+// The distinction is the one this package exists to hold: SectionOptions is what
+// the report should SAY, Options is what the device ALLOWS. A renderer reading
+// ShowAll would be deciding content, and the same run would then say different
+// things in plain and in fullscreen with nothing in the model able to explain
+// why. Nothing may be added here that a payload could have answered.
+//
+// # An export takes no Options, and that absence is the requirement
+//
+// Markdown and JSON have no width to shorten to and no listing to honour, so
+// neither takes one — an omission that is the requirement rather than an
+// oversight (R9.3). Giving an export path a parameter of this type would be
+// giving it questions an export must never ask.
 type Options struct {
-	// Width is the line budget in display cells: no rendered line exceeds it.
-	// Zero means "ask the device", which is terminalWidth's job, so a caller
-	// that has no opinion does not have to invent one.
-	Width int
-	// ShowAll lists the packages found up to date in the version-check section
-	// instead of only counting them (R8.2). It is the --all flag.
+	// Width is the line budget in display cells: no rendered line exceeds it
+	// (R6.3). Zero means "ask the device", which is terminalWidth's job, so a
+	// caller that has no opinion does not have to invent one.
 	//
-	// False is today's behaviour and prints the count alone (R8.3): the up to
-	// date packages are the bulk of a 269-package overlay and listing them by
-	// default is most of why a check that found four updates prints 348 lines.
-	ShowAll bool
-	// SkipPlan omits the validation-plan section. It exists for exactly one
-	// caller: the on-screen render of a run whose plan was already printed
-	// before the confirmation prompt. An export must never set it — a record
-	// missing the plan answers no question later (R2.4).
-	SkipPlan bool
+	// Read it through cells() rather than directly: the zero is a question, not
+	// an answer.
+	Width int
 }
 
-// Plain renders r as text with no escape sequence in it (R2.1).
+// cells is the line budget this render actually gets: what the caller asked
+// for, or what the device says when the caller had no opinion.
+//
+// # It is a method because the zero value means something
+//
+// "Width == 0 means ask the device" is a rule, and a rule implemented at each
+// call site is a rule each new renderer has to be told. Plain and Inline both
+// spelled it out — four identical lines, twice — and fullscreenModel.frameWidth
+// spelled the tail of it a third time. Putting it on the type that declares the
+// rule in its own doc comment is what makes a fourth renderer inherit it instead
+// of re-deriving it, and a re-derivation that drifted would produce a report
+// laid out at a width nothing asked for.
+//
+// A negative Width is treated as zero rather than rejected: it is the same
+// absence of an opinion, arriving from a caller that computed one badly, and a
+// renderer's job in that case is to lay the report out anyway.
+func (o Options) cells() int {
+	if o.Width > 0 {
+		return o.Width
+	}
+	return terminalWidth()
+}
+
+// Plain renders blocks as text with no escape sequence in it (R2.1, R2.2).
+//
+// # It takes sections, not a report
+//
+// Everything below this line is layout: how wide a column is, where a value is
+// cut, how a heading is underlined. Nothing below this line knows what a
+// package is, what a validation gate is, or which command produced the run —
+// and that is what makes a fourth command a new file rather than an edit to
+// this one. The caller decides WHAT the report says by handing over the
+// sections; this decides only how they LOOK (R2.1).
 //
 // # It is the mode a log file gets
 //
@@ -84,17 +122,13 @@ type Options struct {
 // A report redirected to a full disk is an ordinary failure, not an exotic one,
 // and a renderer that swallowed it would report success for output nobody
 // received. The first failing write is returned, wrapped, and stops the rest.
-func Plain(w io.Writer, r report.Report, opts Options) error {
-	width := opts.Width
-	if width <= 0 {
-		width = terminalWidth()
-	}
-
-	return write(w, sections(r, opts.ShowAll, opts.SkipPlan), plainStyle(width))
+func Plain(w io.Writer, blocks []report.Section, opts Options) error {
+	return write(w, blocks, plainStyle(opts.cells()))
 }
 
-// Markdown renders r as a Markdown document: the same report, in the syntax a
-// pull request comment, an issue and a file in a repository all read (R9).
+// Markdown renders blocks as a Markdown document: the same sections, in the
+// syntax a pull request comment, an issue and a file in a repository all read
+// (R9).
 //
 // # It takes no Options, and that absence IS the requirement
 //
@@ -110,7 +144,7 @@ func Plain(w io.Writer, r report.Report, opts Options) error {
 // terminal dropped answers no question later. If threading a width in here ever
 // starts to look convenient, that is the defect arriving as a convenience.
 //
-// # Every scanned package is listed
+// # Every scanned package is listed, and that is now the CALLER's promise
 //
 // The screen counts the up-to-date packages rather than listing them, because
 // they are the bulk of a 269-package overlay and the reader can re-run with
@@ -118,550 +152,21 @@ func Plain(w io.Writer, r report.Report, opts Options) error {
 // only the interesting packages could not answer "was this one checked at all",
 // which is the question a kept report is kept for.
 //
+// Sections arrive built, so that choice was made before this function was
+// reached — which is the only place it was ever decidable. This function has
+// never been able to add a row it was not handed, and now it cannot be mistaken
+// for the place the decision lives either (R9.3).
+//
 // # It differs from Plain by table syntax and nothing else
 //
-// Both build the same sections and hand them to a style (D8). Nothing about
-// what the report SAYS is decided here — including which rows carry a reason of
-// their own, which sections settles once (R7.2, R7.3). A result whose reason
-// repeats its plan entry prints no second copy in the export either, and that
-// drops a DUPLICATE rather than information: the sentence is still in the
-// document, whole, on the plan row that first stated it.
-func Markdown(w io.Writer, r report.Report) error {
-	return write(w, sections(r, everyScannedPackage, keepThePlan), markdownStyle())
-}
-
-// sections is the whole report as structure: what it says, in order, with every
-// value at full length and not one decision about how it will look.
-//
-// # It is the half Markdown reuses
-//
-// Plain and Markdown differ by table syntax and nothing else (D8), and this is
-// the line that fact is drawn on: everything that decides WHAT a report says
-// lives here, everything that decides how it LOOKS lives in a writer. A second
-// syntax builds the same sections and prints them with pipes; it does not
-// re-derive which packages are up to date, or how a skipped plan entry is
-// labelled, because a second derivation is a second thing to keep in agreement.
-//
-// # Nothing here is shortened
-//
-// Every string a section carries is the model's own, in full. Width is applied
-// by the writer, which is what lets a syntax with no width budget print the
-// whole reason and keeps the model's promise that shortening is a rendering
-// decision rather than a loss of data (R7.4).
-//
-// # Two bools, not an Options
-//
-// listEvery and skipPlan are everything building a section ever needed from a
-// caller, and taking them one at a time is what keeps Options off the export
-// path: there is no Width field here for an export to be handed by accident,
-// and no way to hand this function a screen setting without naming it (R9.3).
-//
-// # The plan is the one section a caller may drop
-//
-// skipPlan omits it, and only it — every other section is built exactly as it
-// would have been, so the option removes a block rather than reshaping a report
-// (R2.3). It is dropped HERE rather than in a writer because a section a report
-// does not state is a fact about WHAT it says: the three screen modes inherit
-// the omission from this one line instead of each deciding it, which is what
-// keeps the heading from appearing twice in one of them (R2.2).
-//
-// # A run that stopped early says so before it says anything else
-//
-// The label is built HERE rather than in a writer, which is what makes plain,
-// Markdown and inline all inherit it from one sentence (R4.3). It is read off
-// Complete and NotEvaluated and nothing else, so no renderer is ever told
-// whether a TUI was involved — an interrupted run is reported in identical
-// words whichever mode was on screen when it was interrupted.
-func sections(r report.Report, listEvery, skipPlan bool) []report.Section {
-	var blocks []report.Section
-	if !r.Complete {
-		blocks = append(blocks, interruptedSection(r))
-	}
-
-	blocks = append(blocks, versionCheckSection(r, listEvery))
-
-	// A run that planned nothing has nothing to say about a plan, its results
-	// or its tally, and says so by omitting all three rather than by stating
-	// each one's emptiness in a sentence of its own (R4.1).
-	//
-	// Reaching this at all is new. Presentation used to sit behind the --llm
-	// gate, so every report that rendered had validated something and an empty
-	// plan half was unreachable; a plain --check now renders, and "No pending
-	// update to validate / No package was evaluated / 0 package(s) evaluated: 0
-	// proved, 0 errored, 0 inconclusive, 0 skipped" is twelve lines telling the
-	// operator that the thing they did not ask for did not happen. That is the
-	// volume story 044 removed, arriving back through the door this one opened.
-	//
-	// The trigger is the PLAN, not the results. A run whose every package was
-	// excluded by policy planned them all and evaluated none, and there the
-	// three sections are exactly what the operator needs — the plan names what
-	// was excluded and why. Keying on len(Results) would silence that run too.
-	if len(r.Plan) == 0 {
-		return blocks
-	}
-
-	if !skipPlan {
-		blocks = append(blocks, validationPlanSection(r))
-	}
-
-	return append(blocks,
-		validationResultsSection(r),
-		validationSummarySection(r),
-	)
-}
-
-// everyScannedPackage is what an export passes sections: list every package the
-// run looked at, instead of counting the ones found up to date.
-//
-// It is a constant rather than a flag read back from the caller. An export never
-// asks what the terminal was told — it lists everything, always (R9.3) — and
-// naming the value keeps the one call site from reading `sections(r, true)`.
-const everyScannedPackage = true
-
-// keepThePlan is the other half of what an export passes sections: state the
-// validation-plan section, whatever the screen was told to do with it (R2.4).
-//
-// It is a constant for everyScannedPackage's reason, and one step further. A
-// report is kept precisely BECAUSE the terminal is gone, so a record missing
-// the plan the terminal had already shown answers no question later — the plan
-// is where a package's reason is stated at all (R7.2), so dropping it from a
-// file would not shorten the record, it would empty it. A named false says
-// that at the call site; a bare false would only say something was off.
-const keepThePlan = false
-
-// ---------------------------------------------------------------- the sections
-
-// interruptedSection is the label R4.3 asks for: a report that stopped before
-// the end of its plan says so, and says how much of the plan it never reached.
-//
-// # It reads two fields, and they are the whole input
-//
-// Complete and NotEvaluated. Nothing here asks which mode was on screen, and
-// nothing here could answer — that absence is the requirement rather than an
-// omission, because the same interrupt has to read the same way in a terminal,
-// in a pull request comment and in a log file. The JSON export needs no part of
-// this: it serializes both fields already, which is the same fact in the form a
-// machine reader can act on.
-//
-// # It goes FIRST, not beside the counts it qualifies
-//
-// Every section under it is short by the packages the run never reached — the
-// results list most of all — so a reader who meets the qualifier only at the
-// bottom has already drawn a conclusion from tables that were missing rows. The
-// fullscreen viewport cuts from the bottom as well (pane.fit), so the top is
-// also the one place the label survives a terminal too short for the report.
-//
-// # The count is stated even when it is zero
-//
-// A run interrupted once its last package had already been evaluated lost
-// nothing, and "0 of 4" is what says so. Suppressing the number there would
-// leave the reader unable to tell that case from the one where the report is
-// silent about how much is missing.
-func interruptedSection(r report.Report) report.Section {
-	return report.Section{
-		Title: "Run Interrupted",
-		Lead: []string{
-			fmt.Sprintf("This report is incomplete: the run was interrupted, and %d of %d planned package(s) were not evaluated.",
-				r.NotEvaluated, len(r.Plan)),
-		},
-		Notes: []string{
-			"The counts below cover only the packages the run reached; the rest are counted in no column.",
-		},
-	}
-}
-
-// versionCheckSection is what the scan found, one row per package (R8.2, R8.3).
-//
-// The rows a run produces depend on listEvery and the counts never do: a
-// package left out of the list is still counted in the note below it, so the
-// short list is a stated omission rather than a silent one (R2.5).
-//
-// listEvery is the screen's --all (R8.2, R8.3) and the export's only setting:
-// an export lists every package it looked at whatever the terminal was asked
-// for (R9.3).
-func versionCheckSection(r report.Report, listEvery bool) report.Section {
-	s := report.Section{Title: "Version Check Results"}
-
-	if len(r.Scanned) == 0 {
-		s.Lead = []string{"No package is configured for autoupdate."}
-		return s
-	}
-
-	found := scanCounts(r.Scanned)
-	s.Lead = []string{fmt.Sprintf("%d package(s) checked, %d with a pending update.", len(r.Scanned), found[conditionUpdate])}
-
-	s.Rows.Headers = []string{"PACKAGE", "TYPE", "CURRENT", "CANDIDATE", "STATE"}
-	for _, scanned := range r.Scanned {
-		if conditionOf(scanned) == conditionUpToDate && !listEvery {
-			// R8.3: counted below, not listed here.
-			continue
-		}
-		state, detail := scanState(scanned)
-		s.Rows.Rows = append(s.Rows.Rows, report.Row{
-			Cells:  []string{scanned.Package, scanned.Type, scanned.CurrentVersion, scanned.CandidateVersion, state},
-			Detail: detail,
-		})
-	}
-
-	if found[conditionUpToDate] > 0 {
-		if listEvery {
-			// R8.2: the list is IN ADDITION TO the count, never instead of it.
-			// A reader who scrolled past the rows still gets the number, and the
-			// two goldens differ in both places rather than only in one.
-			s.Notes = append(s.Notes, fmt.Sprintf("%d package(s) are up to date and are listed above.", found[conditionUpToDate]))
-		} else {
-			s.Notes = append(s.Notes, fmt.Sprintf("%d package(s) are up to date and are not listed; pass --all to list them.", found[conditionUpToDate]))
-		}
-	}
-	for _, stated := range []struct {
-		when condition
-		text string
-	}{
-		{conditionOrphaned, "%d package(s) have no ebuild in the overlay."},
-		{conditionFailed, "%d package(s) could not be checked."},
-		{conditionNotComparable, "%d package(s) reported a version that could not be ordered against the current one."},
-	} {
-		if found[stated.when] > 0 {
-			s.Notes = append(s.Notes, fmt.Sprintf(stated.text, found[stated.when]))
-		}
-	}
-
-	// R5.1: the source/bin tally the check path printed as its closing line,
-	// said INSIDE the section (D5) because it is a count over the very packages
-	// this section is about, taken from the TYPE column already beside every
-	// row. It is appended LAST for the reason the old line was printed last: the
-	// notes above qualify the rows, and this one qualifies the whole scan.
-	//
-	// It is stated whichever way listEvery went, because it is a count and a
-	// count never depends on the listing (R8.3) — the same rule the up-to-date
-	// note above follows, and the reason every golden gains this line.
-	s.Notes = append(s.Notes, tierNote(tierCounts(r.Scanned)))
-
-	return s
-}
-
-// validationPlanSection is the cost of the run, on screen before any of it is
-// spent: which packages, how far each will be taken, and the case for it.
-//
-// Every entry states its reason, shortened by the writer to whatever the line
-// budget allows (R7.1). This is the ONE place the reason of a package whose
-// result merely repeats it is stated at all — validationResultsSection prints no
-// second copy (R7.2) — so a reason dropped here would not be shortened, it would
-// be gone.
-func validationPlanSection(r report.Report) report.Section {
-	s := report.Section{Title: "Validation Plan"}
-
-	if len(r.Plan) == 0 {
-		s.Lead = []string{"No pending update to validate."}
-		return s
-	}
-
-	excluded := 0
-	for _, entry := range r.Plan {
-		if entry.Skipped {
-			excluded++
-		}
-	}
-	lead := fmt.Sprintf("%d package(s) to evaluate", len(r.Plan))
-	if excluded > 0 {
-		lead += fmt.Sprintf(", %d of them excluded by policy", excluded)
-	}
-	s.Lead = []string{lead + "."}
-
-	s.Rows.Headers = []string{"PACKAGE", "BUMP", "CLASS", "DEPTH"}
-	for _, entry := range r.Plan {
-		depth := entry.Depth
-		if entry.Skipped {
-			// A package no gate will run for says so on its own row. An operator
-			// reads a shorter result list as progress unless the plan already
-			// told them it would be shorter.
-			depth += " [not validated]"
-		}
-		s.Rows.Rows = append(s.Rows.Rows, report.Row{
-			Cells:  []string{entry.Package, bump(entry.CurrentVersion, entry.CandidateVersion), entry.Class, depth},
-			Detail: entry.Reason,
-		})
-	}
-
-	return s
-}
-
-// validationResultsSection is what the gates answered, one row per package the
-// run reached.
-//
-// # A reason is printed once
-//
-// A row whose reason repeats its plan entry word for word prints no reason at
-// all: the plan section, a few lines up the same page, already said it (R7.2).
-// That one rule is the largest saving in the whole report — for every skipped
-// package the check path this replaces prints the same ~230 characters twice,
-// once from the plan entry and once from the result, because neither of the two
-// functions doing the printing knows the other ran.
-//
-// A row whose reason DIFFERS is printed, and that half is what keeps the saving
-// from becoming a worse defect (R7.3). A changed reason is new information: the
-// plan asked for a manifest, the host could not produce one, and that sentence
-// appears nowhere else in the report.
-//
-// # The comparison is read here, never made here
-//
-// Whether the two strings match is ValidationRow.SameReasonAsPlan, decided by
-// the run, where both strings are already in hand. Deciding it here would mean
-// finding this row's plan entry and comparing the text a second time — a second
-// derivation of a value the model already carries, which is exactly what R1.3
-// forbids, and one that would disagree with the model the day either side of the
-// comparison changes.
-//
-// # Suppressed while building, not while writing
-//
-// WHICH reason to print is a fact about what the report SAYS, so it is settled
-// here and every syntax inherits it; only how much of a printed reason fits on a
-// line is left to a writer. Nothing is removed from the report itself either
-// way, so an export with no width budget still carries all 230 characters
-// (R7.4).
-func validationResultsSection(r report.Report) report.Section {
-	s := report.Section{Title: "Validation Results"}
-
-	if len(r.Results) == 0 {
-		s.Lead = []string{"No package was evaluated."}
-		return s
-	}
-
-	s.Rows.Headers = []string{"PACKAGE", "CANDIDATE", "DEPTH", "OUTCOME"}
-	for _, result := range r.Results {
-		s.Rows.Rows = append(s.Rows.Rows, report.Row{
-			Cells:  []string{result.Package, result.CandidateVersion, result.Depth, string(result.Outcome)},
-			Detail: resultDetail(result),
-		})
-	}
-
-	return s
-}
-
-// resultDetail is the reason a result row prints: its own, or nothing when the
-// plan already printed that same sentence (R7.2, R7.3).
-//
-// The empty string is how a row says "no reason of my own to add" — the writers
-// already omit an empty detail rather than printing a bare indent, so there is
-// no second rule to keep in agreement.
-func resultDetail(result report.ValidationRow) string {
-	if result.SameReasonAsPlan {
-		return ""
-	}
-	return result.Reason
-}
-
-// validationSummarySection is the last thing a reader sees: the four counts, and
-// the reminder that none of it left this machine.
-//
-// # Four counts, and the fourth is the point
-//
-// The line this replaces reported three — proved, errored, and everything else
-// under "not validated" — so a package the toolkit COULD NOT evaluate was
-// reported in the same column as a package the operator told it to leave alone.
-// That fold lets a defect in the toolkit hide behind the operator's own policy
-// (R5.1): the column grows, and nothing in the output says whose fault it is.
-// Inconclusive and skipped answer that question and must never be added
-// together again.
-//
-// # The denominator is the tally, not the plan
-//
-// Total() counts what actually landed in a column. For a complete run that
-// equals len(Plan) — Reconciles() says so — and for a run stopped part way it is
-// the honest smaller number, which leaves room for the incomplete-run label
-// (Report.Complete, Report.NotEvaluated) to be added without this sentence
-// having to be rewritten to stop lying.
-func validationSummarySection(r report.Report) report.Section {
-	counted := r.Tally
-
-	return report.Section{
-		Title: "Validation Summary",
-		Lead: []string{
-			fmt.Sprintf("%d package(s) evaluated: %d proved, %d errored, %d inconclusive, %d skipped.",
-				counted.Total(), counted.Proved, counted.Errored, counted.Inconclusive, counted.Skipped),
-		},
-		Notes: []string{
-			"Nothing was published: a check writes no ebuild and no version pin.",
-		},
-	}
-}
-
-// ------------------------------------------------------------- scanned facts
-
-// condition is the ONE thing a scan established about a package.
-//
-// PackageResult carries four independent bools and says in prose that they are
-// mutually exclusive by construction, with "all four false" meaning up to date.
-// This type is that prose as a value, decided in one place — because three
-// readers needed it (the row's state word, the count beside it, and the rule
-// that decides whether a row is listed at all), and three copies of the same
-// branch order is three chances for a package to be counted as one thing and
-// labelled as another.
-type condition int
-
-const (
-	// conditionOrphaned: no ebuild in the overlay. It is read FIRST because
-	// when it holds the version fields say nothing, so no later branch may
-	// claim them.
-	conditionOrphaned condition = iota
-	// conditionFailed: the scan could not answer for this package.
-	conditionFailed
-	// conditionNotComparable: upstream answered something that could not be
-	// ordered against the current version. It is read before HasUpdate for the
-	// reason the model carries it separately — a broken parser must never be
-	// read as "up to date".
-	conditionNotComparable
-	// conditionUpdate: upstream is newer.
-	conditionUpdate
-	// conditionUpToDate: the package was read and there was nothing to report.
-	// It is the default rather than a flag, which is exactly how the model
-	// states it.
-	conditionUpToDate
-)
-
-// conditionOf reads the four flags in the model's own order. It is the only
-// place in this package that reads them.
-func conditionOf(result report.PackageResult) condition {
-	switch {
-	case result.Orphaned:
-		return conditionOrphaned
-	case result.Error != "":
-		return conditionFailed
-	case result.NotComparable:
-		return conditionNotComparable
-	case result.HasUpdate:
-		return conditionUpdate
-	default:
-		return conditionUpToDate
-	}
-}
-
-// scanCounts is how many packages each condition applies to. The conditions are
-// mutually exclusive, so the counts sum to the number of packages scanned.
-//
-// It is taken in its own pass rather than inside the loop that builds the rows,
-// because a count must not depend on which rows were listed: listing every
-// package changes the list and may never change the number underneath it
-// (R8.2, R8.3).
-func scanCounts(scanned []report.PackageResult) map[condition]int {
-	found := make(map[condition]int, len(scanned))
-	for _, result := range scanned {
-		found[conditionOf(result)]++
-	}
-	return found
-}
-
-// tierTally is how a scan's packages divided between the two tiers, and how
-// many landed in neither.
-//
-// unresolved is a THIRD number rather than a remainder folded into one of the
-// other two. PackageResult.Type is documented as meaningful when EMPTY —
-// nobody resolved it — so a package that carries no tier has to be counted
-// somewhere that claims nothing about it (R5.1).
-type tierTally struct {
-	// source and bin are the two spellings the producer emits.
-	source int
-	bin    int
-	// unresolved is everything else: the empty Type of a package whose current
-	// ebuild could not be read, and any spelling this renderer does not know.
-	unresolved int
-}
-
-// tierCounts divides the scanned packages between "source", "bin" and neither.
-//
-// # Exactly two spellings are recognised, and nothing is guessed
-//
-// The two literals are the producer's own (Checker.resolveType answers with one
-// of them, and an operator may set either in packages.toml), and this reproduces
-// the check path's tally switch verbatim so the sentence survives that path's
-// deletion unchanged. Anything else — the empty string, or a typo that reached
-// the registry — is counted as unresolved: defaulting it to "source" would make
-// an unreadable ebuild indistinguishable from a source package, which is the one
-// thing the model's doc comment says may not be assumed.
-//
-// # It is its own pass, like scanCounts
-//
-// A count must not depend on which rows were listed (R8.3), and taking it here
-// rather than inside the row loop is what makes that true by construction
-// instead of by a branch nobody may later move.
-func tierCounts(scanned []report.PackageResult) tierTally {
-	var found tierTally
-	for _, result := range scanned {
-		switch result.Type {
-		case "source":
-			found.source++
-		case "bin":
-			found.bin++
-		default:
-			found.unresolved++
-		}
-	}
-	return found
-}
-
-// tierNote is that tally as the sentence the report states (R5.1): the words
-// the check path this report replaces ended on, "Checked N source, M bin".
-//
-// The wording is separated from the counting for the reason scanState is
-// separated from scanCounts: what the report SAYS about a number and how the
-// number was arrived at are two things, and only one of them changes when the
-// sentence is reworded.
-//
-// # The gap is named, never closed
-//
-// When some package resolved to neither tier the two figures do not add up to
-// the count in the lead, and the sentence says so instead of leaving the reader
-// to subtract. It says it WITHOUT naming a tier, which is the whole point:
-// nobody resolved those packages, so putting them in either column — or quietly
-// defaulting them to source, as the producer's own fallback does — would state
-// a fact the scan never established.
-func tierNote(counted tierTally) string {
-	note := fmt.Sprintf("Checked %d source, %d bin", counted.source, counted.bin)
-	if counted.unresolved > 0 {
-		note += fmt.Sprintf("; %d package(s) resolved to neither tier", counted.unresolved)
-	}
-	return note + "."
-}
-
-// scanState names a package's condition for the STATE column and returns the
-// sentence that explains it, where it needs one.
-//
-// Only the words are decided here; which condition applies was decided once, by
-// conditionOf.
-func scanState(result report.PackageResult) (state, detail string) {
-	switch conditionOf(result) {
-	case conditionOrphaned:
-		return "orphaned", "no ebuild in the overlay: the version columns say nothing about this package"
-	case conditionFailed:
-		return "error", result.Error
-	case conditionNotComparable:
-		return "not comparable" + cacheTag(result),
-			fmt.Sprintf("%q could not be ordered against the current %s; check the parser configuration",
-				result.CandidateVersion, result.CurrentVersion)
-	case conditionUpdate:
-		return "update" + cacheTag(result), ""
-	default:
-		return "up to date" + cacheTag(result), ""
-	}
-}
-
-// cacheTag marks an answer that came from cache rather than from upstream, which
-// is why a run may not reflect a bump made minutes ago.
-//
-// It is appended to whichever condition applies instead of being a condition of
-// its own, because FromCache is orthogonal to the four: it qualifies where the
-// answer came from, not what the answer was.
-func cacheTag(result report.PackageResult) string {
-	if result.FromCache {
-		return " (cached)"
-	}
-	return ""
-}
-
-// bump is the two ends of a version change in one cell. Both ends travel
-// together because neither is checkable without the other.
-func bump(from, to string) string {
-	return from + " → " + to
+// Both are handed the same []report.Section and hand it to a style (D8).
+// Nothing about what the report SAYS is decided here — including which rows
+// carry a reason of their own, which the caller settles once (R7.2, R7.3). A
+// result whose reason repeats its plan entry prints no second copy in the export
+// either, and that drops a DUPLICATE rather than information: the sentence is
+// still in the document, whole, on the plan row that first stated it.
+func Markdown(w io.Writer, blocks []report.Section) error {
+	return write(w, blocks, markdownStyle())
 }
 
 // ------------------------------------------------------------------ the styles
@@ -670,8 +175,9 @@ func bump(from, to string) string {
 // sentence is written, how a table is written.
 //
 // It is the ONLY thing separating plain from Markdown (D8). What a report says,
-// in what order, with which rows carrying a reason, is sections' — both styles
-// are handed the same []report.Section and neither may add to it or take from it.
+// in what order, with which rows carrying a reason, was settled by whoever built
+// the sections — both styles are handed the same []report.Section and neither
+// may add to it or take from it.
 //
 // # A width is captured here, or it does not exist
 //

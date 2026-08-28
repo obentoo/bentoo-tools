@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING — the exported JSON document gains a root envelope.** `--export`
+  to a `.json` path used to write the check's view model at the document root.
+  It now writes an envelope, with the model moved down one level, unchanged:
+
+      before: {"scanned": [...], "plan": [...], "tally": {"proved": 4, ...}, "complete": true}
+      after:  {"schema": 2, "kind": "autoupdate.check", "complete": true,
+               "payload": {"scanned": [...], "plan": [...], "tally": {"proved": 4, ...}}}
+
+  Every expression rooted at a model key gains one `.payload` hop:
+
+      jq '.tally.proved'         ->  jq '.payload.tally.proved'
+      jq '.scanned'              ->  jq '.payload.scanned'
+      jq '.plan'                 ->  jq '.payload.plan'
+      jq '.results'              ->  jq '.payload.results'
+      jq '.distfiles_to_fetch'   ->  jq '.payload.distfiles_to_fetch'
+
+  `.complete` and `.not_evaluated` are the only old expressions that keep
+  working: they now exist at both levels and carry the same value. Nothing was
+  renamed and nothing was dropped — the `payload` object is the old root
+  verbatim, so a mechanical migration is `.payload as $p | ...`.
+
+  **Why break it at all, and why `2`.** `kind` is what lets a consumer tell two
+  exported documents apart without being told which command wrote them, and it
+  is what makes every subsequent addition non-breaking: a fourth command adds a
+  `kind` value and changes no existing key. `schema` is `2` rather than `1`
+  because the shape above under "before" is already schema 1 in the field, even
+  though nothing declares it — numbering the new one `1` would make the version
+  indistinguishable from the version that has no version. The envelope
+  marshals and does not read: decoding a payload needs a type switch driven by
+  `kind`, export is write-only today, and a reader belongs with the first use
+  case that needs one.
+
+- **The renderers no longer know what produced a report.** `Plain`, `Markdown`,
+  `Inline` and `Fullscreen` take `[]report.Section`; `JSON` takes the envelope.
+  None of them names a payload type, which is what makes adding a command a new
+  file rather than an edit to shared presentation code. The autoupdate check's
+  own section-building moved onto the model, where it becomes the first
+  implementation of the `Payload` contract.
+
+  `render.Options` is down to one field, `Width`, and that is the whole point of
+  the split: `--all` and "skip the plan already printed" describe **what the
+  report should say** and now travel in `report.SectionOptions`, while width
+  describes **what the device allows**. A renderer that read `--all` would be
+  deciding content.
+
+  **Nothing the check prints changes.** All three modes render byte-for-byte
+  what they rendered before, and the stored golden files are the evidence — not
+  one was regenerated.
+
 ### Added
 - **A report envelope every command can produce, and a section vocabulary every
   renderer can consume.** `overlay autoupdate --check` has been the only command

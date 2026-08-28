@@ -1,0 +1,32 @@
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Version Check Results                                                                            │
+│ ─────────────────────                                                                            │
+│   12 packages scanned                                                                            │
+│                                                                                                  │
+│   package             outcome                                                                    │
+│   app-misc/jq         proved                                                                     │
+│   dev-lang/go         proved                                                                     │
+│   sys-apps/portage    proved                                                                     │
+│   app-editors/zed     proved                                                                     │
+│   media-libs/libjxl   proved                                                                     │
+│   dev-libs/icu        proved                                                                     │
+│   app-shells/fish     proved                                                                     │
+│   net-misc/curl       proved                                                                     │
+│   dev-vcs/git         proved                                                                     │
+│   sys-fs/btrfs-progs  proved                                                                     │
+│   app-arch/zstd       proved                                                                     │
+│   dev-util/pkgdev     proved                                                                     │
+│                                                                                                  │
+│ Validation Plan                                                                                  │
+│ ───────────────                                                                                  │
+│   1 pending update                                                                               │
+│                                                                                                  │
+│   package      depth                                                                             │
+│   app-misc/jq  compile                                                                           │
+│     minor bump earns compile                                                                     │
+│                                                                                                  │
+│ Validation Summary                                                                               │
+│ ──────────────────                                                                               │
+│   1 package evaluated: 1 proved, 0 errored, 0 inconclusive, 0 skipped                            │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+  q/esc quit · ctrl+c interrupt · the whole report prints on exit

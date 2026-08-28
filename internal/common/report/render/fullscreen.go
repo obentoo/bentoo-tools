@@ -65,18 +65,21 @@ var runProgram = func(m tea.Model, opts ...tea.ProgramOption) (tea.Model, error)
 	return tea.NewProgram(m, opts...).Run()
 }
 
-// Fullscreen renders r in an alternate screen and prints the whole report to
-// the scrollback when that screen goes away (R2.3, R4.1, R4.2).
+// Fullscreen renders blocks in an alternate screen and prints the whole report
+// to the scrollback when that screen goes away (R2.3, R2.4, R4.1, R4.2).
 //
-// # The report is captured before the program exists
+// # The report is held HERE, not in the program
 //
-// r is a parameter, and every path below prints THAT value — amended at most by
-// the two fields an interrupt sets, which are derived from r itself. Nothing
-// reads the finished bubbletea model — the blank in `_, err :=` is the design
-// and not an oversight — because a report that lived in the model would be lost
-// by exactly the failure the dump exists to survive: a panic inside View() takes
-// the model with it, and a scrollback dump reading a wrecked model has nothing
-// to print (D7).
+// blocks is a parameter, and every path below prints THAT slice — preceded at
+// most by the one section an interrupt adds. Nothing reads the finished
+// bubbletea model — the blank in `_, err :=` is the design and not an oversight
+// — because a report that lived in the model would be lost by exactly the
+// failure the dump exists to survive: a panic inside View() takes the model with
+// it, and a scrollback dump reading a wrecked model has nothing to print (D7).
+//
+// The dump therefore does not depend on the TUI having run at all. A render that
+// dies before bubbletea starts still owes the operator the report, and it has
+// one, because the sections were finished before this function was called.
 //
 // # Every exit path prints, including the one that crashes
 //
@@ -96,13 +99,14 @@ var runProgram = func(m tea.Model, opts ...tea.ProgramOption) (tea.Model, error)
 // Restoring first is what makes the scrollback receive text and not a screen
 // nobody will ever see again.
 //
-// # An interrupted run is labelled on the way out
+// # An interrupted view is labelled on the way out
 //
-// ctrl+c leaves one bit behind, and this function turns it into the two fields
-// R4.3 is about — Complete and NotEvaluated — on its own copy of r. The label
-// itself is a renderer's sentence, built from those two fields alone, so no
-// renderer is told a TUI was involved and an interrupt reads the same here as
-// it would in inline or plain.
+// ctrl+c leaves one bit behind, and this function turns it into one extra
+// section at the top of the dump (R4.3). It says only what a renderer is in a
+// position to know — the report was interrupted before it was read out — and
+// deliberately states no count: how many units a run never reached is a fact
+// about the RUN, and it belongs to whoever built these sections. See
+// interruptNotice below.
 //
 // # It takes no io.Writer, for Inline's reason
 //
@@ -110,7 +114,7 @@ var runProgram = func(m tea.Model, opts ...tea.ProgramOption) (tea.Model, error)
 // whose alternate screen was taken over, and the dump belongs in the
 // scrollback that screen was hiding. A test that wants to read the output
 // captures the descriptor.
-func Fullscreen(r report.Report, opts Options) error {
+func Fullscreen(blocks []report.Section, opts Options) error {
 	defer func() {
 		rec := recover()
 		if rec == nil {
@@ -123,7 +127,10 @@ func Fullscreen(r report.Report, opts Options) error {
 		// flight carrying the cause worth reporting, there is no return value
 		// left to put a second error in, and a failure to print is not a reason
 		// to stop propagating the first failure.
-		_ = Plain(os.Stdout, r, opts)
+		//
+		// The blocks go out unlabelled, because a panic is not an interrupt:
+		// nothing has set the bit below.
+		_ = Plain(os.Stdout, blocks, opts)
 
 		panic(rec)
 	}()
@@ -134,29 +141,55 @@ func Fullscreen(r report.Report, opts Options) error {
 	// copy of a value model, and reading the returned model back is the
 	// dependency this design exists to refuse.
 	//
-	// It is consumed below, after the program has returned. Both terms of what
-	// it produces are computable from r alone, so the deferred branch above
-	// still has a whole report to print no matter when the panic lands.
+	// It is consumed below, after the program has returned. What it produces is
+	// one constant section, so the deferred branch above still has a whole
+	// report to print no matter when the panic lands.
 	interrupted := new(atomic.Bool)
 
-	_, err := runProgram(newInterruptibleModel(r, opts, interrupted), tea.WithAltScreen())
+	_, err := runProgram(newInterruptibleModel(blocks, opts, interrupted), tea.WithAltScreen())
 
-	// The label is applied to this function's own COPY of r — the parameter is
-	// a value — so a report is not edited by having been looked at.
+	// The label is prepended to a NEW slice, never appended into the caller's:
+	// a renderer that wrote through the sections it was handed would be editing
+	// a report by having displayed it, and the same slice goes to the export a
+	// few lines later in cmd/bentoo.
 	//
-	// The screen showed it unlabelled, and that is correct: the interrupt had
-	// not happened when those sections were built. The dump is the artefact
+	// The screen showed the report unlabelled, and that is correct: the
+	// interrupt had not happened while it was up. The dump is the artefact
 	// somebody keeps, pastes and reads later, and it is the one that has to
 	// admit it is partial (R4.3).
+	dump := blocks
 	if interrupted.Load() {
-		r.Complete = false
-		// The floor guards a malformed report — more results than planned
-		// packages — from printing a negative count, which would be a second
-		// wrong answer stacked on the first.
-		r.NotEvaluated = max(len(r.Plan)-len(r.Results), 0)
+		dump = append([]report.Section{interruptNotice}, blocks...)
 	}
 
-	return errors.Join(err, Plain(os.Stdout, r, opts))
+	return errors.Join(err, Plain(os.Stdout, dump, opts))
+}
+
+// interruptNotice is the section ctrl+c adds to the dump (R4.3).
+//
+// # A renderer states this one, and only this one
+//
+// Every other section is the caller's, built from what the run found. This one
+// is not: nobody but this function knows the alternate screen was left through
+// ctrl+c rather than through q, and a report that reads as complete when it was
+// cut short is a wrong answer rather than a short one.
+//
+// # It carries no count, and the absence is deliberate
+//
+// The sentence this replaces named how many planned units the run never reached.
+// That number is a fact about the RUN — it is read off the report's own plan and
+// results — and a renderer that computed one would have to be handed the run to
+// do it, which is the coupling story 046 removes. Whoever builds the sections
+// states the count, in its own vocabulary, in its own leading section; this
+// states only what happened at the terminal.
+var interruptNotice = report.Section{
+	Title: "Run Interrupted",
+	Lead: []string{
+		"This report is incomplete: the run was interrupted before its report was read out.",
+	},
+	Notes: []string{
+		"The sections below cover only what the run had reached; anything it never got to is counted in no column.",
+	},
 }
 
 // restoreTerminal puts the alternate screen away and the cursor back (R4.4).
@@ -169,19 +202,19 @@ func restoreTerminal(w io.Writer) {
 	_, _ = io.WriteString(w, termenv.CSI+termenv.ExitAltScreenSeq+termenv.CSI+termenv.ShowCursorSeq)
 }
 
-// newModel builds the alternate-screen model for r.
+// newModel builds the alternate-screen model for blocks.
 //
-// It is the constructor for a run that has nobody to report an interrupt TO —
-// a test driving Update directly, for one. Fullscreen uses the variant below,
+// It is the constructor for a render that has nobody to report an interrupt TO
+// — a test driving Update directly, for one. Fullscreen uses the variant below,
 // which threads its own signal in.
-func newModel(r report.Report, opts Options) tea.Model {
-	return newInterruptibleModel(r, opts, new(atomic.Bool))
+func newModel(blocks []report.Section, opts Options) tea.Model {
+	return newInterruptibleModel(blocks, opts, new(atomic.Bool))
 }
 
 // newInterruptibleModel is newModel with the caller's interrupt bit attached.
-func newInterruptibleModel(r report.Report, opts Options, interrupted *atomic.Bool) tea.Model {
+func newInterruptibleModel(blocks []report.Section, opts Options, interrupted *atomic.Bool) tea.Model {
 	return fullscreenModel{
-		blocks:      sections(r, opts.ShowAll, opts.SkipPlan),
+		blocks:      blocks,
 		askedWidth:  opts.Width,
 		paint:       inlinePaint(),
 		interrupted: interrupted,
@@ -190,13 +223,14 @@ func newInterruptibleModel(r report.Report, opts Options, interrupted *atomic.Bo
 
 // fullscreenModel is the report as a bubbletea model.
 //
-// # It holds the SECTIONS, not the report
+// # It holds the SECTIONS, and now so does everything above it
 //
 // "The report is never read from the model" is a rule someone has to keep, and
-// a model holding a report.Report is a model somebody can read one out of. It
-// holds the built sections instead, so the rule is a fact about the type rather
-// than a discipline about the code — Fullscreen's own r stays the single
-// source of truth for the dump because there is no second copy to reach for.
+// a model holding a payload is a model somebody can read one out of. It holds
+// the sections it was handed, so the rule is a fact about the type rather than a
+// discipline about the code — and since sub-task 2.3 the same is true one level
+// up: Fullscreen never held a report either, so there is no second copy of
+// anything to reach for.
 //
 // # What the fields are not
 //
@@ -204,14 +238,15 @@ func newInterruptibleModel(r report.Report, opts Options, interrupted *atomic.Bo
 // here, which is what lets a value model — copied on every Update — still tell
 // its owner that ctrl+c happened.
 type fullscreenModel struct {
-	// blocks is the report as structure, built once: the identical []report.Section
-	// plain, Markdown and inline are written from, which is what makes R2.4
-	// ("the same content in every mode") hold by construction here too.
+	// blocks is the report as structure: the identical []report.Section plain,
+	// Markdown and inline are written from — the same slice value, handed to
+	// every mode by one caller — which is what makes R2.4 ("the same content in
+	// every mode") hold by construction here too.
 	blocks []report.Section
 	// askedWidth is opts.Width, kept alone rather than the whole Options.
-	// ShowAll was already spent building blocks above, so keeping the struct
-	// would leave a second, stale copy of a question that has been answered —
-	// and give a later frame something to answer it differently with.
+	// Width is the only field Options has, and unpacking it here says what the
+	// model actually consults: a frame is laid out at a width, and nothing else
+	// about the caller's request survives into a redraw.
 	askedWidth int
 	// paint is built once rather than per frame: inlinePaint constructs a
 	// lipgloss renderer, and a TUI redraws far too often to pay for that on
@@ -289,17 +324,17 @@ func (m fullscreenModel) View() string {
 }
 
 // frameWidth is how wide the frame may be: what the terminal reported, else
-// what the caller asked for, else what the device says — the same three-source
-// order terminalWidth already establishes, with the live resize in front
-// because it is the only one that can change while the program is running.
+// what the caller asked for, else what the device says.
+//
+// The live resize goes in front because it is the only one of the three that
+// can change while the program is running. The other two are Options.cells's
+// question, asked through Options.cells so that "0 means ask the device" is
+// answered in one place for every mode (D8) rather than a third time here.
 func (m fullscreenModel) frameWidth() int {
 	if m.width > 0 {
 		return m.width
 	}
-	if m.askedWidth > 0 {
-		return m.askedWidth
-	}
-	return terminalWidth()
+	return Options{Width: m.askedWidth}.cells()
 }
 
 // rowBudget is how many rows of report the frame can hold, or 0 for "as many as

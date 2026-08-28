@@ -294,7 +294,7 @@ func (p validationPlan) building() int {
 // This is what printValidationPlan used to be. It has lost the three-line
 // block per package — the padded package line, the class line and the whole
 // 230-character reason — because the plan's PRESENTATION is now a section of
-// the report (render's validationPlanSection), rendered once when the run is
+// the report (validationPlanSection, below), rendered once when the run is
 // over, aligned to columns measured from the packages this run actually
 // produced. Printing the reasons here as well would put the same sentence on
 // screen twice in one run, which is the defect R7.2 exists to remove.
@@ -451,7 +451,7 @@ func confirmValidationRun(plan validationPlan) bool {
 //
 // The second value is whether the plan has already been printed — whether the
 // pre-confirmation printValidationPrice below ran. It travels back so the caller
-// can set render.Options.SkipPlan and not show the operator the same plan again
+// can set report.SectionOptions.SkipPlan and not show the operator the same plan again
 // under a second heading (S045-R2.3). It is true on every path that got past
 // that print, INCLUDING the ones that then gave up: a declined confirmation saw
 // the plan, and a false here would redraw it for the operator who has just read
@@ -644,10 +644,10 @@ func runValidationCheck(plan validationPlan, run func(validationPlanEntry) valid
 // # The `--list` hint is printed from here, and that placement IS the decision
 //
 // S045-R5.2's hint names a bentoo subcommand. The section that lists the very
-// updates it is about — render.versionCheckSection — lives in
-// internal/common/report/render, a general-purpose renderer that no binary's
-// command names belong inside: put the sentence there and every future caller
-// of that renderer prints this command's advice. So the section lists what is
+// updates it is about — versionCheckSection — builds a report.Section, which
+// internal/common/report/render prints for every command in the toolkit: put
+// the sentence in the section and every future report carries this one
+// command's advice. So the section lists what is
 // pending and this function says what to do about it (S045-D5).
 //
 // S045-R1.4 permits it, because a hint is none of the four things that rule
@@ -700,19 +700,23 @@ func presentCheckReport(r report.Report, planPrinted bool) {
 		// wording is load-bearing in both directions: it is what an operator
 		// already greps for, and it is deliberately NOT the report's own lead
 		// for this case ("No package is configured for autoupdate.",
-		// render.versionCheckSection), which the paragraph above explains this
+		// versionCheckSection below), which the paragraph above explains this
 		// path must never reach.
 		logger.Info("No packages configured for autoupdate")
 	} else {
-		// Width is left at zero: "ask the device" (render.Options). A number
-		// typed here would be a hard-coded field width in the one path R6.3
-		// binds.
+		// Two questions, and keeping them apart is the whole of story 046's
+		// Task 2. What the report should SAY — list every up-to-date package,
+		// state the plan — is report.SectionOptions, answered here from the
+		// flags. What the DEVICE allows is render.Options, and its Width is
+		// left at zero: "ask the device". A number typed here would be a
+		// hard-coded field width in the one path R6.3 binds.
 		//
 		// SkipPlan omits the report's own plan section on a run whose price
 		// was already printed to ask the confirmation question: the operator
 		// has just read that list, and drawing it again under a second heading
 		// is the duplication S045-R2.3 removes.
-		opts := render.Options{ShowAll: autoupdateAll, SkipPlan: planPrinted}
+		content := report.SectionOptions{ShowAll: autoupdateAll, SkipPlan: planPrinted}
+		device := render.Options{}
 
 		mode, err := resolveAutoupdateUIMode(autoupdateUIConfig)
 		if err != nil {
@@ -720,7 +724,11 @@ func presentCheckReport(r report.Report, planPrinted bool) {
 			mode = report.ModePlain
 		}
 
-		if err := renderCheckReportIn(mode, r, opts); err != nil {
+		// The sections are built ONCE, here, and every mode below is handed the
+		// same slice — which is what makes "the three modes differ in
+		// presentation and not in content" a fact about the call rather than a
+		// promise about three renderers (R2.1).
+		if err := renderCheckReportIn(mode, r.Sections(content), device); err != nil {
 			logger.Warn("the report could not be rendered: %v", err)
 		}
 
@@ -786,6 +794,31 @@ func presentCheckReport(r report.Report, planPrinted bool) {
 		// run counted as successful.
 		logger.Warn("%v", err)
 	}
+}
+
+// exportContent is what an EXPORT asks the report to say (R9.3, R2.4).
+//
+// # It is a caller's decision, which is why it is in cmd and not in the model
+//
+// report.Report.Sections ANSWERS these two questions; nothing in the model gets
+// to choose them. Whether a record lists every scanned package or counts them,
+// and whether it states the plan, is a property of the artefact being produced
+// — and this command is what knows it is producing a file rather than a screen.
+//
+// # It is built here rather than in overlay_autoupdate_ui.go, where the export lives
+//
+// Constructing a report.SectionOptions means writing down the field that omits
+// the plan, and a source-text guard over that file forbids the name there —
+// precisely so an export can never acquire one. The value is keepThePlan,
+// declared beside the export it belongs to: a record missing the plan answers no
+// question later, because the plan is where a package's reason is stated at all
+// (R7.2).
+//
+// listEvery is the one content decision an export still makes, and the two
+// export formats disagree about it today; the named constants at each call site
+// say which is which.
+func exportContent(listEvery bool) report.SectionOptions {
+	return report.SectionOptions{ShowAll: listEvery, SkipPlan: keepThePlan}
 }
 
 // scanDisabledOrphans counts the packages this run auto-disabled: an entry
@@ -909,7 +942,7 @@ func skipReason(result validate.EbuildResult, entry validationPlanEntry) string 
 	return "no reason reported: neither the gates, the depth nor the plan stated one"
 }
 
-// The tally that used to be printed here is render's validationSummarySection,
+// The tally that used to be printed here is validationSummarySection,
 // and it now has FOUR counts rather than three: the old "not validated" column
 // held both the packages policy excluded and the packages the toolkit could not
 // evaluate, so a defect in the toolkit was reported in the same number as the

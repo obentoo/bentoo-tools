@@ -21,7 +21,7 @@ import (
 // THEIRS. A hex value would override a themed terminal to impose ours.
 const dimColor = "8"
 
-// Inline renders r into the terminal's scrollback, styled (R2.2).
+// Inline renders blocks into the terminal's scrollback, styled (R2.2).
 //
 // # It is Plain plus escape sequences, and nothing else
 //
@@ -31,6 +31,20 @@ const dimColor = "8"
 // only decorates a line that is already laid out. R2.4 says the modes may
 // differ in presentation and not in content; here that is not a rule to keep
 // but a thing that cannot be broken without deleting the seam.
+//
+// # It takes sections, not a report
+//
+// Everything in this file is layout and decoration: which line is bold, which
+// recedes, and at what width the columns are measured. Nothing here knows what
+// a package is, what a validation gate is, or which command produced the run.
+// The caller decides WHAT the report says by handing over the sections; this
+// decides only how they LOOK (R2.1) — and that is what makes a fourth command a
+// new file rather than an edit to this one.
+//
+// Plain was taken off the report in sub-task 2.1 and this is the same change
+// for the first of the two terminal modes. It cost the paint below nothing,
+// which is the point: a title and a rule are what get decorated, and neither is
+// a fact about the run.
 //
 // # It takes no io.Writer, and that absence is the design
 //
@@ -53,13 +67,8 @@ const dimColor = "8"
 // Collapsing the two would mean the final report could only exist if the live
 // UI had run, which is exactly what an export must not depend on. So nothing
 // here implements that interface, accepts a tea.Msg, or starts a program.
-func Inline(r report.Report, opts Options) error {
-	width := opts.Width
-	if width <= 0 {
-		width = terminalWidth()
-	}
-
-	if err := write(os.Stdout, sections(r, opts.ShowAll, opts.SkipPlan), textStyle(width, inlinePaint())); err != nil {
+func Inline(blocks []report.Section, opts Options) error {
+	if err := write(os.Stdout, blocks, textStyle(opts.cells(), inlinePaint())); err != nil {
 		return fmt.Errorf("rendering the inline report: %w", err)
 	}
 	return nil

@@ -610,7 +610,7 @@ func renderCheckReport(t *testing.T, mode report.Mode) string {
 			_ = w.Close()
 			os.Stdout = original
 		}()
-		return renderCheckReportIn(mode, exportFixture(), render.Options{Width: 100})
+		return renderCheckReportIn(mode, exportFixture().Sections(report.SectionOptions{}), render.Options{Width: 100})
 	}()
 
 	out := <-captured

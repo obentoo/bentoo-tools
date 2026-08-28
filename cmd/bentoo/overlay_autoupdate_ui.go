@@ -407,13 +407,94 @@ func writeExport(path string, r report.Report) error {
 func renderExport(w io.Writer, r report.Report, format exportFormat) error {
 	switch format {
 	case exportMarkdown:
-		return render.Markdown(w, r)
+		return render.Markdown(w, r.Sections(exportContent(everyScannedPackage)))
 	case exportJSON:
-		return render.JSON(w, r)
+		return render.JSON(w, checkRun(r))
 	default:
-		return render.Plain(w, r, render.Options{Width: unshortenedWidth})
+		return render.Plain(w, r.Sections(exportContent(countTheUpToDate)), render.Options{Width: unshortenedWidth})
 	}
 }
+
+// checkRun wraps the check's report in the envelope every exported document
+// carries: the schema version, the kind of run that produced it, and the two
+// facts about whether the run reached the end of its plan (R4.1).
+//
+// # It is here, and only for now
+//
+// Sub-task 3.2 moves this construction into buildReport, so the whole check
+// path carries one run from the moment it is assembled instead of a report the
+// export wraps on its way out. A wrap at the single call site is the smaller
+// change today, and it leaves that move a relocation rather than a redesign.
+//
+// # Complete and NotEvaluated are copied, never restated
+//
+// The envelope's copy is what a machine reader acts on (R4.2), and the report's
+// is what the renderers read. Writing a literal here instead of copying would
+// be a second place for an interrupted run to be described as a finished one,
+// and the two halves of the document would then disagree about the same run.
+//
+// # The title is a fixed label, like the kind
+//
+// It says which command produced the document in a reader's own words, and it
+// is derived from nothing the run established — a title that varied with the
+// contents would be prose, and report.Run.Title is documented as a label rather
+// than something to match on. kind is what a consumer discriminates with.
+func checkRun(r report.Report) report.Run {
+	return report.Run{
+		Schema:       report.SchemaVersion,
+		Kind:         report.KindAutoupdateCheck,
+		Title:        "Autoupdate check",
+		Complete:     r.Complete,
+		NotEvaluated: r.NotEvaluated,
+		Payload:      r,
+	}
+}
+
+// The three values an export asks for when it builds its sections. They are
+// constants rather than fields read back from a caller: an export never asks
+// what the terminal was told, so there is nothing here for a screen setting to
+// arrive through (R9.3, R2.4).
+//
+// They are named rather than written as bare literals because
+// `r.Sections(report.SectionOptions{true, false})` says only that something was
+// on and something else was off. exportContent lives in
+// overlay_autoupdate_check.go, beside the screen's own options, because building
+// a report.SectionOptions means writing down the field that omits the plan — and
+// a source-text guard over this file forbids that name here, precisely so an
+// export can never acquire one. These three constants are already what
+// report.Payload.Sections is asked, so sub-task 3.1's rename leaves them
+// untouched.
+const (
+	// everyScannedPackage lists every package the run looked at, instead of
+	// counting the ones found up to date. It is what the MARKDOWN export asks
+	// for: a record is kept precisely because the terminal is gone, and one
+	// that named only the interesting packages could not answer "was this one
+	// checked at all".
+	everyScannedPackage = true
+
+	// countTheUpToDate is the opposite, and it is what the PLAIN export asks
+	// for today: the up-to-date packages counted rather than listed.
+	//
+	// It disagrees with everyScannedPackage above, and the disagreement is
+	// pre-existing rather than introduced here. render.Plain used to build its
+	// own sections from the render.Options it was handed, and the literal this
+	// path builds carries ShowAll false — so this constant is that behaviour
+	// written down, byte for byte, now that the sections are built by the
+	// caller. Whether R9.3 should make the two exports agree is a question this
+	// sub-task deliberately does not answer.
+	countTheUpToDate = false
+
+	// keepThePlan states the validation-plan section, whatever the screen was
+	// told to do with it (R2.4).
+	//
+	// A report is kept precisely BECAUSE the terminal is gone, so a record
+	// missing the plan the terminal had already shown answers no question later
+	// — the plan is where a package's reason is stated at all (R7.2), so
+	// dropping it from a file would not shorten the record, it would empty it.
+	// A named false says that at the call site; a bare false would only say
+	// something was off.
+	keepThePlan = false
+)
 
 // renderCheckReportIn writes the report to the terminal through the renderer
 // the resolved mode names (R2, R2.4).
@@ -428,11 +509,14 @@ func renderExport(w io.Writer, r report.Report, format exportFormat) error {
 // compare what came out — measured at the command, which is where the defect
 // this story removes actually lived.
 //
-// # Every mode receives the SAME report and the SAME Options
+// # Every mode receives the SAME sections and the SAME Options
 //
-// Both are parameters and neither is touched here. A mode that filtered its own
-// report, or quietly widened its own budget, would be the R2.4 failure arriving
-// as a helpful special case; there is no branch here that could hold one.
+// Both are parameters and neither is touched here — and the first is now a
+// finished []report.Section rather than a report each branch converts for
+// itself, so "the modes differ in presentation and not in content" is settled
+// before this function is entered. A mode that filtered its own report, or
+// quietly widened its own budget, would be the R2.4 failure arriving as a
+// helpful special case; there is no branch here that could hold one.
 //
 // # Plain is the default, not a case
 //
@@ -450,16 +534,19 @@ func renderExport(w io.Writer, r report.Report, format exportFormat) error {
 // three modes write to a single place. Reading os.Stdout here rather than
 // capturing it in a variable is what lets a test swap the descriptor and see
 // what an operator would have seen.
-func renderCheckReportIn(mode report.Mode, r report.Report, opts render.Options) error {
+func renderCheckReportIn(mode report.Mode, blocks []report.Section, opts render.Options) error {
 	var err error
 
+	// All three renderers take sections rather than a report (story 046, Task
+	// 2), and the caller built them once. Nothing below knows what a package is,
+	// so a mode cannot decide to say something the others do not.
 	switch mode {
 	case report.ModeInline:
-		err = render.Inline(r, opts)
+		err = render.Inline(blocks, opts)
 	case report.ModeFullscreen:
-		err = render.Fullscreen(r, opts)
+		err = render.Fullscreen(blocks, opts)
 	default:
-		err = render.Plain(os.Stdout, r, opts)
+		err = render.Plain(os.Stdout, blocks, opts)
 	}
 
 	if err != nil {
