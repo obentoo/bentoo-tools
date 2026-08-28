@@ -172,8 +172,8 @@ func Markdown(w io.Writer, r report.Report) error {
 // Complete and NotEvaluated and nothing else, so no renderer is ever told
 // whether a TUI was involved — an interrupted run is reported in identical
 // words whichever mode was on screen when it was interrupted.
-func sections(r report.Report, listEvery, skipPlan bool) []section {
-	var blocks []section
+func sections(r report.Report, listEvery, skipPlan bool) []report.Section {
+	var blocks []report.Section
 	if !r.Complete {
 		blocks = append(blocks, interruptedSection(r))
 	}
@@ -229,43 +229,6 @@ const everyScannedPackage = true
 // that at the call site; a bare false would only say something was off.
 const keepThePlan = false
 
-// section is one titled block of a report: a heading, the sentences that frame
-// it, the rows themselves, and the sentences that qualify them.
-type section struct {
-	// title names the block. It is the only string a writer may decorate.
-	title string
-	// lead is what is said before the rows — the counts that tell a reader what
-	// they are about to look at.
-	lead []string
-	// rows is the block's table. A section with no rows prints its lead alone,
-	// which is how "nothing to validate" is said without an empty frame.
-	rows table
-	// notes is what is said after the rows: what was left out and why, and what
-	// the run did not do. R2.5 lives here — an omitted row is stated, never
-	// silent.
-	notes []string
-}
-
-// table is a header and its rows, in the order they will print.
-type table struct {
-	headers []string
-	rows    []row
-}
-
-// row is one record: its cells, and the explanation that belongs to it.
-type row struct {
-	cells []string
-	// detail is the row's reason, IN FULL. A writer with a width budget cuts its
-	// own copy; a writer without one prints all of it.
-	//
-	// Empty means this row has nothing of its own to add, which is a decision
-	// about content and not a sign that the report held no reason: a result whose
-	// reason repeats its plan entry leaves this empty so the sentence is printed
-	// once (R7.2), while the report itself still carries the whole string (R7.4).
-	// Every writer omits an empty detail rather than printing a bare indent.
-	detail string
-}
-
 // ---------------------------------------------------------------- the sections
 
 // interruptedSection is the label R4.3 asks for: a report that stopped before
@@ -294,14 +257,14 @@ type row struct {
 // nothing, and "0 of 4" is what says so. Suppressing the number there would
 // leave the reader unable to tell that case from the one where the report is
 // silent about how much is missing.
-func interruptedSection(r report.Report) section {
-	return section{
-		title: "Run Interrupted",
-		lead: []string{
+func interruptedSection(r report.Report) report.Section {
+	return report.Section{
+		Title: "Run Interrupted",
+		Lead: []string{
 			fmt.Sprintf("This report is incomplete: the run was interrupted, and %d of %d planned package(s) were not evaluated.",
 				r.NotEvaluated, len(r.Plan)),
 		},
-		notes: []string{
+		Notes: []string{
 			"The counts below cover only the packages the run reached; the rest are counted in no column.",
 		},
 	}
@@ -316,27 +279,27 @@ func interruptedSection(r report.Report) section {
 // listEvery is the screen's --all (R8.2, R8.3) and the export's only setting:
 // an export lists every package it looked at whatever the terminal was asked
 // for (R9.3).
-func versionCheckSection(r report.Report, listEvery bool) section {
-	s := section{title: "Version Check Results"}
+func versionCheckSection(r report.Report, listEvery bool) report.Section {
+	s := report.Section{Title: "Version Check Results"}
 
 	if len(r.Scanned) == 0 {
-		s.lead = []string{"No package is configured for autoupdate."}
+		s.Lead = []string{"No package is configured for autoupdate."}
 		return s
 	}
 
 	found := scanCounts(r.Scanned)
-	s.lead = []string{fmt.Sprintf("%d package(s) checked, %d with a pending update.", len(r.Scanned), found[conditionUpdate])}
+	s.Lead = []string{fmt.Sprintf("%d package(s) checked, %d with a pending update.", len(r.Scanned), found[conditionUpdate])}
 
-	s.rows.headers = []string{"PACKAGE", "TYPE", "CURRENT", "CANDIDATE", "STATE"}
+	s.Rows.Headers = []string{"PACKAGE", "TYPE", "CURRENT", "CANDIDATE", "STATE"}
 	for _, scanned := range r.Scanned {
 		if conditionOf(scanned) == conditionUpToDate && !listEvery {
 			// R8.3: counted below, not listed here.
 			continue
 		}
 		state, detail := scanState(scanned)
-		s.rows.rows = append(s.rows.rows, row{
-			cells:  []string{scanned.Package, scanned.Type, scanned.CurrentVersion, scanned.CandidateVersion, state},
-			detail: detail,
+		s.Rows.Rows = append(s.Rows.Rows, report.Row{
+			Cells:  []string{scanned.Package, scanned.Type, scanned.CurrentVersion, scanned.CandidateVersion, state},
+			Detail: detail,
 		})
 	}
 
@@ -345,9 +308,9 @@ func versionCheckSection(r report.Report, listEvery bool) section {
 			// R8.2: the list is IN ADDITION TO the count, never instead of it.
 			// A reader who scrolled past the rows still gets the number, and the
 			// two goldens differ in both places rather than only in one.
-			s.notes = append(s.notes, fmt.Sprintf("%d package(s) are up to date and are listed above.", found[conditionUpToDate]))
+			s.Notes = append(s.Notes, fmt.Sprintf("%d package(s) are up to date and are listed above.", found[conditionUpToDate]))
 		} else {
-			s.notes = append(s.notes, fmt.Sprintf("%d package(s) are up to date and are not listed; pass --all to list them.", found[conditionUpToDate]))
+			s.Notes = append(s.Notes, fmt.Sprintf("%d package(s) are up to date and are not listed; pass --all to list them.", found[conditionUpToDate]))
 		}
 	}
 	for _, stated := range []struct {
@@ -359,7 +322,7 @@ func versionCheckSection(r report.Report, listEvery bool) section {
 		{conditionNotComparable, "%d package(s) reported a version that could not be ordered against the current one."},
 	} {
 		if found[stated.when] > 0 {
-			s.notes = append(s.notes, fmt.Sprintf(stated.text, found[stated.when]))
+			s.Notes = append(s.Notes, fmt.Sprintf(stated.text, found[stated.when]))
 		}
 	}
 
@@ -372,7 +335,7 @@ func versionCheckSection(r report.Report, listEvery bool) section {
 	// It is stated whichever way listEvery went, because it is a count and a
 	// count never depends on the listing (R8.3) — the same rule the up-to-date
 	// note above follows, and the reason every golden gains this line.
-	s.notes = append(s.notes, tierNote(tierCounts(r.Scanned)))
+	s.Notes = append(s.Notes, tierNote(tierCounts(r.Scanned)))
 
 	return s
 }
@@ -385,11 +348,11 @@ func versionCheckSection(r report.Report, listEvery bool) section {
 // result merely repeats it is stated at all — validationResultsSection prints no
 // second copy (R7.2) — so a reason dropped here would not be shortened, it would
 // be gone.
-func validationPlanSection(r report.Report) section {
-	s := section{title: "Validation Plan"}
+func validationPlanSection(r report.Report) report.Section {
+	s := report.Section{Title: "Validation Plan"}
 
 	if len(r.Plan) == 0 {
-		s.lead = []string{"No pending update to validate."}
+		s.Lead = []string{"No pending update to validate."}
 		return s
 	}
 
@@ -403,9 +366,9 @@ func validationPlanSection(r report.Report) section {
 	if excluded > 0 {
 		lead += fmt.Sprintf(", %d of them excluded by policy", excluded)
 	}
-	s.lead = []string{lead + "."}
+	s.Lead = []string{lead + "."}
 
-	s.rows.headers = []string{"PACKAGE", "BUMP", "CLASS", "DEPTH"}
+	s.Rows.Headers = []string{"PACKAGE", "BUMP", "CLASS", "DEPTH"}
 	for _, entry := range r.Plan {
 		depth := entry.Depth
 		if entry.Skipped {
@@ -414,9 +377,9 @@ func validationPlanSection(r report.Report) section {
 			// told them it would be shorter.
 			depth += " [not validated]"
 		}
-		s.rows.rows = append(s.rows.rows, row{
-			cells:  []string{entry.Package, bump(entry.CurrentVersion, entry.CandidateVersion), entry.Class, depth},
-			detail: entry.Reason,
+		s.Rows.Rows = append(s.Rows.Rows, report.Row{
+			Cells:  []string{entry.Package, bump(entry.CurrentVersion, entry.CandidateVersion), entry.Class, depth},
+			Detail: entry.Reason,
 		})
 	}
 
@@ -456,19 +419,19 @@ func validationPlanSection(r report.Report) section {
 // line is left to a writer. Nothing is removed from the report itself either
 // way, so an export with no width budget still carries all 230 characters
 // (R7.4).
-func validationResultsSection(r report.Report) section {
-	s := section{title: "Validation Results"}
+func validationResultsSection(r report.Report) report.Section {
+	s := report.Section{Title: "Validation Results"}
 
 	if len(r.Results) == 0 {
-		s.lead = []string{"No package was evaluated."}
+		s.Lead = []string{"No package was evaluated."}
 		return s
 	}
 
-	s.rows.headers = []string{"PACKAGE", "CANDIDATE", "DEPTH", "OUTCOME"}
+	s.Rows.Headers = []string{"PACKAGE", "CANDIDATE", "DEPTH", "OUTCOME"}
 	for _, result := range r.Results {
-		s.rows.rows = append(s.rows.rows, row{
-			cells:  []string{result.Package, result.CandidateVersion, result.Depth, string(result.Outcome)},
-			detail: resultDetail(result),
+		s.Rows.Rows = append(s.Rows.Rows, report.Row{
+			Cells:  []string{result.Package, result.CandidateVersion, result.Depth, string(result.Outcome)},
+			Detail: resultDetail(result),
 		})
 	}
 
@@ -508,16 +471,16 @@ func resultDetail(result report.ValidationRow) string {
 // the honest smaller number, which leaves room for the incomplete-run label
 // (Report.Complete, Report.NotEvaluated) to be added without this sentence
 // having to be rewritten to stop lying.
-func validationSummarySection(r report.Report) section {
+func validationSummarySection(r report.Report) report.Section {
 	counted := r.Tally
 
-	return section{
-		title: "Validation Summary",
-		lead: []string{
+	return report.Section{
+		Title: "Validation Summary",
+		Lead: []string{
 			fmt.Sprintf("%d package(s) evaluated: %d proved, %d errored, %d inconclusive, %d skipped.",
 				counted.Total(), counted.Proved, counted.Errored, counted.Inconclusive, counted.Skipped),
 		},
-		notes: []string{
+		Notes: []string{
 			"Nothing was published: a check writes no ebuild and no version pin.",
 		},
 	}
@@ -708,7 +671,7 @@ func bump(from, to string) string {
 //
 // It is the ONLY thing separating plain from Markdown (D8). What a report says,
 // in what order, with which rows carrying a reason, is sections' — both styles
-// are handed the same []section and neither may add to it or take from it.
+// are handed the same []report.Section and neither may add to it or take from it.
 //
 // # A width is captured here, or it does not exist
 //
@@ -724,7 +687,7 @@ type style struct {
 	// table writes the section's rows, header included. Where a row's detail
 	// goes is this function's problem: the two syntaxes place it differently
 	// and neither placement is a fact about the run.
-	table func(out *lineWriter, t table)
+	table func(out *lineWriter, t report.Table)
 }
 
 // paint is the decoration half of the terminal syntax: which escape sequences a
@@ -778,7 +741,7 @@ func textStyle(width int, p paint) style {
 	return style{
 		heading: func(out *lineWriter, title string) { writePlainHeading(out, title, width, p) },
 		prose:   func(out *lineWriter, text string) { writeProse(out, text, width) },
-		table:   func(out *lineWriter, t table) { writePlainTable(out, t, width, p) },
+		table:   func(out *lineWriter, t report.Table) { writePlainTable(out, t, width, p) },
 	}
 }
 
@@ -807,7 +770,7 @@ func markdownStyle() style {
 // The blank line between two sections is here rather than in a style because it
 // is the same line in both: one empty line separates a section from the next, in
 // a terminal and in a document alike.
-func write(w io.Writer, blocks []section, st style) error {
+func write(w io.Writer, blocks []report.Section, st style) error {
 	out := &lineWriter{w: w}
 	for i, s := range blocks {
 		if i > 0 {
@@ -826,23 +789,23 @@ func write(w io.Writer, blocks []section, st style) error {
 // blank lines are shared too: a table is preceded by one only when a lead was
 // printed above it, and notes always are, so the shape of a section survives the
 // change of syntax.
-func writeSection(out *lineWriter, s section, st style) {
-	st.heading(out, s.title)
+func writeSection(out *lineWriter, s report.Section, st style) {
+	st.heading(out, s.Title)
 
-	for _, lead := range s.lead {
+	for _, lead := range s.Lead {
 		st.prose(out, lead)
 	}
 
-	if len(s.rows.rows) > 0 {
-		if len(s.lead) > 0 {
+	if len(s.Rows.Rows) > 0 {
+		if len(s.Lead) > 0 {
 			out.line("")
 		}
-		st.table(out, s.rows)
+		st.table(out, s.Rows)
 	}
 
-	if len(s.notes) > 0 {
+	if len(s.Notes) > 0 {
 		out.line("")
-		for _, note := range s.notes {
+		for _, note := range s.Notes {
 			st.prose(out, note)
 		}
 	}
@@ -870,18 +833,18 @@ func writePlainHeading(out *lineWriter, title string, width int, p paint) {
 // package has to re-find the column instead of following it down. The cut is
 // marked (R6.4) and the model still holds the whole string, so a syntax with no
 // width budget prints all of it (R7.4).
-func writePlainTable(out *lineWriter, t table, width int, p paint) {
+func writePlainTable(out *lineWriter, t report.Table, width int, p paint) {
 	widths := plainColumnWidths(t, width)
 
-	out.line(decorate(p.header, plainRow(t.headers, widths)))
-	for _, r := range t.rows {
-		out.line(plainRow(r.cells, widths))
+	out.line(decorate(p.header, plainRow(t.Headers, widths)))
+	for _, r := range t.Rows {
+		out.line(plainRow(r.Cells, widths))
 
 		// The emptiness is tested AFTER shortening, not before: a budget too
 		// narrow to hold even the ellipsis leaves nothing to print, and printing
 		// the indent anyway would put a line of pure whitespace in a log and in
 		// every golden file.
-		if detail := shorten(r.detail, width-detailIndent); detail != "" {
+		if detail := shorten(r.Detail, width-detailIndent); detail != "" {
 			out.line(decorate(p.detail, strings.Repeat(" ", detailIndent)+detail))
 		}
 	}
@@ -897,8 +860,8 @@ func writePlainTable(out *lineWriter, t table, width int, p paint) {
 // that was never in danger, and the version is the value a reader can least
 // afford to receive half of. One cell per pass is O(overflow) on a table with a
 // handful of columns, and it stops the moment the row fits.
-func plainColumnWidths(t table, width int) []int {
-	widths := make([]int, columnCount(t))
+func plainColumnWidths(t report.Table, width int) []int {
+	widths := make([]int, t.Columns())
 	for column := range widths {
 		widths[column] = columnWidth(columnValues(t, column))
 	}
@@ -938,28 +901,17 @@ func rowWidth(widths []int) int {
 	return total
 }
 
-// columnCount is how many columns the table has, taken over the header AND every
-// row rather than from the header alone, so a row carrying an extra cell is
-// printed rather than silently dropped.
-func columnCount(t table) int {
-	count := len(t.headers)
-	for _, r := range t.rows {
-		count = max(count, len(r.cells))
-	}
-	return count
-}
-
 // columnValues is every string one column will print, header included: the
 // header is part of the column and a width that ignored it would cut "CANDIDATE"
 // down to fit the versions below it.
-func columnValues(t table, column int) []string {
-	values := make([]string, 0, len(t.rows)+1)
-	if column < len(t.headers) {
-		values = append(values, t.headers[column])
+func columnValues(t report.Table, column int) []string {
+	values := make([]string, 0, len(t.Rows)+1)
+	if column < len(t.Headers) {
+		values = append(values, t.Headers[column])
 	}
-	for _, r := range t.rows {
-		if column < len(r.cells) {
-			values = append(values, r.cells[column])
+	for _, r := range t.Rows {
+		if column < len(r.Cells) {
+			values = append(values, r.Cells[column])
 		}
 	}
 	return values
@@ -1108,11 +1060,12 @@ func writeMarkdownProse(out *lineWriter, text string) {
 // holds its value in full, including the ~230-character reason the terminal
 // shows sixty cells of.
 //
-// # The column count is the plain writer's
+// # The column count is the model's, not this writer's
 //
-// columnCount reads the header AND every row, so a row carrying an extra cell
-// is printed rather than silently dropped, and the two syntaxes cannot disagree
-// about how many columns a table has.
+// report.Table.Columns reads the header AND every row, so a row carrying an
+// extra cell is printed rather than silently dropped. Asking the table itself
+// is what makes it impossible for the two syntaxes to disagree about how many
+// columns a table has: there is one answer, and neither writer computes it.
 //
 // # Each row is COPIED into a slice of its own
 //
@@ -1120,12 +1073,12 @@ func writeMarkdownProse(out *lineWriter, text string) {
 // and appending the reason cell onto one of those slices could write into the
 // backing array the section still holds — a renderer quietly editing the report
 // it was given. Copying costs one allocation per row and cannot.
-func writeMarkdownTable(out *lineWriter, t table) {
-	columns := columnCount(t)
+func writeMarkdownTable(out *lineWriter, t report.Table) {
+	columns := t.Columns()
 	withDetail := hasDetail(t)
 
 	headers := make([]string, columns, columns+1)
-	copy(headers, t.headers)
+	copy(headers, t.Headers)
 	if withDetail {
 		headers = append(headers, detailHeader)
 	}
@@ -1133,11 +1086,11 @@ func writeMarkdownTable(out *lineWriter, t table) {
 	out.line(markdownRow(headers))
 	out.line(markdownSeparator(len(headers)))
 
-	for _, r := range t.rows {
+	for _, r := range t.Rows {
 		cells := make([]string, columns, columns+1)
-		copy(cells, r.cells)
+		copy(cells, r.Cells)
 		if withDetail {
-			cells = append(cells, r.detail)
+			cells = append(cells, r.Detail)
 		}
 		out.line(markdownRow(cells))
 	}
@@ -1149,9 +1102,9 @@ func writeMarkdownTable(out *lineWriter, t table) {
 // plain writer follows when it omits an empty detail rather than printing a
 // bare indent. A column nothing fills is an empty cell on every row, and a
 // header promising an explanation that never comes.
-func hasDetail(t table) bool {
-	for _, r := range t.rows {
-		if r.detail != "" {
+func hasDetail(t report.Table) bool {
+	for _, r := range t.Rows {
+		if r.Detail != "" {
 			return true
 		}
 	}

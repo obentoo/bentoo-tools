@@ -204,10 +204,10 @@ func newInterruptibleModel(r report.Report, opts Options, interrupted *atomic.Bo
 // here, which is what lets a value model — copied on every Update — still tell
 // its owner that ctrl+c happened.
 type fullscreenModel struct {
-	// blocks is the report as structure, built once: the identical []section
+	// blocks is the report as structure, built once: the identical []report.Section
 	// plain, Markdown and inline are written from, which is what makes R2.4
 	// ("the same content in every mode") hold by construction here too.
-	blocks []section
+	blocks []report.Section
 	// askedWidth is opts.Width, kept alone rather than the whole Options.
 	// ShowAll was already spent building blocks above, so keeping the struct
 	// would leave a second, stale copy of a question that has been answered —
@@ -428,9 +428,9 @@ func (p pane) sectionsBelow(shown int) int {
 // Going through write rather than reimplementing the layout is what keeps this
 // mode from becoming a fourth answer to how a heading, a column or a note is
 // written (D8).
-func sectionLines(s section, st style) []string {
+func sectionLines(s report.Section, st style) []string {
 	var buf bytes.Buffer
-	if err := write(&buf, []section{s}, st); err != nil {
+	if err := write(&buf, []report.Section{s}, st); err != nil {
 		// bytes.Buffer never fails a write, so this cannot happen — and a View
 		// may not return an error anyway. Putting the failure on the screen
 		// beats discarding it and rendering an empty section that looks like a

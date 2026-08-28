@@ -16,6 +16,27 @@
 // this run found" as a value, and nothing could be rendered twice, exported,
 // counted or tested without running the command again.
 //
+// # A Section is structure, and structure is not presentation (D2)
+//
+// Section, Table and Row live here, and at first that looks like the rule above
+// being broken. It is not, and the distinction is worth stating because a later
+// reader will ask.
+//
+// R1.2 forbids the model from holding PRESENTATION: escape sequences, column
+// widths, padding, borders, terminal dimensions. A Section holds none of those.
+// It holds STRUCTURE — this block is called X, it says these sentences, it has
+// these rows, it notes these omissions (R7.1). How wide a column is, whether a
+// title is bold, what a border looks like: all still decided in
+// internal/common/report/render, from its own Options.Width and its own
+// lipgloss.Width measurement, neither of which has a field to land in here.
+//
+// The alternative preserves the letter of the rule and loses its purpose. If
+// Section stayed in render, then render would need a translator per payload, so
+// it would import every domain's types and every new kind of run would edit it
+// — the very thing R7.4 forbids. The rule exists to keep presentation out of
+// the model; keeping Section in render would instead pull every model into
+// presentation.
+//
 // # It does not depend on the producer
 //
 // The facts originate in internal/autoupdate and internal/autoupdate/validate,

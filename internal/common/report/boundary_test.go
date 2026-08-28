@@ -43,7 +43,45 @@ const (
 // GREEN ON ARRIVAL by design: this test cannot fail on the day the package is
 // written, because the package has no reason to import lipgloss yet. It is a
 // guard, not evidence. What proves it works is mutation — add a forbidden
-// import, watch it fail, revert (see .draft/red-evidence.yaml).
+// import, watch it fail, revert.
+//
+// # The mutation, written out rather than pointed at
+//
+// What follows is that mutation as it was actually run. It is written here,
+// in the repository, because the story artifacts this package was developed
+// against are not committed: a note saying "see .draft/red-evidence.yaml"
+// names a file nobody who cloned this can open, and evidence a reader cannot
+// reach is the same as no evidence (story 046, R8.3).
+//
+// Measured on 2026-08-28. Each rule was mutated on its own, because the two
+// carry separate remedies and one shared message is exactly the instrument bug
+// worth catching. Both times the import was added to model.go with a
+// package-level `var _` so the package still compiled, the run below was made,
+// and model.go was then restored byte for byte and the restore verified by
+// checksum.
+//
+//	$ go test ./internal/common/report/ -run TestPackageImportsNoPresentation -v
+//
+// presentation (R1.2), via `import "github.com/charmbracelet/lipgloss"`:
+//
+//	boundary_test.go:117: model.go imports "github.com/charmbracelet/lipgloss", which crosses the presentation (R1.2) rule.
+//	    internal/common/report describes WHAT a run found; it does not know how a run looks. Move the formatting to internal/common/report/render, which is the package that may import this.
+//
+// dependency direction (D2), via `import "github.com/obentoo/bentoolkit/internal/autoupdate"`:
+//
+//	boundary_test.go:117: model.go imports "github.com/obentoo/bentoolkit/internal/autoupdate", which crosses the dependency direction (D2) rule.
+//	    <directionRemedy, printed in full — the const declared above>
+//
+// The second remedy is named instead of pasted for the reason a paste would
+// exist at all: it is a const in this file, and a second copy of it here is the
+// copy that goes stale. What the run establishes is that the message CARRIED
+// its remedy, which is the half R7.3 asks for beyond naming the import — and
+// that the two rules produced different remedies rather than a shared one.
+//
+// Quoting the forbidden paths above does not trip the sweep, and cannot: it
+// reads the parsed import declarations, never the file's text, so a path in a
+// comment is invisible to it. That is also why the evidence can live here at
+// all, next to the rule it is evidence for.
 //
 // Why a test and not a comment: internal/common/tui states the identical rule
 // in a comment, and the check path grew four hard-coded widths anyway.

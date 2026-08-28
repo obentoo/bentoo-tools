@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A report envelope every command can produce, and a section vocabulary every
+  renderer can consume.** `overlay autoupdate --check` has been the only command
+  that ends by telling you what it did; the reason was structural rather than an
+  oversight. Its view model described *a check* — packages, versions, validation
+  outcomes — so a second command could not reuse it without either inheriting
+  vocabulary it has no answer for or forcing the renderers to learn a second
+  shape. `report.Run` splits that in two: an envelope carrying what is true of
+  any batch (`schema`, `kind`, `title`, `complete`, `not_evaluated`) and a
+  `Payload` carrying the domain half, which says itself as ordered blocks through
+  `Sections(SectionOptions) []Section`. `kind` is the discriminator — the reason
+  a consumer will be able to tell two exported documents apart without being told
+  which command wrote them.
+- **`report.Section`, `report.Table` and `report.Row` — structure, in the model.**
+  They were unexported types inside the renderer, which meant the renderer was
+  the only thing that could describe a block of a report. Keeping them there
+  would have required a translator per producer *inside* the renderer, so every
+  new command would edit presentation code — the opposite of what the split is
+  for. They hold no width, no colour and no escape sequence; how wide a column is
+  drawn is still measured in `render` from `lipgloss.Width`, and a second guard
+  test now fails the build if a field named for presentation appears in the model
+  at all, naming the type and the field. Both guards carry the mutation that was
+  observed to make them fail, quoted in the test file rather than referenced
+  elsewhere.
+
+  **Nothing a command prints changes in this entry.** The envelope exists and is
+  not yet emitted; `--export` still writes the shape it wrote before. The commits
+  that move the renderers and the check onto it say so where they land.
+
 ## [0.28.2] - 2026-08-27
 
 ### Changed
