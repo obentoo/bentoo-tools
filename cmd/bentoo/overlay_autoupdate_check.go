@@ -145,7 +145,7 @@ type validationPlan struct {
 // report.Classify through buildReport rather than by a switch here. The
 // invariant it protected is unchanged and is now checkable rather than merely
 // intended: each planned package lands in exactly one column, and
-// report.Report.Reconciles reports whether the columns sum to the plan (R5.5).
+// report.AutoupdateCheck.Reconciles reports whether the columns sum to the plan (R5.5).
 // A package counted twice, or in two columns, is worse than no tally at all —
 // it turns the one number anybody remembers into a number nobody can reconcile
 // with the list above it.
@@ -342,7 +342,7 @@ func printValidationPrice(plan validationPlan) {
 	// The two numbers an operator actually decides on. The first appears
 	// nowhere else on screen, and it is the one that decides the answer on a
 	// metered connection; it travels into the report as well
-	// (report.Report.DistfilesToFetch) so the export carries it too.
+	// (report.AutoupdateCheck.DistfilesToFetch) so the export carries it too.
 	output.Info.Printf("  Distfiles: up to %d to fetch — one per package validated above depth none; anything already in DISTDIR is not fetched again.\n",
 		plan.DistfilesToFetch)
 	output.Info.Printf("  Depth distribution (of %d package(s)): %s\n", len(plan.Entries), depthDistributionLine(plan))
@@ -439,9 +439,9 @@ func confirmValidationRun(plan validationPlan) bool {
 //
 // # It returns the validation half; it does not draw it
 //
-// What comes back is the report buildReport assembles from the plan and the
-// results — the half of the run only this function sees. Scanned is left nil in
-// it deliberately, and that nil is not harmless: a report rendered with it
+// What comes back is the run buildReport assembles from the plan and the
+// results — the half of it only this function sees. Scanned is left nil in its
+// payload deliberately, and that nil is not harmless: a report rendered with it
 // exports `"scanned": null` and draws an empty version-check section. So it is a
 // half that MUST be joined before anything is displayed, and it is joined by
 // runCheck, the one place in the command that holds both the scan that ran and
@@ -471,8 +471,8 @@ func confirmValidationRun(plan validationPlan) bool {
 // too — not by saying so, but because the only path to the render ran through
 // it, which is what made --ui, --all and --export silent no-ops on a run without
 // --llm (S045-R3.1, S045-R3.2, S045-R3.3). It still means "do not validate", and
-// it says so by yielding the zero report and "nothing printed": there is no half
-// to contribute, so the caller draws the scan it already holds.
+// it says so by yielding nothingValidated's run and "nothing printed": there is
+// no half to contribute, so the caller draws the scan it already holds.
 //
 // # It publishes nothing, and the guarantee is structural
 //
@@ -480,21 +480,21 @@ func confirmValidationRun(plan validationPlan) bool {
 // setVersionsForCheck, is never called — from here or from anywhere. The applier
 // built below runs Validate and never Apply: promotion, the version pin and the
 // `--clean` sweep all live in Apply, which this path does not reach.
-func runPendingValidation(ctx context.Context, overlayPath, configDir string, checked []autoupdate.CheckResult, llmCfg config.LLMConfig) (report.Report, bool) {
+func runPendingValidation(ctx context.Context, overlayPath, configDir string, checked []autoupdate.CheckResult, llmCfg config.LLMConfig) (report.Run, bool) {
 	if !autoupdateLLM {
-		return report.Report{}, false
+		return nothingValidated(), false
 	}
 
 	pending, err := autoupdate.NewPendingList(configDir)
 	if err != nil {
 		logger.Warn("could not read the pending list, so nothing was validated: %v", err)
-		return report.Report{}, false
+		return nothingValidated(), false
 	}
 	updates := pending.List()
 	if len(updates) == 0 {
 		// Silence is right for an empty plan: printing "0 packages to evaluate"
 		// after a check that found nothing is a line about nothing.
-		return report.Report{}, false
+		return nothingValidated(), false
 	}
 
 	// The RESOLVED tier from the check that just ran, not a guess from the
@@ -522,7 +522,7 @@ func runPendingValidation(ctx context.Context, overlayPath, configDir string, ch
 		// screen either way, though, which is what the second value reports: the
 		// operator has just read it and answered no, and a false here would ask
 		// the caller to draw it to them a second time.
-		return report.Report{}, true
+		return nothingValidated(), true
 	}
 
 	opts := []autoupdate.ApplierOption{
@@ -541,7 +541,7 @@ func runPendingValidation(ctx context.Context, overlayPath, configDir string, ch
 		logger.Warn("could not initialize the validator, so nothing was validated: %v", err)
 		// Printed, for the same reason the declined answer above is: the price
 		// reached the screen before this failed, so the caller must not repeat it.
-		return report.Report{}, true
+		return nothingValidated(), true
 	}
 
 	//nolint:contextcheck // ctx is propagated into every spawned child through
@@ -588,7 +588,7 @@ func runPendingValidation(ctx context.Context, overlayPath, configDir string, ch
 // cannot disagree (R1.3).
 //
 // It publishes nothing, on every path — see setVersionsForCheck.
-func runValidationCheck(plan validationPlan, run func(validationPlanEntry) validate.EbuildResult) report.Report {
+func runValidationCheck(plan validationPlan, run func(validationPlanEntry) validate.EbuildResult) report.Run {
 	if !plan.Printed {
 		printValidationPrice(plan)
 		fmt.Println()
@@ -669,6 +669,15 @@ func runValidationCheck(plan validationPlan, run func(validationPlanEntry) valid
 // gives Markdown and JSON no Options at all and builds the plain export its own
 // — so a plan skipped here is still stated in full in the file (S045-R2.4).
 //
+// # The run arrives BUILT, and that is R1.3
+//
+// What comes in is the whole run — the envelope naming its kind and stating how
+// far down its plan it got, around the payload holding what it found — assembled
+// by the adapter before this function is entered. So the screen and the file are
+// two renderings of ONE value rather than two wraps that could disagree about
+// whether the run finished, and "the report is complete before any part of it is
+// rendered" is a property of the call rather than of what happens next.
+//
 // # A run that scanned nothing reaches the file, and not the screen
 //
 // The one report this function does NOT draw is the empty one, and the reason
@@ -684,7 +693,13 @@ func runValidationCheck(plan validationPlan, run func(validationPlanEntry) valid
 // carve-out (S045-R3.3) and a file that records "this run scanned nothing" is
 // the absence carried honestly (S045-R4.3). No file at all would be
 // indistinguishable from a command that never ran.
-func presentCheckReport(r report.Report, planPrinted bool) {
+func presentCheckReport(run report.Run, planPrinted bool) {
+	// This command's own facts, read back out of the run that carries them: the
+	// three decisions below — whether to render at all, whether to point at
+	// `--list`, whether to announce the registry write — are all about packages,
+	// and the envelope deliberately knows nothing about packages.
+	r := checkPayload(run)
+
 	// Silent only when the report holds NOTHING, which is a conjunction rather
 	// than the scan alone. CheckAll skips disabled and held entries and
 	// DisableOrphans auto-disables an entry whose ebuild has vanished, so
@@ -728,7 +743,7 @@ func presentCheckReport(r report.Report, planPrinted bool) {
 		// same slice — which is what makes "the three modes differ in
 		// presentation and not in content" a fact about the call rather than a
 		// promise about three renderers (R2.1).
-		if err := renderCheckReportIn(mode, r.Sections(content), device); err != nil {
+		if err := renderCheckReportIn(mode, run.Sections(content), device); err != nil {
 			logger.Warn("the report could not be rendered: %v", err)
 		}
 
@@ -787,7 +802,7 @@ func presentCheckReport(r report.Report, planPrinted bool) {
 	if autoupdateExport == "" {
 		return
 	}
-	if err := writeExport(autoupdateExport, r); err != nil {
+	if err := writeExport(autoupdateExport, run); err != nil {
 		// Warn, never fatal: the answer has already been delivered — rendered
 		// above, or stated by the logger on the empty scan — and an export that
 		// changed the exit status would make a display flag decide whether a
@@ -800,7 +815,7 @@ func presentCheckReport(r report.Report, planPrinted bool) {
 //
 // # It is a caller's decision, which is why it is in cmd and not in the model
 //
-// report.Report.Sections ANSWERS these two questions; nothing in the model gets
+// report.AutoupdateCheck.Sections ANSWERS these two questions; nothing in the model gets
 // to choose them. Whether a record lists every scanned package or counts them,
 // and whether it states the plan, is a property of the artefact being produced
 // — and this command is what knows it is producing a file rather than a screen.

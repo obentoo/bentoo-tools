@@ -12,10 +12,10 @@ import "github.com/obentoo/bentoolkit/internal/common/report"
 // renderer that honours the flag from one that ignores it. The long reason is
 // there because "nothing was shortened" is only an assertion if something in the
 // report was long enough to be worth shortening.
-func exportFixture() report.Report {
+func exportFixture() report.AutoupdateCheck {
 	const reason = "a minor bump earns the configure rung from the default depth policy, and the policy is what the plan line has to be checkable against"
 
-	return report.Report{
+	return report.AutoupdateCheck{
 		Scanned: []report.PackageResult{
 			{
 				Package:          "app-misc/jq",
@@ -51,7 +51,18 @@ func exportFixture() report.Report {
 				SameReasonAsPlan: true,
 			},
 		},
-		Tally:    report.Tally{Proved: 1},
-		Complete: true,
+		Tally: report.Tally{Proved: 1},
 	}
+}
+
+// exportedFixtureRun is that report in the envelope a run which reached the end
+// of its plan carries. Complete and NotEvaluated are the ENVELOPE's since
+// sub-task 3.1, so the fixture states completeness here instead of inside the
+// report — the same claim about the same run, made where the fact now lives.
+//
+// Since sub-task 3.2 the envelope is built in one place and this goes through
+// it (finishedRun, overlay_autoupdate_check_test.go), so the fixture cannot
+// drift from a real run's schema, kind or title.
+func exportedFixtureRun() report.Run {
+	return finishedRun(exportFixture())
 }

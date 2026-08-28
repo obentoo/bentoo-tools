@@ -1,5 +1,7 @@
 package report
 
+import "fmt"
+
 // SchemaVersion is the version number every exported document carries at its
 // root (R4.1). It is what a consumer reads before it reads anything else.
 //
@@ -150,6 +152,87 @@ type Run struct {
 	// here would be schema 1 again, with Kind saying nothing about the shape
 	// beside it.
 	Payload Payload `json:"payload"`
+}
+
+// Sections is the whole run as ordered blocks: the gap it left, if it left one,
+// and then everything its payload has to say.
+//
+// # The envelope states the gap because only the envelope holds it
+//
+// Complete and NotEvaluated are fields of Run, so a payload cannot state that
+// the run stopped early even though every section it produces is short by what
+// the run never reached. Something above the payload therefore has to say it,
+// and this is that something (R1.4). Saying it here rather than in each payload
+// is also what makes one sentence serve packages, subvolumes and ebuilds alike
+// — a payload that wrote its own would be three wordings to keep in agreement.
+//
+// # It goes FIRST, and it is prepended to a NEW slice
+//
+// Every block below the label is short by the units the run never reached, so a
+// reader who meets the qualifier at the bottom has already drawn a conclusion
+// from tables that were missing rows. The fullscreen viewport also cuts from the
+// bottom, which makes the top the one place the label survives a terminal too
+// short for the report.
+//
+// The new slice matters as much: append into the payload's own would let a
+// report be edited by having been displayed, and the same blocks go on to the
+// export a few lines later.
+//
+// # A run with no payload says what it can rather than panicking
+//
+// Payload is an interface, so a Run assembled by a producer that returned early
+// can hold nil. That is a defect in the producer, and it is the producer's own
+// tests that should catch it — but a report is the thing an operator gets INSTEAD
+// of a crash (R1.4), so rendering one must not be the moment the crash arrives.
+// A nil payload contributes no block, and an incomplete run still states its gap.
+func (r Run) Sections(opts SectionOptions) []Section {
+	var blocks []Section
+	if r.Payload != nil {
+		blocks = r.Payload.Sections(opts)
+	}
+
+	if r.Complete {
+		return blocks
+	}
+	return append([]Section{interruptedSection(r.NotEvaluated)}, blocks...)
+}
+
+// interruptedSection is the label R1.4 asks for: a run that stopped before the
+// end of its plan says so, and says how much of that plan it never reached.
+//
+// # It reads one number, and nothing about the terminal
+//
+// Nothing here asks which mode was on screen, and nothing here could answer —
+// that absence is the requirement rather than an omission, because the same
+// interrupt has to read the same way in a terminal, in a pull request comment
+// and in a log file. The JSON export needs no part of it: it serializes Complete
+// and NotEvaluated already, which is the same fact in the form a machine reader
+// can act on.
+//
+// # It says "unit", because the envelope does not know what was counted
+//
+// The sentence this replaces said "package(s)", and it could: it was built by
+// the autoupdate check, out of the check's own plan. This one is built for any
+// batch, and naming packages here would be the envelope claiming a domain it
+// deliberately has none of. What each unit was is stated by the sections below,
+// in the payload's own vocabulary.
+//
+// # The count is stated even when it is zero
+//
+// A run interrupted once its last unit had already been evaluated lost nothing,
+// and "0" is what says so. Suppressing the number there would leave that case
+// indistinguishable from a report that is silent about how much is missing.
+func interruptedSection(notEvaluated int) Section {
+	return Section{
+		Title: "Run Interrupted",
+		Lead: []string{
+			fmt.Sprintf("This report is incomplete: the run was interrupted, and %d planned unit(s) were not evaluated.",
+				notEvaluated),
+		},
+		Notes: []string{
+			"The counts below cover only what the run reached; the rest are counted in no column.",
+		},
+	}
 }
 
 // Payload is the domain half: the facts one kind of run establishes, and how

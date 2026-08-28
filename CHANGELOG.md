@@ -25,9 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       jq '.distfiles_to_fetch'   ->  jq '.payload.distfiles_to_fetch'
 
   `.complete` and `.not_evaluated` are the only old expressions that keep
-  working: they now exist at both levels and carry the same value. Nothing was
-  renamed and nothing was dropped — the `payload` object is the old root
-  verbatim, so a mechanical migration is `.payload as $p | ...`.
+  working, and they moved rather than stayed: both are facts about **any** run —
+  "it reached the end of its plan", "this many planned units were never reached"
+  — so they belong to the envelope and are no longer inside `payload`. A tally
+  does not generalise the same way and stays with its payload, spelled in that
+  command's own vocabulary. Nothing was renamed and nothing was dropped
+  otherwise — the `payload` object is the old root minus those two keys, so a
+  mechanical migration is `.payload as $p | ...`.
 
   **Why break it at all, and why `2`.** `kind` is what lets a consumer tell two
   exported documents apart without being told which command wrote them, and it
@@ -56,6 +60,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Nothing the check prints changes.** All three modes render byte-for-byte
   what they rendered before, and the stored golden files are the evidence — not
   one was regenerated.
+
+- **The autoupdate check became one payload among several.** `report.Report` is
+  now `report.AutoupdateCheck` and it implements the `Payload` contract: same
+  fields, same JSON tags, same `Reconciles()`, same four tally columns —
+  `proved`, `errored`, `inconclusive`, `skipped` — which are byte-identical to
+  what they were before this story. The check's adapter now hands back a
+  `report.Run` naming its kind, assembled whole before anything is printed.
+
+  One operator-visible sentence changed, and only on the interrupted path. It
+  used to read *"N of M planned package(s) were not evaluated"* and now reads
+  *"N planned unit(s) were not evaluated"*. The count is stated by the envelope,
+  which knows how many units a run failed to reach but deliberately knows
+  nothing about packages — the next commands to gain reports count subvolumes
+  and manifest targets, and a sentence that said "package" would be wrong for
+  both. A run that stops part way still says how much it missed.
+
 
 ### Added
 - **A report envelope every command can produce, and a section vocabulary every

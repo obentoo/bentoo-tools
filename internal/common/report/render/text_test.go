@@ -67,8 +67,8 @@ const planReason = "depth resolved to none because the package is configured wit
 //   - one row whose reason repeats its plan entry (SameReasonAsPlan) and one
 //     whose reason differs, which is the R7.2/R7.3 pair
 //   - an atom wider than the 45-cell column this story removes
-func fixtureReport() report.Report {
-	return report.Report{
+func fixtureReport() report.AutoupdateCheck {
+	return report.AutoupdateCheck{
 		Scanned: []report.PackageResult{
 			{Package: "app-misc/jq", Type: "source", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", HasUpdate: true},
 			{Package: "dev-libs/libayatana-appindicator-glib", Type: "source", CurrentVersion: "0.5.92", CandidateVersion: "0.5.93", HasUpdate: true},
@@ -92,8 +92,27 @@ func fixtureReport() report.Report {
 			// The reason REPEATS the plan's, word for word (R7.2).
 			{Package: "sys-apps/portage", CandidateVersion: "3.0.67", Outcome: report.Skipped, Depth: "none", Reason: planReason, SameReasonAsPlan: true},
 		},
-		Tally:    report.Tally{Proved: 1, Errored: 1, Inconclusive: 1, Skipped: 1},
+		Tally: report.Tally{Proved: 1, Errored: 1, Inconclusive: 1, Skipped: 1},
+	}
+}
+
+// finishedRun wraps a check report in the envelope a run that reached the end of
+// its plan carries — the same wrap cmd/bentoo does at its own call sites (D3).
+//
+// Complete and NotEvaluated are the ENVELOPE's since sub-task 3.1, because "the
+// run reached the end of its plan" is true of any batch. So a complete check is
+// a payload plus this wrap, and completeness is STATED here rather than read off
+// the payload, which no longer carries it. Every helper below goes through this
+// one function — screen, Markdown and JSON alike — so no test can compare two
+// modes that were handed differently-wrapped runs. The interrupted fixture is
+// the one exception and builds its own, saying false.
+func finishedRun(r report.AutoupdateCheck) report.Run {
+	return report.Run{
+		Schema:   report.SchemaVersion,
+		Kind:     report.KindAutoupdateCheck,
+		Title:    "Autoupdate check",
 		Complete: true,
+		Payload:  r,
 	}
 }
 
@@ -106,11 +125,11 @@ func fixtureReport() report.Report {
 // It takes report.SectionOptions, not Options: what the report should SAY is a
 // separate question from what the device ALLOWS, and since sub-task 2.3 the
 // renderers can only be asked the second one. The sections themselves come from
-// the payload — report.Report.Sections, which is where the logic this package
-// used to hold now lives — so every golden below is compared against output
-// built by the live builders rather than by a copy of them.
-func screenSections(r report.Report, content report.SectionOptions) []report.Section {
-	return r.Sections(content)
+// the live builders — report.Run.Sections, which delegates to the payload's own
+// — so every golden below is compared against output the shipping code produced
+// rather than against a copy of it.
+func screenSections(r report.AutoupdateCheck, content report.SectionOptions) []report.Section {
+	return finishedRun(r).Sections(content)
 }
 
 // exportSections is the same for the export path, where the two decisions are
@@ -119,12 +138,12 @@ func screenSections(r report.Report, content report.SectionOptions) []report.Sec
 // the screen was told to do with it (R2.4) — a record missing the plan answers
 // no question later, because the plan is where a package's reason is stated at
 // all (R7.2).
-func exportSections(r report.Report) []report.Section {
+func exportSections(r report.AutoupdateCheck) []report.Section {
 	const (
 		everyScannedPackage = true
 		keepThePlan         = false
 	)
-	return r.Sections(report.SectionOptions{ShowAll: everyScannedPackage, SkipPlan: keepThePlan})
+	return finishedRun(r).Sections(report.SectionOptions{ShowAll: everyScannedPackage, SkipPlan: keepThePlan})
 }
 
 // renderPlain is the shorthand every test below uses. It fails the test on a
@@ -384,15 +403,22 @@ func TestMarkdownIsNotPlain(t *testing.T) {
 // Sub-task 5.3 — an interrupted run says so. APPENDED to text_test.go.
 // ---------------------------------------------------------------------------
 
-// interruptedFixture is the fixture as a run stopped halfway would leave it:
-// four packages planned, two evaluated, two never reached.
-func interruptedFixture() report.Report {
-	r := fixtureReport()
-	r.Results = r.Results[:2]
-	r.Tally = report.Tally{Proved: 1, Errored: 1}
-	r.Complete = false
-	r.NotEvaluated = len(r.Plan) - len(r.Results)
-	return r
+// interruptedRun is the fixture as a run stopped halfway would leave it: four
+// packages planned, two evaluated, two never reached.
+//
+// It is a report.Run rather than a payload because that is where the two facts
+// live since sub-task 3.1. The payload's sections are all short by the packages
+// the run never reached, and nothing IN the payload can say so — the envelope
+// holds Complete and NotEvaluated, so the envelope states the gap.
+func interruptedRun() report.Run {
+	check := fixtureReport()
+	check.Results = check.Results[:2]
+	check.Tally = report.Tally{Proved: 1, Errored: 1}
+
+	run := finishedRun(check)
+	run.Complete = false
+	run.NotEvaluated = len(check.Plan) - len(check.Results)
+	return run
 }
 
 // TestIncompleteIsLabelled pins R4.3 across every format that carries text. No
@@ -400,14 +426,14 @@ func interruptedFixture() report.Report {
 // NotEvaluated, which is what lets an interrupted run be reported identically
 // whether it was interrupted in fullscreen, inline or plain.
 func TestIncompleteIsLabelled(t *testing.T) {
-	r := interruptedFixture()
+	r := interruptedRun()
 
 	var plain bytes.Buffer
-	if err := Plain(&plain, screenSections(r, report.SectionOptions{}), Options{Width: 100}); err != nil {
+	if err := Plain(&plain, r.Sections(report.SectionOptions{}), Options{Width: 100}); err != nil {
 		t.Fatalf("Plain: %v", err)
 	}
 	var markdown bytes.Buffer
-	if err := Markdown(&markdown, exportSections(r)); err != nil {
+	if err := Markdown(&markdown, r.Sections(report.SectionOptions{ShowAll: true})); err != nil {
 		t.Fatalf("Markdown: %v", err)
 	}
 
@@ -430,7 +456,7 @@ func TestIncompleteIsLabelled(t *testing.T) {
 	// JSON carries it as data rather than as a sentence, which is the same
 	// fact in the form a machine reader can act on.
 	var doc bytes.Buffer
-	if err := JSON(&doc, exportedRun(r)); err != nil {
+	if err := JSON(&doc, r); err != nil {
 		t.Fatalf("JSON: %v", err)
 	}
 	if !strings.Contains(doc.String(), `"complete": false`) {
@@ -445,7 +471,7 @@ func TestIncompleteIsLabelled(t *testing.T) {
 // meaningful. A label printed unconditionally satisfies the test above while
 // making every report look interrupted.
 func TestCompleteHasNoLabel(t *testing.T) {
-	r := fixtureReport() // Complete: true, NotEvaluated: 0
+	r := fixtureReport() // wrapped by screenSections in a run that finished
 
 	var plain bytes.Buffer
 	if err := Plain(&plain, screenSections(r, report.SectionOptions{}), Options{Width: 100}); err != nil {
@@ -498,9 +524,8 @@ func countAppearsInTheLabel(rendered string, want int) bool {
 
 // story045PlannedReport is a report whose plan section is non-empty, which is
 // the only shape where SkipPlan can be observed at all.
-func story045PlannedReport() report.Report {
-	return report.Report{
-		Complete: true,
+func story045PlannedReport() report.AutoupdateCheck {
+	return report.AutoupdateCheck{
 		Scanned: []report.PackageResult{
 			{Package: "app-misc/jq", Type: "source", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", HasUpdate: true},
 		},
@@ -581,7 +606,7 @@ func TestExportKeepsThePlanTheScreenSkipped(t *testing.T) {
 	if err := Markdown(&md, exportSections(r)); err != nil {
 		t.Fatalf("Markdown: %v", err)
 	}
-	if err := JSON(&js, exportedRun(r)); err != nil {
+	if err := JSON(&js, finishedRun(r)); err != nil {
 		t.Fatalf("JSON: %v", err)
 	}
 
@@ -599,7 +624,7 @@ func TestExportKeepsThePlanTheScreenSkipped(t *testing.T) {
 // "Checked N source, M bin" has to survive its deletion, and it survives inside
 // the section rather than beside it (D5).
 func TestTierCountNote(t *testing.T) {
-	r := report.Report{Complete: true, Scanned: []report.PackageResult{
+	r := report.AutoupdateCheck{Scanned: []report.PackageResult{
 		{Package: "app-misc/jq", Type: "source", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", HasUpdate: true},
 		{Package: "app-misc/yq", Type: "source", CurrentVersion: "4.44.1", CandidateVersion: "4.44.1"},
 		{Package: "app-editors/zed", Type: "bin", CurrentVersion: "0.199.4", CandidateVersion: "0.199.4"},
@@ -624,7 +649,7 @@ func TestTierCountNote(t *testing.T) {
 // bucketed the unresolved into either column would state a fact the scan never
 // established. The totals deliberately do NOT sum to len(Scanned).
 func TestTierCountIgnoresUnresolved(t *testing.T) {
-	r := report.Report{Complete: true, Scanned: []report.PackageResult{
+	r := report.AutoupdateCheck{Scanned: []report.PackageResult{
 		{Package: "app-misc/jq", Type: "source"},
 		{Package: "app-misc/broken", Type: "", Error: "the current ebuild could not be read"},
 	}}
@@ -648,8 +673,8 @@ func TestTierCountIgnoresUnresolved(t *testing.T) {
 // story045ScanOnlyReport is what runCheck now builds on a run that validated
 // nothing: the scan filled, the plan half empty, and Complete true because a run
 // that planned nothing left nothing unevaluated (R4.2).
-func story045ScanOnlyReport() report.Report {
-	return report.Report{Complete: true, Scanned: []report.PackageResult{
+func story045ScanOnlyReport() report.AutoupdateCheck {
+	return report.AutoupdateCheck{Scanned: []report.PackageResult{
 		{Package: "app-misc/jq", Type: "source", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", HasUpdate: true},
 		{Package: "app-editors/zed", Type: "bin", CurrentVersion: "0.199.4", CandidateVersion: "0.199.4"},
 	}}

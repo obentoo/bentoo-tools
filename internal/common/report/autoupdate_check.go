@@ -20,9 +20,7 @@ import "fmt"
 // other's vocabulary, which is what makes a fourth command a new payload rather
 // than a fifth branch in a renderer (D1).
 //
-// This method is what makes Report satisfy Payload. Sub-task 3.1 renames the
-// receiver to AutoupdateCheck and moves Complete/NotEvaluated up to the
-// envelope; the body below does not change when it does.
+// This method is what makes AutoupdateCheck satisfy Payload.
 //
 // # It is the half every syntax reuses
 //
@@ -58,20 +56,16 @@ import "fmt"
 // the omission from this one line instead of each deciding it, which is what
 // keeps the heading from appearing twice in one of them (R2.2).
 //
-// # A run that stopped early says so before it says anything else
+// # A run that stopped early says so, and it is not this method that says it
 //
-// The label is built HERE rather than in a writer, which is what makes plain,
-// Markdown and inline all inherit it from one sentence (R4.3). It is read off
-// Complete and NotEvaluated and nothing else, so no renderer is ever told
-// whether a TUI was involved — an interrupted run is reported in identical
-// words whichever mode was on screen when it was interrupted.
-func (r Report) Sections(opts SectionOptions) []Section {
-	var blocks []Section
-	if !r.Complete {
-		blocks = append(blocks, interruptedSection(r))
-	}
-
-	blocks = append(blocks, versionCheckSection(r, opts.ShowAll))
+// The "Run Interrupted" label used to be built here, off two fields this type
+// carried. Those fields are the ENVELOPE's now — "the run reached the end of its
+// plan" is true of any batch, so restating it per payload would be one wording
+// per domain to keep in agreement (D1) — and Run.Sections prepends the label
+// before delegating here. Every syntax still inherits it from one sentence
+// (R4.3), one level up.
+func (r AutoupdateCheck) Sections(opts SectionOptions) []Section {
+	blocks := []Section{versionCheckSection(r, opts.ShowAll)}
 
 	// A run that planned nothing has nothing to say about a plan, its results
 	// or its tally, and says so by omitting all three rather than by stating
@@ -95,45 +89,6 @@ func (r Report) Sections(opts SectionOptions) []Section {
 	)
 }
 
-// interruptedSection is the label R4.3 asks for: a report that stopped before
-// the end of its plan says so, and says how much of the plan it never reached.
-//
-// # It reads two fields, and they are the whole input
-//
-// Complete and NotEvaluated. Nothing here asks which mode was on screen, and
-// nothing here could answer — that absence is the requirement rather than an
-// omission, because the same interrupt has to read the same way in a terminal,
-// in a pull request comment and in a log file. The JSON export needs no part of
-// this: it serializes both fields already, which is the same fact in the form a
-// machine reader can act on.
-//
-// # It goes FIRST, not beside the counts it qualifies
-//
-// Every section under it is short by the packages the run never reached — the
-// results list most of all — so a reader who meets the qualifier only at the
-// bottom has already drawn a conclusion from tables that were missing rows. The
-// fullscreen viewport cuts from the bottom as well (pane.fit), so the top is
-// also the one place the label survives a terminal too short for the report.
-//
-// # The count is stated even when it is zero
-//
-// A run interrupted once its last package had already been evaluated lost
-// nothing, and "0 of 4" is what says so. Suppressing the number there would
-// leave the reader unable to tell that case from the one where the report is
-// silent about how much is missing.
-func interruptedSection(r Report) Section {
-	return Section{
-		Title: "Run Interrupted",
-		Lead: []string{
-			fmt.Sprintf("This report is incomplete: the run was interrupted, and %d of %d planned package(s) were not evaluated.",
-				r.NotEvaluated, len(r.Plan)),
-		},
-		Notes: []string{
-			"The counts below cover only the packages the run reached; the rest are counted in no column.",
-		},
-	}
-}
-
 // versionCheckSection is what the scan found, one row per package (R8.2, R8.3).
 //
 // The rows a run produces depend on listEvery and the counts never do: a
@@ -143,7 +98,7 @@ func interruptedSection(r Report) Section {
 // listEvery is the screen's --all (R8.2, R8.3) and the export's only setting:
 // an export lists every package it looked at whatever the terminal was asked
 // for (R9.3).
-func versionCheckSection(r Report, listEvery bool) Section {
+func versionCheckSection(r AutoupdateCheck, listEvery bool) Section {
 	s := Section{Title: "Version Check Results"}
 
 	if len(r.Scanned) == 0 {
@@ -212,7 +167,7 @@ func versionCheckSection(r Report, listEvery bool) Section {
 // result merely repeats it is stated at all — validationResultsSection prints no
 // second copy (R7.2) — so a reason dropped here would not be shortened, it would
 // be gone.
-func validationPlanSection(r Report) Section {
+func validationPlanSection(r AutoupdateCheck) Section {
 	s := Section{Title: "Validation Plan"}
 
 	if len(r.Plan) == 0 {
@@ -283,7 +238,7 @@ func validationPlanSection(r Report) Section {
 // line is left to a writer. Nothing is removed from the report itself either
 // way, so an export with no width budget still carries all 230 characters
 // (R7.4).
-func validationResultsSection(r Report) Section {
+func validationResultsSection(r AutoupdateCheck) Section {
 	s := Section{Title: "Validation Results"}
 
 	if len(r.Results) == 0 {
@@ -333,9 +288,9 @@ func resultDetail(result ValidationRow) string {
 // Total() counts what actually landed in a column. For a complete run that
 // equals len(Plan) — Reconciles() says so — and for a run stopped part way it is
 // the honest smaller number, which leaves room for the incomplete-run label
-// (Report.Complete, Report.NotEvaluated) to be added without this sentence
+// (Run.Complete, Run.NotEvaluated) to be added without this sentence
 // having to be rewritten to stop lying.
-func validationSummarySection(r Report) Section {
+func validationSummarySection(r AutoupdateCheck) Section {
 	counted := r.Tally
 
 	return Section{

@@ -10,20 +10,6 @@ import (
 	"github.com/obentoo/bentoolkit/internal/common/report"
 )
 
-// exportedRun wraps a check report in the envelope the export carries, which is
-// the same wrap cmd/bentoo does at its own export call site (D3). Story 044's
-// assertions below are unchanged; only the level the model sits at moved.
-func exportedRun(r report.Report) report.Run {
-	return report.Run{
-		Schema:       report.SchemaVersion,
-		Kind:         report.KindAutoupdateCheck,
-		Title:        "Autoupdate check",
-		Complete:     r.Complete,
-		NotEvaluated: r.NotEvaluated,
-		Payload:      r,
-	}
-}
-
 // exportedPayload decodes the payload half of a document back into the check
 // report.
 //
@@ -32,7 +18,7 @@ func exportedRun(r report.Report) report.Run {
 // needs a type switch driven by kind — a hand-maintained registry of every kind
 // (D3). A test does not need that registry, because it knows which kind it just
 // exported and can name the concrete type outright.
-func exportedPayload(t *testing.T, doc []byte) report.Report {
+func exportedPayload(t *testing.T, doc []byte) report.AutoupdateCheck {
 	t.Helper()
 
 	// The key is spelled out here, where jsonKeyFor reads it from the tag
@@ -44,7 +30,7 @@ func exportedPayload(t *testing.T, doc []byte) report.Report {
 	// round trip red. That is the honest alarm: "payload" is the string a
 	// consumer has already typed into a jq expression.
 	var envelope struct {
-		Payload report.Report `json:"payload"`
+		Payload report.AutoupdateCheck `json:"payload"`
 	}
 	if err := json.Unmarshal(doc, &envelope); err != nil {
 		t.Fatalf("the document JSON produced is not valid JSON: %v\n%s", err, doc)
@@ -60,7 +46,7 @@ func TestJSONRoundTrip(t *testing.T) {
 	want := fixtureReport()
 
 	var buf bytes.Buffer
-	if err := JSON(&buf, exportedRun(want)); err != nil {
+	if err := JSON(&buf, finishedRun(want)); err != nil {
 		t.Fatalf("JSON returned an error: %v", err)
 	}
 
@@ -75,7 +61,7 @@ func TestJSONRoundTrip(t *testing.T) {
 // shows 96 cells; the record holds all 232.
 func TestJSONRoundTripKeepsTheReasonWhole(t *testing.T) {
 	var buf bytes.Buffer
-	if err := JSON(&buf, exportedRun(fixtureReport())); err != nil {
+	if err := JSON(&buf, finishedRun(fixtureReport())); err != nil {
 		t.Fatalf("JSON returned an error: %v", err)
 	}
 
@@ -93,7 +79,7 @@ func TestJSONRoundTripKeepsTheReasonWhole(t *testing.T) {
 // operator's policy, which is the whole distinction this story adds.
 func TestJSONNamesTheFourTallyCounts(t *testing.T) {
 	var buf bytes.Buffer
-	if err := JSON(&buf, exportedRun(fixtureReport())); err != nil {
+	if err := JSON(&buf, finishedRun(fixtureReport())); err != nil {
 		t.Fatalf("JSON returned an error: %v", err)
 	}
 
@@ -110,7 +96,7 @@ func TestJSONNamesTheFourTallyCounts(t *testing.T) {
 		t.Fatalf("the document has no payload object\n%s", buf.String())
 	}
 
-	tally, ok := payload[jsonKeyFor(t, report.Report{}, "Tally")].(map[string]any)
+	tally, ok := payload[jsonKeyFor(t, report.AutoupdateCheck{}, "Tally")].(map[string]any)
 	if !ok {
 		t.Fatalf("the document has no tally object\n%s", buf.String())
 	}
@@ -134,12 +120,12 @@ func TestJSONNamesTheFourTallyCounts(t *testing.T) {
 func TestJSONDropsNoField(t *testing.T) {
 	// A report whose every field is the zero value — the case omitempty eats.
 	var buf bytes.Buffer
-	empty := report.Report{
+	empty := report.AutoupdateCheck{
 		Scanned: []report.PackageResult{{}},
 		Plan:    []report.PlanEntry{{}},
 		Results: []report.ValidationRow{{}},
 	}
-	if err := JSON(&buf, exportedRun(empty)); err != nil {
+	if err := JSON(&buf, finishedRun(empty)); err != nil {
 		t.Fatalf("JSON returned an error: %v", err)
 	}
 	doc := buf.String()
@@ -148,7 +134,7 @@ func TestJSONDropsNoField(t *testing.T) {
 		name string
 		v    any
 	}{
-		{"Report", report.Report{}},
+		{"AutoupdateCheck", report.AutoupdateCheck{}},
 		{"PackageResult", report.PackageResult{}},
 		{"PlanEntry", report.PlanEntry{}},
 		{"ValidationRow", report.ValidationRow{}},

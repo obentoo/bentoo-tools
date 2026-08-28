@@ -24,7 +24,7 @@ func TestTallyTotalIsZeroForTheEmptyTally(t *testing.T) {
 // TestReconcilesWhenTheCountsMatchThePlan pins R5.5: every planned package is
 // counted exactly once, in exactly one column.
 func TestReconcilesWhenTheCountsMatchThePlan(t *testing.T) {
-	r := Report{
+	r := AutoupdateCheck{
 		Plan:  make([]PlanEntry, 4),
 		Tally: Tally{Proved: 1, Errored: 1, Inconclusive: 1, Skipped: 1},
 	}
@@ -38,7 +38,7 @@ func TestReconcilesWhenTheCountsMatchThePlan(t *testing.T) {
 // is the half that carries the weight: a Reconciles that returns true
 // unconditionally passes the positive test on its own.
 func TestReconcilesIsFalseWhenAPackageWentUncounted(t *testing.T) {
-	r := Report{
+	r := AutoupdateCheck{
 		Plan:  make([]PlanEntry, 4),
 		Tally: Tally{Proved: 1, Errored: 1, Inconclusive: 1},
 	}

@@ -26,7 +26,6 @@ import (
 	"github.com/obentoo/bentoolkit/internal/common/logger"
 	"github.com/obentoo/bentoolkit/internal/common/output"
 	"github.com/obentoo/bentoolkit/internal/common/provider"
-	"github.com/obentoo/bentoolkit/internal/common/report"
 	"github.com/obentoo/bentoolkit/internal/common/tui"
 	"github.com/spf13/cobra"
 )
@@ -784,8 +783,14 @@ func runCheck(ctx context.Context, overlayPath, configDir string, args []string,
 		// D6 keeps the return below: only the batch path may reconcile the
 		// registry, and moving the render past this point must not move the
 		// return with it.
+		//
+		// It validated nothing, so it planned nothing, so it left nothing
+		// unreached — which is what nothingValidated states, and what
+		// checkReport answers for an empty plan on a batch run whose plan came
+		// out empty too.
 		const noPlanWasPrinted = false
-		presentCheckReport(checkReport([]autoupdate.CheckResult{*result}, report.Report{}), noPlanWasPrinted)
+		single := checkReport([]autoupdate.CheckResult{*result}, nothingValidated())
+		presentCheckReport(single, noPlanWasPrinted)
 		return
 	}
 
@@ -859,7 +864,13 @@ func runCheck(ctx context.Context, overlayPath, configDir string, args []string,
 	// line. planPrinted travels into render.Options.SkipPlan so the plan the
 	// operator read before the confirmation prompt is not drawn to them a
 	// second time (S045-R2.3).
-	presentCheckReport(checkReport(result.Items, validated), planPrinted)
+	//
+	// "The run reached the end of its plan" needs no parameter of its own: it
+	// is the envelope's fact, established by buildReport above and carried
+	// inside the very value being joined here — so the screen and the export
+	// state it once, from one place (D1).
+	joined := checkReport(result.Items, validated)
+	presentCheckReport(joined, planPrinted)
 
 	// S021-R3.2/R3.3/R3.4: compare the registry against the overlay and, behind
 	// ONE confirmation, write the pins back. It runs here, at the very end of the

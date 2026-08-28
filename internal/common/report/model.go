@@ -49,7 +49,11 @@
 //
 // A run assembles the whole report first (R1.4), so a run that fails to render,
 // or that is interrupted, still holds a complete description of what it found.
-// Report.Complete and Report.NotEvaluated are how such a run says so.
+// Run.Complete and Run.NotEvaluated are how such a run says so, and they sit on
+// the ENVELOPE rather than on a payload: "the run reached the end of its plan"
+// and "this many planned units were never reached" are answerable for a batch of
+// packages, of subvolumes or of ebuilds alike, so a payload that carried them
+// would be carrying them a second time (D1).
 package report
 
 // Outcome is what a run managed to establish about one planned package.
@@ -88,7 +92,8 @@ const (
 // its third column: proved and errored are untouched and count exactly the
 // packages they counted before (R5.7). The invariant that column set protected
 // is preserved — each planned package lands in exactly one column, and the
-// columns sum to the number of planned packages (R5.5, Report.Reconciles).
+// columns sum to the number of planned packages (R5.5,
+// AutoupdateCheck.Reconciles).
 type Tally struct {
 	// Proved counts the packages whose deciding gates all passed.
 	Proved int `json:"proved"`
@@ -112,11 +117,23 @@ func (t Tally) Total() int {
 	return t.Proved + t.Errored + t.Inconclusive + t.Skipped
 }
 
-// Report is everything one run found.
+// AutoupdateCheck is everything one `overlay autoupdate check` run found. It is
+// the Payload behind KindAutoupdateCheck.
 //
 // It is assembled in full before any output is produced (R1.4). A run that is
-// interrupted still produces one of these, marked incomplete.
-type Report struct {
+// interrupted still produces one of these; that it WAS interrupted, and how much
+// of its plan it never reached, is said by the Run around it and not here (D1) —
+// those two facts are true of any batch, and a payload restating them would be a
+// second place for a finished run to be described as a partial one.
+//
+// # Everything below is story 044's, unchanged
+//
+// The field names, the JSON tags and Reconciles are exactly what they were when
+// this type was called Report and sat at the document root. The rename is a move
+// into the payload position, not a redesign: a consumer's `.tally.proved` became
+// `.payload.tally.proved` when the envelope arrived, and nothing here moved it
+// again.
+type AutoupdateCheck struct {
 	// Scanned is every package the run looked at, in the order it looked at
 	// them, whether or not an update was found. It is what makes a package
 	// that is up to date distinguishable from a package that was never
@@ -132,17 +149,12 @@ type Report struct {
 	// before the interrupt, and NotEvaluated is how many of the rest there
 	// were.
 	Results []ValidationRow `json:"results"`
-	// Tally is the four counts taken over Plan.
+	// Tally is the four counts taken over Plan. It stays HERE while Complete
+	// and NotEvaluated moved up, and the asymmetry is the line between the two
+	// halves: this check counts four validation outcomes, a manifest run counts
+	// ok and failed, and one universal tally would either lose the four or
+	// invent columns the other has no answer for (D1).
 	Tally Tally `json:"tally"`
-	// Complete reports that the run reached the end of its plan. A run stopped
-	// early — by an interrupt — sets this false, and the report still holds
-	// everything it had established up to that point.
-	Complete bool `json:"complete"`
-	// NotEvaluated is how many planned packages the run never reached. It is
-	// zero for a complete run, and for an interrupted one it is the number
-	// that turns a short result list into a stated gap rather than a silent
-	// one.
-	NotEvaluated int `json:"not_evaluated"`
 	// DistfilesToFetch is how many packages this run has to hold a tarball
 	// for: an upper bound per package, not a download count, since a distfile
 	// the host already holds is not fetched again and a package with several
@@ -170,9 +182,9 @@ type Report struct {
 // make the check pass precisely when packages went missing.
 //
 // An interrupted run does not reconcile, and that is the honest answer rather
-// than a bug — the packages it never reached are counted in no column, and
-// Complete and NotEvaluated are what say so.
-func (r Report) Reconciles() bool {
+// than a bug — the packages it never reached are counted in no column, and the
+// envelope's Complete and NotEvaluated are what say so.
+func (r AutoupdateCheck) Reconciles() bool {
 	return r.Tally.Total() == len(r.Plan)
 }
 

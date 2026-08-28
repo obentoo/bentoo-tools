@@ -381,14 +381,14 @@ func exportFormatFor(path string) exportFormat {
 // disk, and a function that ignored it would report success for a file that is
 // truncated. The deferred close is the fallback for the error paths above it;
 // closing twice returns os.ErrClosed, which is exactly the nothing it should be.
-func writeExport(path string, r report.Report) error {
+func writeExport(path string, run report.Run) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("creating the export %s: %w", path, err)
 	}
 	defer func() { _ = file.Close() }()
 
-	if err := renderExport(file, r, exportFormatFor(path)); err != nil {
+	if err := renderExport(file, run, exportFormatFor(path)); err != nil {
 		return fmt.Errorf("writing the export %s: %w", path, err)
 	}
 	if err := file.Close(); err != nil {
@@ -397,56 +397,21 @@ func writeExport(path string, r report.Report) error {
 	return nil
 }
 
-// renderExport writes r to w in one export syntax.
+// renderExport writes run to w in one export syntax.
 //
 // exportPlain is the DEFAULT rather than a case of its own, in both senses of
 // the word: it is the format R9.2 gives every extension that is not one of the
 // two named above, and it is what a format this switch has not been taught
 // about still produces — a whole report in the least demanding syntax there is,
 // rather than an empty file.
-func renderExport(w io.Writer, r report.Report, format exportFormat) error {
+func renderExport(w io.Writer, run report.Run, format exportFormat) error {
 	switch format {
 	case exportMarkdown:
-		return render.Markdown(w, r.Sections(exportContent(everyScannedPackage)))
+		return render.Markdown(w, run.Sections(exportContent(everyScannedPackage)))
 	case exportJSON:
-		return render.JSON(w, checkRun(r))
+		return render.JSON(w, run)
 	default:
-		return render.Plain(w, r.Sections(exportContent(countTheUpToDate)), render.Options{Width: unshortenedWidth})
-	}
-}
-
-// checkRun wraps the check's report in the envelope every exported document
-// carries: the schema version, the kind of run that produced it, and the two
-// facts about whether the run reached the end of its plan (R4.1).
-//
-// # It is here, and only for now
-//
-// Sub-task 3.2 moves this construction into buildReport, so the whole check
-// path carries one run from the moment it is assembled instead of a report the
-// export wraps on its way out. A wrap at the single call site is the smaller
-// change today, and it leaves that move a relocation rather than a redesign.
-//
-// # Complete and NotEvaluated are copied, never restated
-//
-// The envelope's copy is what a machine reader acts on (R4.2), and the report's
-// is what the renderers read. Writing a literal here instead of copying would
-// be a second place for an interrupted run to be described as a finished one,
-// and the two halves of the document would then disagree about the same run.
-//
-// # The title is a fixed label, like the kind
-//
-// It says which command produced the document in a reader's own words, and it
-// is derived from nothing the run established — a title that varied with the
-// contents would be prose, and report.Run.Title is documented as a label rather
-// than something to match on. kind is what a consumer discriminates with.
-func checkRun(r report.Report) report.Run {
-	return report.Run{
-		Schema:       report.SchemaVersion,
-		Kind:         report.KindAutoupdateCheck,
-		Title:        "Autoupdate check",
-		Complete:     r.Complete,
-		NotEvaluated: r.NotEvaluated,
-		Payload:      r,
+		return render.Plain(w, run.Sections(exportContent(countTheUpToDate)), render.Options{Width: unshortenedWidth})
 	}
 }
 
