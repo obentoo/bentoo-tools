@@ -277,6 +277,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wherever a review that ran would have spoken, so it can no longer go missing
   from a count or an export.
 
+- **Columns in `overlay autoupdate --apply` and `overlay validate` are measured
+  rather than typed.** Eight format strings declared a fixed column width —
+  `%-45s` for a package atom, `%-26s` for a summary label, `%-14s` and `%-8s`
+  for validation columns. A typed width is wrong in both directions at once: too
+  narrow the moment one value outgrows it, and too wide on every run that never
+  comes close. Each is now measured from the values that run actually produced.
+
+  The measurement is in display **cells**, which is not what `%-*s` would have
+  given: `fmt` pads to a rune count, and a terminal aligns on cells. `→` is
+  three bytes, one rune and one cell; `日` is three bytes, one rune and two
+  cells. A column that counted runes would drift on the first wide character.
+
+  A test now lists every file this work touched and fails if any of them
+  declares a fixed width, and it prints the number still outstanding elsewhere
+  in the tree — **11, across five files** — so the figure the next release
+  starts from is produced by a run instead of typed into a document.
+
+- **The producer-to-consumer contract is verified, not assumed.** Every payload
+  is rendered through every renderer — three payloads by plain, Markdown,
+  inline, fullscreen and JSON — and each combination must produce output the run
+  can be recognised in, so a renderer that answered `""` for everything cannot
+  pass fifteen times. A companion check fails the suite if any renderer switches
+  on a payload type. Together they are what makes "adding a command edits no
+  renderer" a property with a test behind it rather than a claim in a design
+  document.
+
 
 ### Added
 - **A report envelope every command can produce, and a section vocabulary every

@@ -26,6 +26,7 @@ import (
 	"github.com/obentoo/bentoolkit/internal/common/logger"
 	"github.com/obentoo/bentoolkit/internal/common/output"
 	"github.com/obentoo/bentoolkit/internal/common/provider"
+	"github.com/obentoo/bentoolkit/internal/common/report/render"
 	"github.com/obentoo/bentoolkit/internal/common/tui"
 	"github.com/spf13/cobra"
 )
@@ -1082,32 +1083,67 @@ func displayDivergences(divs []autoupdate.Divergence, writable int) {
 	// overlay print the identical list.
 	// Returns how many lines the group printed, so a caller can append a
 	// follow-up line only to a group that actually appeared (R7.1).
-	printGroup := func(kind autoupdate.DivergenceKind, heading string, line func(autoupdate.Divergence) string) int {
-		var body []string
+	//
+	// # The key column is measured here, which is why `line` is handed its key
+	//
+	// All three line formats below used to open with %-45s. Nobody measured 45,
+	// and it is wrong in both directions at once. Too wide: a group of registry
+	// keys shaped like `net-libs/webkit-gtk:4.1` — 23 cells — pays 22 cells of
+	// empty air on every row. Too narrow: the longest atom this overlay
+	// actually holds, `media-plugins/gst-plugins-adaptivedemux2`, is 40 cells,
+	// so the guess is five cells from the day a key overruns the column and
+	// pushes the second field right on that row alone, which is worse than no
+	// alignment at all. Neither error is visible where the number is typed,
+	// because the width that is correct depends on the keys THIS run produced
+	// (R6.2).
+	//
+	// The width a group needs is the widest key IN THAT GROUP, which is knowable
+	// only once the group's members have been collected. This closure already
+	// collected them; it just threw the keys away by formatting each line as it
+	// went. So it now collects the divergences rather than their finished lines,
+	// measures the column over them, and hands each `line` its key already laid
+	// into it — the loop-that-prints-as-it-goes being exactly how a typed width
+	// survives.
+	//
+	// Per group, not across all three: a group is a table under its own heading,
+	// and "Pins to write" should not be widened by one long key from a list
+	// printed further down that no reader is comparing it against column by
+	// column.
+	printGroup := func(kind autoupdate.DivergenceKind, heading string, line func(d autoupdate.Divergence, key string) string) int {
+		var members []autoupdate.Divergence
+		var keys []string
 		for _, d := range divs {
 			if d.Kind == kind {
-				body = append(body, line(d))
+				members = append(members, d)
+				keys = append(keys, d.Key)
 			}
 		}
-		if len(body) == 0 {
+		if len(members) == 0 {
 			return 0
 		}
-		fmt.Printf("  %s (%d):\n", heading, len(body))
-		for _, l := range body {
-			fmt.Printf("    %s\n", l)
+		// Display cells, never bytes (R6.1): the width and the padding are the
+		// same measurement, so a key and the column holding it cannot disagree
+		// about how wide it is. The space that separates the key from what
+		// follows stays in each format string below, where it is a gap between
+		// two columns and not part of either (R6.3).
+		width := render.ColumnWidth(keys)
+
+		fmt.Printf("  %s (%d):\n", heading, len(members))
+		for _, d := range members {
+			fmt.Printf("    %s\n", line(d, padColumn(d.Key, width)))
 		}
 		fmt.Println()
-		return len(body)
+		return len(members)
 	}
 
-	_ = printGroup(autoupdate.StalePin, "Pins to write", func(d autoupdate.Divergence) string {
+	_ = printGroup(autoupdate.StalePin, "Pins to write", func(d autoupdate.Divergence, key string) string {
 		if d.Pin == "" {
-			return fmt.Sprintf("%-45s (no pin) → %s", d.Key, d.Disk)
+			return fmt.Sprintf("%s (no pin) → %s", key, d.Disk)
 		}
-		return fmt.Sprintf("%-45s %s → %s", d.Key, d.Pin, d.Disk)
+		return fmt.Sprintf("%s %s → %s", key, d.Pin, d.Disk)
 	})
-	unclaimed := printGroup(autoupdate.UnclaimedEbuild, "Ebuilds no entry keeps — NOT written", func(d autoupdate.Divergence) string {
-		return fmt.Sprintf("%-45s %s", d.Key, d.Disk)
+	unclaimed := printGroup(autoupdate.UnclaimedEbuild, "Ebuilds no entry keeps — NOT written", func(d autoupdate.Divergence, key string) string {
+		return fmt.Sprintf("%s %s", key, d.Disk)
 	})
 	if unclaimed > 0 {
 		// R7.1: this report used to end at the finding. Naming the command that
@@ -1117,11 +1153,11 @@ func displayDivergences(divs []autoupdate.Divergence, writable int) {
 		output.Info.Println("  Remove them with: bentoo overlay autoupdate --clean")
 		fmt.Println()
 	}
-	_ = printGroup(autoupdate.NoEbuild, "Entries whose directory holds no ebuild — NOT written", func(d autoupdate.Divergence) string {
+	_ = printGroup(autoupdate.NoEbuild, "Entries whose directory holds no ebuild — NOT written", func(d autoupdate.Divergence, key string) string {
 		if d.Pin == "" {
-			return fmt.Sprintf("%-45s (no pin)", d.Key)
+			return fmt.Sprintf("%s (no pin)", key)
 		}
-		return fmt.Sprintf("%-45s pins %s", d.Key, d.Pin)
+		return fmt.Sprintf("%s pins %s", key, d.Pin)
 	})
 
 	if writable == 0 {
@@ -1255,9 +1291,24 @@ func printLintTally(issues []autoupdate.LintIssue) {
 	}
 	sort.Strings(rules)
 
+	// The rule column is as wide as the widest rule name THIS run reported, in
+	// display cells (R6.2). The 26 that used to be typed here was a guess about
+	// a vocabulary that belongs to internal/autoupdate's lint rules and not to
+	// this printer: two cells past `bracket-line-in-comments`, the longest of
+	// the thirteen, which makes it 15 cells of empty air on a tally that
+	// reported only `field-order` and one longer rule name away from
+	// overflowing without anyone here noticing. Every rule this run found is in
+	// hand before the first line is printed, so there was never anything to
+	// guess about.
+	//
+	// The single space in the format is the gap to the count beside it — the
+	// air BETWEEN two columns, which nothing in a run's data can make wider, so
+	// it is written down where a width is measured (R6.3).
+	width := render.ColumnWidth(rules)
+
 	fmt.Println()
 	for _, rule := range rules {
-		fmt.Printf("  %-26s %d\n", rule, counts[rule])
+		fmt.Printf("  %s %d\n", padColumn(rule, width), counts[rule])
 	}
 	fmt.Println()
 }
