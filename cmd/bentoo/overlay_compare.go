@@ -491,6 +491,29 @@ func runCompare(cmd *cobra.Command, args []string) {
 		proveRealignments(runCtx, report, overlayPath)
 	}
 
+	// The report's FINDINGS, re-established now that every annotation pass has
+	// written back onto it (S046-R5.1).
+	//
+	// The comparison establishes them once, at the end of CompareWithProvider,
+	// from what was known then — the versions, the registry declaration and the
+	// content check. The four passes above run afterwards and each writes facts a
+	// finding built before them could not have known: whether the overlay's own
+	// content PROVED the difference is ours, what a model read the difference as
+	// doing, what it proposed be declared. A list left un-refreshed would report
+	// an undeclared divergence as unproved after the files had proved it, which is
+	// the one direction that matters — it is the reading that authorises deleting
+	// work of our own.
+	//
+	// It is one call rather than a refresh inside each pass, because four refresh
+	// points are four things to keep in step and this is one. The findings are a
+	// pure function of report.Results, so this simply asks the question again.
+	//
+	// It runs BEFORE the narrowing below for the reason the passes do: the
+	// findings are what the run established about the OVERLAY, not the rows the
+	// operator asked to look at, exactly as none of the counters on the report are
+	// narrowed either (D7).
+	overlay.EstablishFindings(report)
+
 	// Narrow the VIEW, never the computation (D7). The comparison above already
 	// produced the whole picture; only report.Results — the rows the table
 	// prints — is narrowed here, and every counter on report keeps the value the
@@ -512,6 +535,7 @@ func runCompare(cmd *cobra.Command, args []string) {
 		// are up-to-date" claim reportEmptyCompare is about to make.
 		reportSkippedBaseline(report)
 		reportEmptyCompare(repoInfo.Name, compareOnlyRedundant, compareOnlyPatched)
+		printFilteredOutFindings(report.Findings)
 		printComparisonSummary(report, repoInfo.Name)
 		exitOnSkippedBaseline(report)
 		return
@@ -577,6 +601,58 @@ func filterCompareResults(results []overlay.CompareResult, onlyRedundant, onlyPa
 		filtered = append(filtered, r)
 	}
 	return filtered
+}
+
+// printFilteredOutFindings states the findings the comparison established about
+// packages the operator's filter removed from the table (S046-R5.1).
+//
+// # It exists because these facts used to be lost, and could not have been saved
+//
+// A finding printed beneath a section dies with the section. `--only-patched` on
+// an overlay whose undeclared divergences are all unpatched leaves no row, so no
+// section, so no line — and the run that just proved eight packages differ from
+// ::gentoo with nothing declaring why said none of it. Before sub-task 7.1 there
+// was nothing a caller could do about that: the findings existed only as text
+// the renderer had already composed and thrown away. They are values now, the
+// caller is holding them, and this is the caller printing them.
+//
+// # The presentation is deliberately minimal and unstyled
+//
+// One line per finding, its atom, its sentence — no colour, no glyph, no
+// grouping, no table. `overlay compare`'s whole report moves into the report
+// envelope in story 047, which will render these properly and export them; a
+// second styled renderer built here would be a second thing to migrate and a
+// second place for the wording to drift in the meantime.
+//
+// # FindingCompared is skipped, and that is the whole of the filtering
+//
+// Every compared package carries one, so printing them would answer a request to
+// see FEWER packages with a line about every package in the overlay. What is
+// printed is what a section would have printed: the divergences, the stale
+// declarations and the registry declarations. Nothing is printed at all when
+// there are none, so an ordinary empty run — nothing outdated, no filter —
+// reaches this and says nothing, exactly as it does today.
+func printFilteredOutFindings(findings []overlay.Finding) {
+	var lines []string
+	for _, f := range findings {
+		if f.Kind == overlay.FindingCompared {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("  %s: %s", f.Atom, f.Detail))
+	}
+	if len(lines) == 0 {
+		return
+	}
+
+	logger.Info("")
+	logger.Info("%s", "The comparison still established the following about packages the filter removed:")
+	for _, line := range lines {
+		// Written as an ARGUMENT and never as a format string. A finding's Detail
+		// is built from ebuild text, registry text and — for the effect sentence a
+		// renderer may add later — a language model's words, none of which may
+		// reach a formatter as a format string.
+		logger.Info("%s", line)
+	}
 }
 
 // reportEmptyCompare says why the report has no rows to show.

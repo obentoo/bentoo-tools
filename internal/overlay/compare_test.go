@@ -300,32 +300,18 @@ func TestTruncateString(t *testing.T) {
 	}
 }
 
-func TestGetStatusColor(t *testing.T) {
-	tests := []struct {
-		name   string
-		status CompareStatus
-		isNil  bool
-	}{
-		{"up-to-date has color", StatusUpToDate, false},
-		{"outdated has color", StatusOutdated, false},
-		{"newer has color", StatusNewer, false},
-		{"not-in-remote has color", StatusNotInRemote, false},
-		{"error has color", StatusError, false},
-		{"unknown status returns nil", CompareStatus(99), true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			color := getStatusColor(tt.status)
-			if tt.isNil && color != nil {
-				t.Errorf("expected nil color for %v, got %v", tt.status, color)
-			}
-			if !tt.isNil && color == nil {
-				t.Errorf("expected non-nil color for %v, got nil", tt.status)
-			}
-		})
-	}
-}
+// TestGetStatusColor is GONE, together with the function it exercised
+// (S046-R5.2, story 046 sub-task 7.1).
+//
+// It asserted that this package answers "what colour is `outdated`?" for every
+// CompareStatus — which is the defect, stated as a contract. A library that
+// picks the colour has decided how its facts look before its caller has seen
+// them, and a value that arrives carrying an escape sequence cannot be exported
+// to JSON, written into Markdown or logged plain.
+//
+// Nothing replaces it, because nothing replaced the function: Status is a value
+// with a String(), TestCompareStatus above pins that word for all five, and what
+// the word looks like belongs to whoever renders it.
 
 func TestFormatTableLine(t *testing.T) {
 	tests := []struct {

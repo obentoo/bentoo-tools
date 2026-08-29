@@ -211,6 +211,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still prints its plan and produces no report. `overlay manifest --dry-run`
   does produce one.
 
+- **BREAKING for anyone reading `overlay compare` by eye: the report is no
+  longer coloured.** Every one of the 61 places where a library under
+  `internal/overlay` picked a colour, padded a column or composed a sentence has
+  been replaced by a value returned to the caller. The information is unchanged
+  and the layout is unchanged; the escape sequences are gone. Piped or
+  redirected output is byte-identical to before, because it never carried them.
+
+  This is deliberate and it is temporary. A library that prints has already
+  decided how its facts look, and a fact in that shape can be printed and
+  nothing else — it cannot be written to a Markdown file, exported as JSON,
+  diffed, filtered or counted, and it cannot be tested without capturing
+  stdout. Restyling arrives in the next release, when `overlay compare`'s report
+  moves onto the same renderers `overlay autoupdate`, `overlay manifest` and
+  `snapshot run` already use, and gains `--ui`, `--export` and three modes with
+  it. The colour comes back through `render/`; it is not coming back into the
+  library.
+
+  A guard now enforces the boundary: any package under `internal/overlay` or
+  `internal/snapshot` that imports the terminal printer fails its test suite,
+  naming the offending file and saying where the finding belongs instead. It was
+  verified to still bite — a blank import, the weakest form the violation can
+  take, was reinstated, the failure observed, and the file restored.
+
+- **A comparison's findings are values, not sentences.** `CompareReport` gained
+  a `Findings` list. Each entry names what it is about in a field (the atom), in
+  text nothing decorated, alongside the version, the upstream, the proving file
+  and — the field that matters most — what the divergence actually **does**,
+  kept apart from **how far that can be trusted**: a maintainer's declared
+  `patched` reason, a model's reading labelled as a reading, or an honest "not
+  known". Those three were previously flattened into one pre-composed string,
+  which is why a report could headline a patch filename where the real
+  divergence was a slotted install.
+
+  The same list now carries the facts that used to live only in fields a
+  renderer had to know to look for: a skipped baseline review states itself
+  wherever a review that ran would have spoken, so it can no longer go missing
+  from a count or an export.
+
 
 ### Added
 - **A report envelope every command can produce, and a section vocabulary every

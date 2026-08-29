@@ -45,6 +45,10 @@ func runAdd(cmd *cobra.Command, args []string) {
 			logger.Error("getting status: %v", err)
 			osExit(1)
 		}
+		// Plain text, by the same call runStatus documents at length: the library
+		// composes what was staged, this command shows it, and nothing here
+		// re-applies the colour overlay.FormatStatus used to decide for it
+		// (S046-R5.2).
 		logger.Info("%s", overlay.FormatStatus(statuses))
 	}
 

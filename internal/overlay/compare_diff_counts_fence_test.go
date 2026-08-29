@@ -32,19 +32,44 @@ import (
 // has to remember; this file makes it mechanical.
 
 // diffCountReaders is the whole allow-list. It has two entries by construction
-// rather than by policy: one function FILLS the counts and one PRINTS them, and
+// rather than by policy: one function FILLS the counts and one STATES them, and
 // anything between those two ends is a computation on the size of a difference —
 // which is the thing R1.3 forbids.
 //
 // The fill site's use is an ASSIGNMENT to the fields, not a read of them. The
 // walk below sees a selector either way, and that is intended: a function that
 // can write the counts is a function that decides what they say, so it belongs
-// on the list on the same terms as the one that prints them.
+// on the list on the same terms as the one that states them.
+//
+// # The second end MOVED in story 046, and it is still one end
+//
+// It used to be formatVerificationFindings, which interpolated "(+%d/-%d)"
+// straight into a line. Sub-task 7.1 made the report's findings VALUES the
+// caller receives (S046-R5.1), so the counts are now written onto a Finding by
+// compareFindings and the formatter renders that finding's own sentence — it
+// never names either field. Two things follow, and both are the reason this
+// comment is longer than the list:
+//
+//   - the end did not multiply, it moved. Naming both would leave a permitted
+//     reader that reads nothing, and the presence check below would then be
+//     asserting over a name the package no longer uses — a fence still green
+//     while guarding nothing;
+//   - undeclaredFinding, which builds the divergence finding, takes the two
+//     counts as plain int PARAMETERS for exactly this reason. It could as
+//     easily have read them off the result, and then the allow-list would have
+//     grown a third entry and lost the "two ends by construction" argument that
+//     makes it trustworthy.
+//
+// What the fence protects is unchanged: neither end computes on the size, and no
+// third function may name the fields at all. Finding.Added and Finding.Removed
+// are spelled differently on purpose, so this scan keeps watching the source of
+// truth rather than a copy of it.
 var diffCountReaders = []string{
 	// compare.go: result.DiffAdded, result.DiffRemoved = check.added, check.removed
 	"comparePackageWithProvider",
-	// compare.go: the "(+%d/-%d)" on the undeclared-divergence finding.
-	"formatVerificationFindings",
+	// compare.go: the counts written onto the undeclared-divergence Finding, and
+	// the "(+%d/-%d)" in the sentence that finding carries.
+	"compareFindings",
 }
 
 // diffCountFields are the two names the fence watches.
@@ -245,9 +270,9 @@ func summariseCheck(c contentCheck) int {
 // It is a reader all the same.
 var divergenceTolerance = CompareResult{}.DiffRemoved
 
-// The render site, spelled as compare.go spells it, so the allow-list is proved
+// The state site, spelled as compare.go spells it, so the allow-list is proved
 // to be a filter rather than a blanket.
-func formatVerificationFindings(r CompareResult) string {
+func compareFindings(r CompareResult) string {
 	return fmt.Sprintf("(+%d/-%d)", r.DiffAdded, r.DiffRemoved)
 }
 `
@@ -284,11 +309,11 @@ func TestDiffCountsFenceDetectsAViolation(t *testing.T) {
 	})
 
 	t.Run("an allowed reader is seen and permitted", func(t *testing.T) {
-		if n := len(readsBy(reads, "formatVerificationFindings")); n != 2 {
-			t.Fatalf("the collector found %d reads in the probe's render site, want 2; the allow-list is never exercised", n)
+		if n := len(readsBy(reads, "compareFindings")); n != 2 {
+			t.Fatalf("the collector found %d reads in the probe's state site, want 2; the allow-list is never exercised", n)
 		}
-		if n := len(readsBy(forbidden, "formatVerificationFindings")); n != 0 {
-			t.Errorf("the fence reports %d violations in formatVerificationFindings, which is on the allow-list; "+
+		if n := len(readsBy(forbidden, "compareFindings")); n != 0 {
+			t.Errorf("the fence reports %d violations in compareFindings, which is on the allow-list; "+
 				"a fence that flags its own permitted readers cannot stay in the build", n)
 		}
 	})

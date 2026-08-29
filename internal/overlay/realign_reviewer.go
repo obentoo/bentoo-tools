@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/obentoo/bentoolkit/internal/common/logger"
-	"github.com/obentoo/bentoolkit/internal/common/output"
 	"github.com/obentoo/bentoolkit/internal/common/provider"
 )
 
@@ -254,7 +253,7 @@ func realignDeclarationHolds(declared []DeclaredDivergence) bool {
 // a run that asked for no verdicts and a machine with no `claude` on PATH reach
 // one no-op path instead of two conditions in cmd/ that could disagree.
 //
-// # It returns NOTHING, and that is R4.4
+// # It returns NO ERROR, and that is R4.4 — but it does leave its FINDINGS behind
 //
 // An unreachable model is EXIT 0 (D9). The deterministic half of the report — the
 // baseline, the structural axes, the declarations, the reduction — is complete
@@ -263,6 +262,12 @@ func realignDeclarationHolds(declared []DeclaredDivergence) bool {
 // that returned an error would hand the caller something to exit on, and an
 // overlay whose model was briefly unreachable would fail a pipeline for a reason
 // that has nothing to do with the overlay.
+//
+// What it does NOT leave to a renderer is what it established. Like
+// AnnotateBaseline, it finishes by asking EstablishFindings to rebuild
+// report.Findings, so the model's readings are values the caller holds the
+// moment the pass returns rather than strings somebody has to know to print
+// (S046-R5.1).
 //
 // Every failure here is a way of HAVING NO VERDICT — a reviewer that errored, ran
 // out of time, answered with nothing usable, or an ebuild that moved underneath
@@ -437,6 +442,18 @@ func AnnotateRealignVerdicts(report *CompareReport, rev RealignReviewer, prov pr
 	}
 
 	report.RealignAsked, report.RealignNoVerdict = asked, unanswered
+
+	// And the verdicts reach the caller as FINDINGS, not only as a field on each
+	// result (S046-R5.1). Until this call they exist as RealignVerdict strings a
+	// renderer has to know to look at, so a consumer walking report.Findings —
+	// an export, a count, a second renderer — is told a model judged nothing.
+	//
+	// It is EstablishFindings rather than an append for the reason AnnotateBaseline
+	// gives: the findings are a pure function of the report, so a rebuild after
+	// this pass produces the list the earlier one would have produced had the
+	// verdicts been there, and it never doubles. The early returns above skip it
+	// on purpose — a pass that judged nothing changed nothing to re-establish.
+	EstablishFindings(report)
 }
 
 // realignBaselineIsAnnotated reports whether the baseline review has already
@@ -573,11 +590,26 @@ func formatRealignVerdict(note RealignNote) string {
 // everything it asked about AND every run that asked about nothing — including
 // every run that requested no review at all, which is what keeps R7.2's
 // byte-identical promise mechanical.
+//
+// It is a run-level SUMMARY and not a finding, on formatBaselineSummary's own
+// argument: it names no package, so a Finding built from it would carry a blank
+// atom — which Finding.Atom permits for exactly one kind and forbids everywhere
+// else — and both numbers it states are already FIELDS the caller is holding
+// (RealignAsked, RealignNoVerdict). Nothing is lost by summarising here: a
+// consumer with the report re-derives the sentence from those two fields, which
+// is the whole of what R5.1 asks for.
+//
+// It chooses NO APPEARANCE (S046-R5.2). The line used to arrive yellow, and a
+// colour is a decision only a terminal can use — the same sentence has to reach
+// a Markdown file, a JSON export and a log unchanged. What is left is
+// arrangement: the blank line that separates it from the report above, and the
+// lead that says which line this is. Off a TTY the result is byte-identical to
+// yesterday's, and story 047 restyles the whole report in the renderers.
 func formatRealignSummary(report *CompareReport) string {
 	if report == nil || report.RealignNoVerdict <= 0 {
 		return ""
 	}
-	return output.Sprintf(output.Warning,
+	return fmt.Sprintf(
 		"\n%s%d of the %d divergences put to the model came back with no verdict — they were not judged, and an unjudged divergence is not a justified one. Everything above was established by reading files and stands without a model.\n",
 		realignSummaryLead, report.RealignNoVerdict, report.RealignAsked)
 }

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/obentoo/bentoolkit/internal/common/ebuild"
-	"github.com/obentoo/bentoolkit/internal/common/output"
 )
 
 // baselineRepo is the repository every baseline comes from.
@@ -469,18 +468,43 @@ func LocateBaselineTree(candidate string) (string, error) {
 // else a run that examined 320 packages would report itself as having examined
 // none.
 //
-// _Requirements: R1, R1.5_
+// # It leaves the outcome as a FINDING as well as a field
+//
+// A field is something a renderer has to know to look at. This one is the run's
+// only "we could not look", and a consumer walking report.Findings — an export,
+// a count, a second renderer — would otherwise be told nothing at all about a
+// run that compared nothing, which is the same absence reported by another
+// route (S046-R5.1). So the last thing this does is ask EstablishFindings to
+// rebuild the list, and the caller is holding the finding the moment this
+// returns.
+//
+// EstablishFindings is asked rather than a finding appended, because it is the
+// ONE place report.Findings is written: `overlay compare` calls it again once
+// its annotation passes have run, and an appended entry would be silently
+// discarded by that call. baselineRunFindings reads report.BaselineSkipped, so
+// the finding and the field are one statement and cannot come to disagree.
+// Rebuilding is also idempotent, which is what makes it safe here AND in
+// AnnotateBaseline, which calls both.
+//
+// _Requirements: R1, R1.5, S046-R5.1_
 func MarkBaselineSkipped(report *CompareReport, lookedFor string) {
 	if lookedFor == "" {
 		// Nothing was configured, so there is no path to name. Naming an empty one
 		// would print a sentence with a hole in it, which reads as a bug in the
 		// report rather than as the missing configuration it is.
+		//
+		// It still SAYS SOMETHING, and the finding below is still established: a
+		// review that could not run must speak wherever a review that ran would
+		// have, and a run reporting nothing is indistinguishable from one where
+		// every package matched ::gentoo.
 		report.BaselineSkipped = "no ::gentoo tree was configured, so nothing was compared against ::gentoo"
-		return
+	} else {
+		report.BaselineSkipped = fmt.Sprintf(
+			"no ::gentoo tree at %s — looked for its %s marker, so nothing was compared against ::gentoo",
+			lookedFor, portageRepoMarker)
 	}
-	report.BaselineSkipped = fmt.Sprintf(
-		"no ::gentoo tree at %s — looked for its %s marker, so nothing was compared against ::gentoo",
-		lookedFor, portageRepoMarker)
+
+	EstablishFindings(report)
 }
 
 // baselineSkippedLead opens the run-level SKIPPED line. It is a constant so a
@@ -498,11 +522,21 @@ const baselineSkippedLead = "Baseline review SKIPPED: "
 // The text names an operator-configured path, so it is passed as an ARGUMENT and
 // never as a format string, exactly like every other piece of text this report
 // prints.
+//
+// It chooses NO APPEARANCE (S046-R5.2). The line used to arrive yellow, which is
+// a decision only a terminal can use and one this library had no business
+// making: the same sentence has to reach a Markdown file, a JSON export and a
+// log unchanged. The FACT is already a value the caller holds twice over —
+// report.BaselineSkipped and the FindingBaselineSkipped entry MarkBaselineSkipped
+// establishes — so what is left here is arrangement: the blank line that
+// separates it from the report, and the lead that says which line this is.
+// Off a TTY the result is byte-identical to yesterday's, and story 047 is where
+// the report's appearance is decided again, in the renderers.
 func formatBaselineSkipped(report *CompareReport) string {
 	if report.BaselineSkipped == "" {
 		return ""
 	}
-	return output.Sprintf(output.Warning, "\n%s%s\n", baselineSkippedLead, report.BaselineSkipped)
+	return fmt.Sprintf("\n%s%s\n", baselineSkippedLead, report.BaselineSkipped)
 }
 
 // splitBaselineAtom splits "category/package" and refuses anything else.
