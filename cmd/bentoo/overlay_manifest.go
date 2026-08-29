@@ -140,19 +140,52 @@ func runManifest(cmd *cobra.Command, args []string) {
 		Ctx:            runCtx,
 	}
 
-	updates := overlay.RegenerateManifests(ctx.OverlayPath, targets, opts)
-	result := &overlay.ManifestResult{Updates: updates}
+	result := overlay.RegenerateManifests(ctx.OverlayPath, targets, opts)
 
 	// Tear the UI down (stop the program, restore the terminal) before any
 	// further logging or exit so the summary is not swallowed by the TUI.
 	finishUI()
 
-	logger.Info("%s", overlay.FormatManifestResult(result, opts.DryRun))
+	// The run ends in a report, and it ends in exactly one (S046-R1.1).
+	//
+	// What stood here was logger.Info over overlay.FormatManifestResult — the
+	// same facts, formatted by the library, on stderr, in one mode, exportable
+	// by nothing. That sentence is what story 046 replaces: the counts are
+	// values now (ManifestResult.Ok/Failed), the report is assembled whole
+	// before any of it is displayed (R1.3), and the same value is rendered in
+	// the mode the run resolved and written to --export if one was named.
+	//
+	// It is not printed AS WELL. Two statements of one run's outcome, in two
+	// voices on two streams, is the defect rather than a safety net: an
+	// operator would read the list of targets twice and have no way to tell
+	// which of the two was authoritative the day they disagreed.
+	//
+	// AFTER finishUI() and not one line before it. The live region owns the
+	// terminal until the program is stopped, and the report writes to that same
+	// stdout — rendering first would draw it into a frame the TUI then redraws
+	// over. This is the point in the run where the terminal has been handed
+	// back, so it is the first point the report may be drawn.
+	presentManifestReport(ctx.Config, buildManifestReport(&result, opts.DryRun))
 
 	if opts.DryRun {
 		return
 	}
-	for _, u := range updates {
+
+	// An interrupted run does not exit 0, and saying so explicitly is what KEEPS
+	// today's behaviour rather than changing it. Until this sub-task, a
+	// cancelled run drained its queue against a dead context and came back with
+	// every remaining target marked failed, so the loop below always found one
+	// and the status was 1. Those fabricated failures are gone — that is the
+	// point of R1.4 — and without this line their disappearance would silently
+	// turn a ctrl+c into a success for any script reading the status.
+	//
+	// It is checked BEFORE the rows, not instead of them: the two answer
+	// different questions, and the first one to say "not a clean run" wins.
+	if result.Interrupted {
+		osExit(1)
+		return
+	}
+	for _, u := range result.Updates {
 		if !u.Success {
 			osExit(1)
 			return

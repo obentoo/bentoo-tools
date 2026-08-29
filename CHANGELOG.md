@@ -136,6 +136,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   config resolution at a temporary HOME, forces a non-TTY, and returns the exit
   status instead of ending the test binary.
 
+- **`overlay manifest` ends in a report, like `overlay autoupdate --check`
+  does.** It used to end with a sentence the library had already formatted —
+  `"%d ok, %d failed"` handed to the progress reporter — which nothing could
+  count, export or render a second way. It now renders a report in whichever
+  mode the run resolved, honours `--ui`, `--all` and `--export`, and writes an
+  envelope whose `kind` is `overlay.manifest`, so a script can tell a manifest
+  export from a check export without being told which command wrote it.
+
+      bentoo overlay manifest --ui=plain --export=run.json
+      jq '.kind'                 ->  "overlay.manifest"
+      jq '.payload.ok, .payload.failed'
+      jq '.payload.targets[] | select(.success | not)'
+
+  A `--dry-run` says so in the envelope rather than looking like a run in which
+  every package failed: a preview invokes nothing, so nothing succeeded, and the
+  counts are stated against `dry_run` instead of being summed from the targets.
+
+- **Interrupting a manifest run now leaves you the report of what it had done.**
+  Ctrl+C used to cost the whole summary. The run returns what it established,
+  the envelope carries `complete: false` and a `not_evaluated` count of the
+  targets never started, and both the terminal render and the export say the run
+  stopped early.
+
+  Making that true meant fixing something underneath it: cancelling a run killed
+  the `pkgdev` process and nothing it had spawned, and Go's `cmd.Wait` does not
+  return while any descendant still holds the output pipe — so a cancelled
+  target held the entire run open for the lifetime of a grandchild. Measured at
+  30.002 s against a child that slept 30 s. `pkgdev` is now started in its own
+  process group and the group is signalled, so an interrupt returns promptly and
+  leaves no orphaned fetcher writing into a distfiles directory the run is about
+  to remove. On platforms with no process groups the wait is bounded instead,
+  which returns just as promptly and is honest that the descendant is abandoned.
+
+- **A failed manifest target carries its error and its output, not a sentence.**
+  `ManifestUpdate` gained `Err error` (wrapped with `%w` and naming the atom, so
+  it can be unwrapped and matched) and `Output string` (what the failing command
+  printed, kept because by the time a report is rendered the terminal that
+  streamed it live is gone). The existing `Error` string is unchanged and still
+  atom-free — both formatters prefix the atom themselves.
+
 
 ### Added
 - **A report envelope every command can produce, and a section vocabulary every

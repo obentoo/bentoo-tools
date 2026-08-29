@@ -1,0 +1,12 @@
+Manifest Regeneration
+─────────────────────
+  4 target(s) processed: 3 regenerated, 1 failed.
+
+  PACKAGE           STATE
+  sys-apps/portage  failed
+    pkgdev exited 1; output: !!! failed to fetch portage-3.0.66.tar.bz2
+
+  3 target(s) were regenerated and are not listed; pass --all to list them.
+  What a target that succeeded printed is not kept: it was shown while the run was live, and holding
+  a verbatim copy of every worker's output would grow with the overlay. A target that failed carries
+  its own, in full.

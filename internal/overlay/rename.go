@@ -105,7 +105,39 @@ type ManifestUpdate struct {
 	Category string
 	Package  string
 	Success  bool
-	Error    string
+	// Error is the failure as the SENTENCE the formatters print, and it
+	// deliberately carries no atom: FormatManifestResult and FormatRenameResult
+	// both write "<category>/<package>: " immediately before it, so a copy of
+	// the atom in here would be printed twice on every failure line.
+	Error string
+	// Err is that same failure as a VALUE — the cause wrapped with %w and with
+	// the category/package that produced it (S046-R5.1).
+	//
+	// It exists beside Error rather than replacing it because a string is a
+	// dead end: it cannot be unwrapped, it cannot be matched with errors.Is,
+	// and a caller that needs to know WHICH failure it holds is reduced to
+	// searching text for a phrase. It carries the atom although Error does not,
+	// because an error travels on its own — into a log line, into another wrap,
+	// into a report row assembled long after the loop that produced it — and an
+	// error that has left the row naming its package cannot be reproduced.
+	//
+	// Nil on success, and nil only on success: "did this target fail?" is
+	// answered by Success and Err agreeing, never by whether a field happens to
+	// have been populated.
+	Err error
+	// Output is what the failing command printed — pkgdev's own diagnostic,
+	// verbatim, including the "[bentoo] reused N distfile(s)" line the run
+	// injects into the same stream. It is the text the operator acts on, and by
+	// the time a report is rendered the terminal that streamed it live is gone
+	// (S046-R5.2).
+	//
+	// It is populated ONLY on failure. The capture is a verbatim, unbounded copy
+	// of every byte the child wrote — a package fetching a large distfile can
+	// emit megabytes of progress output — and a whole-overlay run would hold one
+	// per target for as long as the caller holds the slice. A successful
+	// target's output has no reader to justify that: it was already streamed
+	// through the Reporter while the target ran.
+	Output string
 	// Reused is the number of distfiles symlinked from the distfiles cache
 	// (e.g. /var/cache/distfiles) into the working distdir, sparing pkgdev
 	// from re-downloading them. Zero when no cache is configured or no
@@ -323,7 +355,13 @@ func updateManifests(renamed []RenameMatch, overlayPath string) []ManifestUpdate
 
 	// Rename flow keeps the existing Manifest (Keep=true): the new ebuild's
 	// SRC_URI may share filenames with the old one and pkgdev will reconcile.
-	return RegenerateManifests(overlayPath, targets, &ManifestOptions{Keep: true})
+	//
+	// Only the per-target rows are taken. The run's own two facts — whether it
+	// was cut short, and how many targets it never evaluated — are dropped here
+	// because this path passes no Ctx, so the run cannot be cancelled and both
+	// are always the zero value. A rename that grows a cancellable context is
+	// the change that must start carrying them.
+	return RegenerateManifests(overlayPath, targets, &ManifestOptions{Keep: true}).Updates
 }
 
 // FormatRenameResult formats the rename result for display.

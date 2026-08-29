@@ -139,7 +139,7 @@ func TestManifestReporterNotInvokedWhenPkgdevMissing(t *testing.T) {
 
 	rec := &recManifestReporter{}
 	targets := []ManifestUpdate{{Category: "c", Package: "a"}, {Category: "c", Package: "b"}}
-	updates := RegenerateManifests(t.TempDir(), targets, &ManifestOptions{Reporter: rec, Jobs: 2, Keep: true})
+	updates := RegenerateManifests(t.TempDir(), targets, &ManifestOptions{Reporter: rec, Jobs: 2, Keep: true}).Updates
 
 	if len(updates) != 2 {
 		t.Fatalf("got %d updates, want 2", len(updates))
@@ -160,7 +160,7 @@ func TestWorkerPool_PreservesInputOrder(t *testing.T) {
 	for i := range targets {
 		targets[i] = ManifestUpdate{Category: "cat", Package: fmt.Sprintf("pkg-%d", i)}
 	}
-	got := RegenerateManifests("/nonexistent", targets, &ManifestOptions{DryRun: true, Jobs: 8})
+	got := RegenerateManifests("/nonexistent", targets, &ManifestOptions{DryRun: true, Jobs: 8}).Updates
 	if len(got) != len(targets) {
 		t.Fatalf("got %d updates, want %d", len(got), len(targets))
 	}

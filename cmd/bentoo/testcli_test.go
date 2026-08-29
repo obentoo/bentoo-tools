@@ -238,7 +238,46 @@ func newTestCLI(t *testing.T) *testCLI {
 	// developer's shell cannot reach the run.
 	t.Setenv("BENTOO_UI", "")
 
+	restoreReportFlags(t)
+
 	return &testCLI{t: t, home: home, overlay: overlay}
+}
+
+// restoreReportFlags puts the three report flags back the way it found them when
+// the test ends, the way t.Setenv does for the environment above.
+//
+// # The flags are PACKAGE variables, and that is deliberate rather than an
+// # oversight
+//
+// newRootCmd binds --verbose, --quiet and --no-color to locals and publishes
+// them in PersistentPreRun, but binds --ui, --all and --export straight to the
+// package variables of the same name — see the comment there for why (a publish
+// line naming autoupdateAll would put that identifier outside a renderer
+// Options, which TestAllDoesNotChangeActions forbids). pflag writes the DEFAULT
+// through that pointer at construction, so building a tree resets all three, and
+// a harness that builds one per Run cannot leak flag state INTO the next run.
+//
+// # What it can leak into is a test that never builds a tree
+//
+// resolveAutoupdateUIMode reads autoupdateUI and autoupdateNoTUI directly, so a
+// test calling autoupdateUsesTUI or manifestUsesTUI with no CLI at all reads
+// whatever the last `Run(..., "--ui=plain")` in the package left behind. That
+// makes such a test's result depend on which file sorts before it, which is not
+// a property a suite may have: the two live-region guards in
+// overlay_manifest_test.go passed for a year and turned red the day a new file
+// landed between them and the previous harness user, having changed neither
+// their assertions nor the code under them.
+//
+// Restoring on cleanup closes it at the source. It is not a fix for one
+// ordering — it makes every ordering equivalent, which is the only version of
+// this that stays true as files are added.
+func restoreReportFlags(t *testing.T) {
+	t.Helper()
+
+	ui, all, export, noTUI := autoupdateUI, autoupdateAll, autoupdateExport, autoupdateNoTUI
+	t.Cleanup(func() {
+		autoupdateUI, autoupdateAll, autoupdateExport, autoupdateNoTUI = ui, all, export, noTUI
+	})
 }
 
 // Overlay is the path of the temporary overlay, so a test can arrange the run
