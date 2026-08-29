@@ -39,10 +39,12 @@ var (
 	snapshotRestoreConfirm func(string) bool
 )
 
-var snapshotRestoreCmd = &cobra.Command{
-	Use:   "restore <id>",
-	Short: "Restore a snapshot from a ship target into a path",
-	Long: `Restore snapshot <id> into --target using the named --ship entry.
+// newSnapshotRestoreCmd builds `snapshot restore`.
+func newSnapshotRestoreCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "restore <id>",
+		Short: "Restore a snapshot from a ship target into a path",
+		Long: `Restore snapshot <id> into --target using the named --ship entry.
 
 The ship's type selects the path: an "archive" ship replays the object chain
 (rclone cat | decompress | btrfs receive); a "restic" ship runs restic restore.
@@ -53,24 +55,22 @@ Each subvolume's objects live under their own remote prefix, so a restore has to
 know which subvolume it reads from. With exactly one subvolume configured that is
 implied and --subvolume is unnecessary; with several, name one — the restore
 refuses to guess rather than read another subvolume's backups.`,
-	Args: cobra.ExactArgs(1),
-	Run:  runSnapshotRestore,
-}
-
-func init() {
-	snapshotRestoreCmd.Flags().StringVar(&snapshotRestoreTarget, "target", "",
+		Args: cobra.ExactArgs(1),
+		Run:  runSnapshotRestore,
+	}
+	cmd.Flags().StringVar(&snapshotRestoreTarget, "target", "",
 		"path to restore the snapshot into (required)")
-	snapshotRestoreCmd.Flags().StringVar(&snapshotRestoreShip, "ship", "",
+	cmd.Flags().StringVar(&snapshotRestoreShip, "ship", "",
 		"name of the [[ship]] entry that drives the restore (required)")
-	snapshotRestoreCmd.Flags().StringVar(&snapshotRestoreSubvolume, "subvolume", "",
+	cmd.Flags().StringVar(&snapshotRestoreSubvolume, "subvolume", "",
 		"which configured subvolume to restore from (needed only when several are configured)")
-	snapshotRestoreCmd.Flags().BoolVarP(&snapshotRestoreYes, "yes", "y", false,
+	cmd.Flags().BoolVarP(&snapshotRestoreYes, "yes", "y", false,
 		"skip the destructive-restore confirmation prompt")
-	snapshotRestoreCmd.Flags().BoolVar(&snapshotRestoreDryRun, "dry-run", false,
+	cmd.Flags().BoolVar(&snapshotRestoreDryRun, "dry-run", false,
 		"print the destructive restore actions without performing them")
-	_ = snapshotRestoreCmd.MarkFlagRequired("target")
-	_ = snapshotRestoreCmd.MarkFlagRequired("ship")
-	snapshotCmd.AddCommand(snapshotRestoreCmd)
+	_ = cmd.MarkFlagRequired("target")
+	_ = cmd.MarkFlagRequired("ship")
+	return cmd
 }
 
 func runSnapshotRestore(cmd *cobra.Command, args []string) {

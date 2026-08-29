@@ -799,16 +799,15 @@ func presentCheckReport(run report.Run, planPrinted bool) {
 	// empty scan skips the render and nothing else. An early return there would
 	// have made `--export` silently conditional on the scan finding something,
 	// which S045-R3.3 does not allow and S045-R4.3 asks for the opposite of.
-	if autoupdateExport == "" {
-		return
-	}
-	if err := writeExport(autoupdateExport, run); err != nil {
-		// Warn, never fatal: the answer has already been delivered — rendered
-		// above, or stated by the logger on the empty scan — and an export that
-		// changed the exit status would make a display flag decide whether a
-		// run counted as successful.
-		logger.Warn("%v", err)
-	}
+	//
+	// LAST, after the render, and that ordering is R3.5's: an export is an
+	// additional copy of an answer already delivered — rendered above, or stated
+	// by the logger on the empty scan — so a path that cannot be written must
+	// cost neither that answer nor the exit status. exportReport is the CLI's
+	// one export path (report_export.go); this command supplies a report.Run and
+	// decides nothing else about it, which is what lets `overlay manifest` and
+	// `snapshot run` reach the same behaviour with the same one line.
+	exportReport(run)
 }
 
 // exportContent is what an EXPORT asks the report to say (R9.3, R2.4).
@@ -818,7 +817,9 @@ func presentCheckReport(run report.Run, planPrinted bool) {
 // report.AutoupdateCheck.Sections ANSWERS these two questions; nothing in the model gets
 // to choose them. Whether a record lists every scanned package or counts them,
 // and whether it states the plan, is a property of the artefact being produced
-// — and this command is what knows it is producing a file rather than a screen.
+// — and cmd/bentoo is the layer that knows it is producing a file rather than a
+// screen. It is no longer this COMMAND's decision either: --export is the root's
+// now, so the answer below is the CLI's and is the same for every producer.
 //
 // # It is built here rather than in overlay_autoupdate_ui.go, where the export lives
 //
@@ -829,11 +830,25 @@ func presentCheckReport(run report.Run, planPrinted bool) {
 // question later, because the plan is where a package's reason is stated at all
 // (R7.2).
 //
-// listEvery is the one content decision an export still makes, and the two
-// export formats disagree about it today; the named constants at each call site
-// say which is which.
-func exportContent(listEvery bool) report.SectionOptions {
-	return report.SectionOptions{ShowAll: listEvery, SkipPlan: keepThePlan}
+// # It takes no argument, and that is R3.4 written as a signature
+//
+// It used to take a listEvery bool, because the Markdown export LISTED every
+// package a run found up to date while the plain export COUNTED them. That
+// disagreement was inherited verbatim from the renderers story 046 replaced —
+// preserved deliberately at the time, since changing it then would have moved a
+// render nobody had asked to move, and left open.
+//
+// R3.4 closes it: the file carries the complete report, every unit, nothing
+// shortened, whatever the terminal was told. Two answers cannot both be that,
+// and the plain export was the one that was not — an operator who opened a
+// .log instead of a .md got a record that could not answer "was this package
+// checked at all". Both formats now ask for everyScannedPackage.
+//
+// The parameter went with it rather than being passed the same constant twice.
+// A knob that shortens an export is a knob an export can be shortened by, and a
+// function with no parameter cannot be handed one in a hurry.
+func exportContent() report.SectionOptions {
+	return report.SectionOptions{ShowAll: everyScannedPackage, SkipPlan: keepThePlan}
 }
 
 // scanDisabledOrphans counts the packages this run auto-disabled: an entry

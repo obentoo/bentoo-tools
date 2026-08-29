@@ -14,10 +14,12 @@ var (
 	snapshotHookUninstall bool
 )
 
-var snapshotHookCmd = &cobra.Command{
-	Use:   "hook",
-	Short: "Install or remove the opt-in Portage emerge snapshot hook (snapper only)",
-	Long: `Install or remove an OPT-IN Portage hook that snapshots before and after emerge.
+// newSnapshotHookCmd builds `snapshot hook`.
+func newSnapshotHookCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "hook",
+		Short: "Install or remove the opt-in Portage emerge snapshot hook (snapper only)",
+		Long: `Install or remove an OPT-IN Portage hook that snapshots before and after emerge.
 
 --install writes /etc/portage/bashrc.d/50-bentoo-snapshot.sh and wires it into
 /etc/portage/bashrc via a managed block. The hook uses snapper's native pre/post
@@ -29,15 +31,13 @@ user content in /etc/portage/bashrc.
 
 The hook is never installed implicitly: 'bentoo snapshot apply' does not touch
 /etc/portage — only this explicit command does.`,
-	Run: runSnapshotHook,
-}
-
-func init() {
-	snapshotHookCmd.Flags().BoolVar(&snapshotHookInstall, "install", false,
+		Run: runSnapshotHook,
+	}
+	cmd.Flags().BoolVar(&snapshotHookInstall, "install", false,
 		"install the Portage emerge hook (pre/post snapper snapshots)")
-	snapshotHookCmd.Flags().BoolVar(&snapshotHookUninstall, "uninstall", false,
+	cmd.Flags().BoolVar(&snapshotHookUninstall, "uninstall", false,
 		"remove the Portage emerge hook")
-	snapshotCmd.AddCommand(snapshotHookCmd)
+	return cmd
 }
 
 func runSnapshotHook(cmd *cobra.Command, _ []string) {

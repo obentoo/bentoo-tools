@@ -489,10 +489,17 @@ func TestOverlayCommandHasLongDescription(t *testing.T) {
 	}
 }
 
-// TestRootCommandPersistentPreRunNotNil tests PersistentPreRun is set.
+// TestRootCommandPersistentPreRunNotNil tests the root's pre-run hook is set.
+//
+// It reads PersistentPreRunE, not PersistentPreRun, for the reason
+// TestRootCommandHasPersistentPreRun in version_completion_test.go gives at
+// length: story 046 sub-task 4.4 put --ui rejection in this hook (R3.2), and
+// only the error-returning variant can stop cobra before RunE. Cobra ignores
+// PersistentPreRun entirely once PersistentPreRunE is set, so the old field is
+// now permanently nil by design.
 func TestRootCommandPersistentPreRunNotNil(t *testing.T) {
-	if rootCmd.PersistentPreRun == nil {
-		t.Error("rootCmd should have PersistentPreRun set")
+	if rootCmd.PersistentPreRunE == nil {
+		t.Error("rootCmd should have PersistentPreRunE set")
 	}
 }
 

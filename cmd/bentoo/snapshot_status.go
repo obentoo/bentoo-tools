@@ -14,14 +14,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var snapshotStatusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show the last run, timer state, and free space",
-	Run:   runSnapshotStatus,
-}
-
-func init() {
-	snapshotCmd.AddCommand(snapshotStatusCmd)
+// newSnapshotStatusCmd builds `snapshot status`.
+func newSnapshotStatusCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show the last run, timer state, and free space",
+		Run:   runSnapshotStatus,
+	}
+	return cmd
 }
 
 func runSnapshotStatus(cmd *cobra.Command, _ []string) {

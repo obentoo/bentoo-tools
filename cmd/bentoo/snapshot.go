@@ -15,10 +15,15 @@ var (
 	snapshotRunner snapshot.Runner
 )
 
-var snapshotCmd = &cobra.Command{
-	Use:   "snapshot",
-	Short: "Manage btrfs snapshots (btrbk + systemd)",
-	Long: `Manage btrfs snapshots declaratively via a single snapshot.toml.
+// newSnapshotCmd builds `snapshot`.
+//
+// It also registers every command under it, following the rule the tree is
+// built by: a parent's constructor registers its own children.
+func newSnapshotCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "snapshot",
+		Short: "Manage btrfs snapshots (btrbk + systemd)",
+		Long: `Manage btrfs snapshots declaratively via a single snapshot.toml.
 
 bentoolkit orchestrates mature tools — btrbk for snapshot/send-receive and systemd
 for scheduling — rather than reimplementing them.
@@ -28,11 +33,22 @@ Examples:
   bentoo snapshot run                 Run the snapshot pipeline now
   bentoo snapshot list                List local snapshots per subvolume
   bentoo snapshot status              Show last run, timer state, and free space`,
-}
-
-func init() {
-	snapshotCmd.PersistentFlags().StringVar(&snapshotConfigPath, "config", "",
+	}
+	cmd.PersistentFlags().StringVar(&snapshotConfigPath, "config", "",
 		"path to snapshot.toml (default: /etc/bentoo, then XDG)")
+
+	cmd.AddCommand(
+		newSnapshotApplyCmd(),
+		newSnapshotHookCmd(),
+		newSnapshotListCmd(),
+		newSnapshotPruneCmd(),
+		newSnapshotRestoreCmd(),
+		newSnapshotRollbackCmd(),
+		newSnapshotRunCmd(),
+		newSnapshotStatusCmd(),
+	)
+
+	return cmd
 }
 
 // loadSnapshotConfig resolves, loads, and validates the snapshot config. Used by

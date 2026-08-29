@@ -152,10 +152,6 @@ Examples:
 	return clean
 }
 
-func init() {
-	overlayCmd.AddCommand(newStagedCmd())
-}
-
 // runStagedCleanCmd is the cobra half: signals, config, the staging root.
 // Everything decidable without them lives in runStagedClean, which takes the
 // overlay path and the staging root as parameters so the whole flow is drivable

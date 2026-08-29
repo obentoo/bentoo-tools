@@ -404,21 +404,40 @@ func writeExport(path string, run report.Run) error {
 // two named above, and it is what a format this switch has not been taught
 // about still produces — a whole report in the least demanding syntax there is,
 // rather than an empty file.
+//
+// # The sections are built ONCE, above the switch
+//
+// It is the same move presentCheckReport makes for the three screen modes, for
+// the same reason: it turns "the export formats differ in syntax and not in
+// content" into a fact about this call rather than a promise about three
+// renderers. A branch that built its own could quietly ask for less, which is
+// exactly what the plain export did until story 046's sub-task 4.5 — it counted
+// the packages found up to date where Markdown listed them, and an export whose
+// completeness depends on the extension is a rule the operator has to know and
+// nobody wrote down (S046-R3.4).
+//
+// JSON does not consume them, and building them on that path costs a slice of
+// rows this function then drops. That is the price of the invariant above, and
+// it is worth it: render.JSON serializes the whole run, so the completeness it
+// arrives at is the same one from the other direction, and there is nothing in
+// its signature to shorten either.
 func renderExport(w io.Writer, run report.Run, format exportFormat) error {
+	blocks := run.Sections(exportContent())
+
 	switch format {
 	case exportMarkdown:
-		return render.Markdown(w, run.Sections(exportContent(everyScannedPackage)))
+		return render.Markdown(w, blocks)
 	case exportJSON:
 		return render.JSON(w, run)
 	default:
-		return render.Plain(w, run.Sections(exportContent(countTheUpToDate)), render.Options{Width: unshortenedWidth})
+		return render.Plain(w, blocks, render.Options{Width: unshortenedWidth})
 	}
 }
 
-// The three values an export asks for when it builds its sections. They are
+// The two values an export asks for when it builds its sections. They are
 // constants rather than fields read back from a caller: an export never asks
 // what the terminal was told, so there is nothing here for a screen setting to
-// arrive through (R9.3, R2.4).
+// arrive through (R9.3, R2.4, S046-R3.4).
 //
 // They are named rather than written as bare literals because
 // `r.Sections(report.SectionOptions{true, false})` says only that something was
@@ -426,28 +445,23 @@ func renderExport(w io.Writer, run report.Run, format exportFormat) error {
 // overlay_autoupdate_check.go, beside the screen's own options, because building
 // a report.SectionOptions means writing down the field that omits the plan — and
 // a source-text guard over this file forbids that name here, precisely so an
-// export can never acquire one. These three constants are already what
+// export can never acquire one. These two constants are already what
 // report.Payload.Sections is asked, so sub-task 3.1's rename leaves them
 // untouched.
+//
+// There were THREE until story 046's sub-task 4.5. The third, countTheUpToDate,
+// was everyScannedPackage's opposite and was what the PLAIN export asked for —
+// a disagreement inherited verbatim from the renderer that path replaced, and
+// deliberately left open at the time. S046-R3.4 answers it: the file carries the
+// complete report whatever the terminal was told, so both formats now ask for
+// everyScannedPackage and the constant that shortened one of them is gone.
 const (
 	// everyScannedPackage lists every package the run looked at, instead of
-	// counting the ones found up to date. It is what the MARKDOWN export asks
-	// for: a record is kept precisely because the terminal is gone, and one
-	// that named only the interesting packages could not answer "was this one
-	// checked at all".
+	// counting the ones found up to date. It is what EVERY export asks for: a
+	// record is kept precisely because the terminal is gone, and one that named
+	// only the interesting packages could not answer "was this one checked at
+	// all".
 	everyScannedPackage = true
-
-	// countTheUpToDate is the opposite, and it is what the PLAIN export asks
-	// for today: the up-to-date packages counted rather than listed.
-	//
-	// It disagrees with everyScannedPackage above, and the disagreement is
-	// pre-existing rather than introduced here. render.Plain used to build its
-	// own sections from the render.Options it was handed, and the literal this
-	// path builds carries ShowAll false — so this constant is that behaviour
-	// written down, byte for byte, now that the sections are built by the
-	// caller. Whether R9.3 should make the two exports agree is a question this
-	// sub-task deliberately does not answer.
-	countTheUpToDate = false
 
 	// keepThePlan states the validation-plan section, whatever the screen was
 	// told to do with it (R2.4).

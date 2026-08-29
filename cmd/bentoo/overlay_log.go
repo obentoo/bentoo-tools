@@ -14,18 +14,18 @@ var (
 	logOneline bool
 )
 
-var logCmd = &cobra.Command{
-	Use:   "log",
-	Short: "Show commit history",
-	Long:  `Show the commit history of the overlay repository.`,
-	Args:  cobra.NoArgs,
-	Run:   runLog,
-}
-
-func init() {
-	logCmd.Flags().IntVarP(&logCount, "count", "n", 10, "Number of commits to show")
-	logCmd.Flags().BoolVarP(&logOneline, "oneline", "o", false, "Show one line per commit")
-	overlayCmd.AddCommand(logCmd)
+// newLogCmd builds `overlay log`.
+func newLogCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "log",
+		Short: "Show commit history",
+		Long:  `Show the commit history of the overlay repository.`,
+		Args:  cobra.NoArgs,
+		Run:   runLog,
+	}
+	cmd.Flags().IntVarP(&logCount, "count", "n", 10, "Number of commits to show")
+	cmd.Flags().BoolVarP(&logOneline, "oneline", "o", false, "Show one line per commit")
+	return cmd
 }
 
 func runLog(cmd *cobra.Command, args []string) {

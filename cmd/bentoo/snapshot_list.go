@@ -15,16 +15,16 @@ import (
 // Remote sources are strictly opt-in: without the flag no remote query runs.
 var snapshotListRemote bool
 
-var snapshotListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List local snapshots per subvolume",
-	Run:   runSnapshotList,
-}
-
-func init() {
-	snapshotListCmd.Flags().BoolVar(&snapshotListRemote, "remote", false,
+// newSnapshotListCmd builds `snapshot list`.
+func newSnapshotListCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List local snapshots per subvolume",
+		Run:   runSnapshotList,
+	}
+	cmd.Flags().BoolVar(&snapshotListRemote, "remote", false,
 		"also list remote snapshots (btrbk targets, restic repository)")
-	snapshotCmd.AddCommand(snapshotListCmd)
+	return cmd
 }
 
 func runSnapshotList(cmd *cobra.Command, _ []string) {

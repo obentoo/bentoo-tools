@@ -123,10 +123,6 @@ Examples:
 	return cmd
 }
 
-func init() {
-	overlayCmd.AddCommand(newValidateCmd())
-}
-
 // runValidate drives the gate and exits with the report's code.
 //
 // # Why the flags are parsed here

@@ -6,16 +6,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var addCmd = &cobra.Command{
-	Use:   "add [paths...]",
-	Short: "Add files to the staging area",
-	Long: `Add files to the Git staging area in the overlay repository.
+// newAddCmd builds `overlay add`.
+func newAddCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add [paths...]",
+		Short: "Add files to the staging area",
+		Long: `Add files to the Git staging area in the overlay repository.
 If no paths are specified, adds all changes (equivalent to "git add .").`,
-	Run: runAdd,
-}
-
-func init() {
-	overlayCmd.AddCommand(addCmd)
+		Run: runAdd,
+	}
+	return cmd
 }
 
 func runAdd(cmd *cobra.Command, args []string) {

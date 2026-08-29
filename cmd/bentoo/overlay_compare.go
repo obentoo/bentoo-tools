@@ -70,10 +70,12 @@ var (
 	compareYes bool
 )
 
-var compareCmd = &cobra.Command{
-	Use:   "compare [repository]",
-	Short: "Compare overlay packages with upstream repository",
-	Long: `Compare package versions in your local Bentoo overlay against
+// newCompareCmd builds `overlay compare`.
+func newCompareCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "compare [repository]",
+		Short: "Compare overlay packages with upstream repository",
+		Long: `Compare package versions in your local Bentoo overlay against
 an upstream repository.
 
 Any repository from the Gentoo ecosystem (~428 repos) can be used by name.
@@ -116,33 +118,31 @@ Examples:
   bentoo overlay compare --only-patched     # Show only declared divergences
   bentoo overlay compare --no-review        # Contact no model
   bentoo overlay compare --realign          # Review against the ::gentoo baseline`,
-	Args: cobra.MaximumNArgs(1),
-	Run:  runCompare,
-}
-
-func init() {
-	compareCmd.Flags().BoolVar(&compareClone, "clone", false, "Use git clone instead of API")
-	compareCmd.Flags().StringVar(&compareCacheDir, "cache-dir", "", "Directory to cache data")
-	compareCmd.Flags().BoolVar(&compareNoCache, "no-cache", false, "Disable caching")
-	compareCmd.Flags().IntVar(&compareTimeout, "timeout", 30, "HTTP request timeout in seconds")
-	compareCmd.Flags().StringVar(&compareToken, "token", "", "Auth token for API provider")
-	compareCmd.Flags().BoolVar(&compareOnlyOutdated, "only-outdated", false, "Show only outdated packages (Bentoo < Gentoo)")
-	compareCmd.Flags().BoolVar(&compareOnlyRedundant, "only-redundant", false, "Show only redundant packages (removal candidates)")
-	compareCmd.Flags().BoolVar(&compareOnlyPatched, "only-patched", false, "Show only packages a registry entry declares a divergence for")
-	compareCmd.Flags().BoolVar(&compareSync, "sync", false, "Force refresh of repository list")
-	compareCmd.Flags().IntVar(&compareConcurrency, "concurrency", overlay.DefaultCompareConcurrency, "max parallel checks (1-100)")
-	compareCmd.Flags().BoolVar(&compareNoReview, "no-review", false, "Contact no model; print the report without commentary")
-	compareCmd.Flags().BoolVar(&compareRealign, "realign", false, "Review each package against its ::gentoo baseline (needs a local gentoo tree)")
+		Args: cobra.MaximumNArgs(1),
+		Run:  runCompare,
+	}
+	cmd.Flags().BoolVar(&compareClone, "clone", false, "Use git clone instead of API")
+	cmd.Flags().StringVar(&compareCacheDir, "cache-dir", "", "Directory to cache data")
+	cmd.Flags().BoolVar(&compareNoCache, "no-cache", false, "Disable caching")
+	cmd.Flags().IntVar(&compareTimeout, "timeout", 30, "HTTP request timeout in seconds")
+	cmd.Flags().StringVar(&compareToken, "token", "", "Auth token for API provider")
+	cmd.Flags().BoolVar(&compareOnlyOutdated, "only-outdated", false, "Show only outdated packages (Bentoo < Gentoo)")
+	cmd.Flags().BoolVar(&compareOnlyRedundant, "only-redundant", false, "Show only redundant packages (removal candidates)")
+	cmd.Flags().BoolVar(&compareOnlyPatched, "only-patched", false, "Show only packages a registry entry declares a divergence for")
+	cmd.Flags().BoolVar(&compareSync, "sync", false, "Force refresh of repository list")
+	cmd.Flags().IntVar(&compareConcurrency, "concurrency", overlay.DefaultCompareConcurrency, "max parallel checks (1-100)")
+	cmd.Flags().BoolVar(&compareNoReview, "no-review", false, "Contact no model; print the report without commentary")
+	cmd.Flags().BoolVar(&compareRealign, "realign", false, "Review each package against its ::gentoo baseline (needs a local gentoo tree)")
 	// The default is the EMPTY string and not a rung's name, unlike `overlay
 	// validate --depth`, because the two defaults mean opposite things: there the
 	// shallowest useful rung IS the shipped behaviour, here any rung at all is a
 	// build nobody asked for. Absent means report-only, which is what `--realign`
 	// shipped as.
-	compareCmd.Flags().StringVar(&compareDepth, "depth", "",
+	cmd.Flags().StringVar(&compareDepth, "depth", "",
 		"Prove each proposed realignment by building it to this rung of the ladder — patches, configure, compile or install, each including every rung before it. "+
 			"Needs --realign, builds in a staged tree outside the overlay, and asks once before the first build. Absent means report only, and nothing is built")
-	compareCmd.Flags().BoolVar(&compareYes, "yes", false, "Prove the whole plan without the prompt. Only --depth builds anything; publishing stays a separate per-package question, asked only in an interactive terminal and never answered by this flag")
-	overlayCmd.AddCommand(compareCmd)
+	cmd.Flags().BoolVar(&compareYes, "yes", false, "Prove the whole plan without the prompt. Only --depth builds anything; publishing stays a separate per-package question, asked only in an interactive terminal and never answered by this flag")
+	return cmd
 }
 
 func runCompare(cmd *cobra.Command, args []string) {

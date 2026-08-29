@@ -6,15 +6,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var statusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show the status of changes in the overlay",
-	Long:  `Display the current status of changes in the overlay repository, grouped by category/package.`,
-	Run:   runStatus,
-}
-
-func init() {
-	overlayCmd.AddCommand(statusCmd)
+// newStatusCmd builds `overlay status`.
+func newStatusCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show the status of changes in the overlay",
+		Long:  `Display the current status of changes in the overlay repository, grouped by category/package.`,
+		Run:   runStatus,
+	}
+	return cmd
 }
 
 func runStatus(cmd *cobra.Command, args []string) {

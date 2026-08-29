@@ -101,10 +101,12 @@ var (
 // can type.
 const pruneNoLocalTreeRefusal = "no local ::gentoo tree; re-run with --clone or a local provider"
 
-var pruneCmd = &cobra.Command{
-	Use:   "prune [category[/package]]",
-	Short: "Remove overlay packages ::gentoo already ships identically",
-	Long: `Plan the removal of overlay packages ::gentoo already ships, and with
+// newPruneCmd builds `overlay prune`.
+func newPruneCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "prune [category[/package]]",
+		Short: "Remove overlay packages ::gentoo already ships identically",
+		Long: `Plan the removal of overlay packages ::gentoo already ships, and with
 --apply carry that plan out.
 
 Only CONTENT may authorise a removal. The verdict from 'bentoo overlay compare'
@@ -150,16 +152,14 @@ Examples:
   bentoo overlay prune --include-patched        # consider the diverging ones too
   bentoo overlay prune --apply                  # carry the plan out
   bentoo overlay prune --apply --keep-registry  # remove the files, keep the registry`,
-	Args: cobra.MaximumNArgs(1),
-	Run:  runPruneCmd,
-}
-
-func init() {
-	pruneCmd.Flags().BoolVar(&pruneApply, "apply", false, "Carry out the plan (default: plan only, remove nothing)")
-	pruneCmd.Flags().BoolVar(&pruneIncludePatched, "include-patched", false, "Also remove packages carrying an UNDECLARED difference, discarding that work (refused regardless: a declared 'patched' entry, or a difference the content proves originates here)")
-	pruneCmd.Flags().BoolVar(&pruneKeepRegistry, "keep-registry", false, "Leave .autoupdate/packages.toml untouched")
-	pruneCmd.Flags().BoolVar(&pruneYes, "yes", false, "Skip the identical batch's confirmation (never the diverging one)")
-	overlayCmd.AddCommand(pruneCmd)
+		Args: cobra.MaximumNArgs(1),
+		Run:  runPruneCmd,
+	}
+	cmd.Flags().BoolVar(&pruneApply, "apply", false, "Carry out the plan (default: plan only, remove nothing)")
+	cmd.Flags().BoolVar(&pruneIncludePatched, "include-patched", false, "Also remove packages carrying an UNDECLARED difference, discarding that work (refused regardless: a declared 'patched' entry, or a difference the content proves originates here)")
+	cmd.Flags().BoolVar(&pruneKeepRegistry, "keep-registry", false, "Leave .autoupdate/packages.toml untouched")
+	cmd.Flags().BoolVar(&pruneYes, "yes", false, "Skip the identical batch's confirmation (never the diverging one)")
+	return cmd
 }
 
 // runPruneCmd is the cobra half: signals, config, overlay path. Everything that

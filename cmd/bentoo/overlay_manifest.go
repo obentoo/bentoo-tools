@@ -25,10 +25,12 @@ type ManifestFlags struct {
 
 var manifestFlags ManifestFlags
 
-var manifestCmd = &cobra.Command{
-	Use:   "manifest [<category> | <category>/<package>]",
-	Short: "Regenerate Manifest files for overlay packages",
-	Long: `Regenerate Manifest files for one or more packages in the overlay.
+// newManifestCmd builds `overlay manifest`.
+func newManifestCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "manifest [<category> | <category>/<package>]",
+		Short: "Regenerate Manifest files for overlay packages",
+		Long: `Regenerate Manifest files for one or more packages in the overlay.
 
 By default, the existing Manifest is moved aside before pkgdev runs so a
 fresh file is produced (clean regeneration). The backup is restored
@@ -81,17 +83,15 @@ Examples:
 
   # Disable the system distfiles cache lookup
   bentoo overlay manifest --distfiles-cache ""`,
-	Args: cobra.MaximumNArgs(1),
-	Run:  runManifest,
-}
-
-func init() {
-	manifestCmd.Flags().BoolVar(&manifestFlags.Keep, "keep", false, "Keep existing Manifest in place (skip clean regen)")
-	manifestCmd.Flags().BoolVarP(&manifestFlags.DryRun, "dry-run", "n", false, "Show what would be processed without running pkgdev")
-	manifestCmd.Flags().StringVar(&manifestFlags.Distdir, "distdir", "", "Distfiles directory used by pkgdev (default: temporary directory removed after run)")
-	manifestCmd.Flags().IntVarP(&manifestFlags.Jobs, "jobs", "j", overlay.DefaultManifestJobs, "Maximum parallel pkgdev workers")
-	manifestCmd.Flags().StringVar(&manifestFlags.DistfilesCache, "distfiles-cache", overlay.DefaultDistfilesCache, "Read-only distfiles cache consulted before download (\"\" disables)")
-	overlayCmd.AddCommand(manifestCmd)
+		Args: cobra.MaximumNArgs(1),
+		Run:  runManifest,
+	}
+	cmd.Flags().BoolVar(&manifestFlags.Keep, "keep", false, "Keep existing Manifest in place (skip clean regen)")
+	cmd.Flags().BoolVarP(&manifestFlags.DryRun, "dry-run", "n", false, "Show what would be processed without running pkgdev")
+	cmd.Flags().StringVar(&manifestFlags.Distdir, "distdir", "", "Distfiles directory used by pkgdev (default: temporary directory removed after run)")
+	cmd.Flags().IntVarP(&manifestFlags.Jobs, "jobs", "j", overlay.DefaultManifestJobs, "Maximum parallel pkgdev workers")
+	cmd.Flags().StringVar(&manifestFlags.DistfilesCache, "distfiles-cache", overlay.DefaultDistfilesCache, "Read-only distfiles cache consulted before download (\"\" disables)")
+	return cmd
 }
 
 func runManifest(cmd *cobra.Command, args []string) {

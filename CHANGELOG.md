@@ -76,6 +76,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and manifest targets, and a sentence that said "package" would be wrong for
   both. A run that stops part way still says how much it missed.
 
+- **`--ui`, `--export` and `--all` are the CLI's flags now, not `overlay
+  autoupdate`'s.** They were declared on one command, so every other command
+  that could have produced a report was a command you had to guess about. They
+  are persistent flags on the root beside `--verbose`, `--quiet` and
+  `--no-color`, and `overlay manifest --ui=plain --export=report.json` is
+  accepted today by a command that declares neither.
+
+  The precedence chain is unchanged and inherited whole: `--no-tui` outranks
+  `--ui`, which outranks `BENTOO_UI`, which outranks the `ui.mode` config key,
+  which falls back to `auto`. `--no-tui` deliberately stayed on `overlay
+  autoupdate` — it is deprecated, and giving every command a second opt-out
+  competing with `--ui` would be the opposite of retiring it.
+
+  The known cost, accepted: the three flags appear in `--help` for commands
+  that produce no report, `version` and `completion` among them. A flag that is
+  accepted and does nothing is a smaller defect than three flags whose help
+  texts drift apart.
+
+- **An unusable `--ui` now stops any command before it does any work.**
+  `--ui=bogus` is rejected once per invocation, in the root's pre-run hook,
+  naming the set it accepts — rather than inside whichever command happened to
+  remember to check. Nothing runs: no scan, no fetch, no file written. Only the
+  flag's VALUE is checked there, deliberately, so that `bentoo version` does not
+  start failing on a host whose config cannot be loaded; the full precedence
+  chain still resolves where the report is produced, unchanged.
+
+- **An exported report is no longer shortenable, in any format.** `--export` to
+  a `.md` path listed every package a run scanned; the same export to a `.log`
+  or a `.txt` COUNTED the ones found up to date instead of naming them. The
+  disagreement was inherited from the renderer that path replaced and is now
+  settled in favour of the complete record: every format writes every unit,
+  every reason in full, whatever `--all` and `--ui` asked of the terminal.
+
+      before:  --export=run.log   ->  "247 packages up to date"
+      after:   --export=run.log   ->  every one of the 247 named
+
+  A record is kept precisely because the terminal is gone, and one missing
+  exactly what the screen dropped cannot answer "was this package checked at
+  all". The export path is a single function every future report-producing
+  command reaches, and it takes a `report.Run` and nothing else — there is no
+  parameter through which a screen setting could arrive.
+
+- **An export that cannot be written still costs nothing.** Unchanged in
+  behaviour, restated here because it is now the CLI's rule rather than one
+  command's: the failure is reported on stderr naming the path it attempted,
+  the report is still rendered to the terminal, and the run exits with the
+  status it would otherwise have had.
+
+- **The command tree is built by constructors instead of assembled by
+  `init()`.** Internal, with no operator-visible effect — `bentoo <cmd> --help`
+  is byte-identical. Every command file now exposes a `newXCmd()` that
+  registers its own flags and children, and `newRootCmd()` returns a fully
+  wired tree with pristine flag values. The old package-level variables remain
+  as lookups into the one production tree, so existing tests are untouched.
+  cobra keeps a flag's parsed value and its `Changed` bit ON the command, so a
+  test suite driving one shared tree let one case's `--ui` survive into the
+  next; there is now an end-to-end harness that builds a tree per run, points
+  config resolution at a temporary HOME, forces a non-TTY, and returns the exit
+  status instead of ending the test binary.
+
 
 ### Added
 - **A report envelope every command can produce, and a section vocabulary every

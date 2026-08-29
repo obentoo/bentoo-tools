@@ -12,19 +12,19 @@ import (
 // RunResult persisted (008 R2.2).
 var snapshotRunDryRun bool
 
-var snapshotRunCmd = &cobra.Command{
-	Use:   "run",
-	Short: "Run the snapshot pipeline now",
-	Long: `Execute the engine → prune → ship pipeline for every configured subvolume,
+// newSnapshotRunCmd builds `snapshot run`.
+func newSnapshotRunCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "Run the snapshot pipeline now",
+		Long: `Execute the engine → prune → ship pipeline for every configured subvolume,
 persist a RunResult for 'status', and exit non-zero if any stage failed. This is
 the command driven by the systemd timer.`,
-	Run: runSnapshotRun,
-}
-
-func init() {
-	snapshotRunCmd.Flags().BoolVar(&snapshotRunDryRun, "dry-run", false,
+		Run: runSnapshotRun,
+	}
+	cmd.Flags().BoolVar(&snapshotRunDryRun, "dry-run", false,
 		"print the pipeline that would run, without executing it")
-	snapshotCmd.AddCommand(snapshotRunCmd)
+	return cmd
 }
 
 func runSnapshotRun(cmd *cobra.Command, _ []string) {
