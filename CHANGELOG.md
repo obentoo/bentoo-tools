@@ -176,6 +176,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   streamed it live is gone). The existing `Error` string is unchanged and still
   atom-free — both formatters prefix the atom themselves.
 
+- **`snapshot run` ends in a report too, and the envelope held.** It renders in
+  whichever mode the run resolved, honours `--ui`, `--all` and `--export`, and
+  writes an envelope whose `kind` is `snapshot.run`. The report names every
+  subvolume the run operated on and the outcome of each step — create, prune,
+  ship, gfs — with the ship target named where there was one.
+
+      bentoo snapshot run --ui=plain --export=run.json
+      jq '.kind'                       ->  "snapshot.run"
+      jq '.payload.subvolume'
+      jq '.payload.steps[] | select(.success | not)'
+
+  This was the design's own test, and it is the reason `snapshot run` was picked
+  rather than a second package-shaped command: a snapshot run shares no
+  vocabulary with a version check, so if the report envelope only fitted
+  package-shaped runs this is where it would have shown. **Adding it edited no
+  renderer.** A guard now enforces that from here on — no file under
+  `internal/common/report/render/` may name a payload type — and it is recorded
+  in the test what the guard prints when one does, because a green guard proves
+  nothing about what it would catch.
+
+  Two lines were removed rather than kept beside the report: the
+  `✓ snapshot run completed (N stages)` success line, and the run error
+  re-printed on stderr afterwards. Two statements of one run's outcome, in two
+  voices on two streams, is not a safety net — it is a reader with no way to
+  tell which is authoritative the day they disagree. The exit status is
+  unchanged.
+
+  `snapshot run` now reads `config.yaml`, which it never did before, so that
+  `ui.mode` is honoured. A config carrying unknown keys will show that loader's
+  own warnings where a timer-driven run previously showed none.
+
+  Known gap, stated rather than left to be discovered: `snapshot run --dry-run`
+  still prints its plan and produces no report. `overlay manifest --dry-run`
+  does produce one.
+
 
 ### Added
 - **A report envelope every command can produce, and a section vocabulary every

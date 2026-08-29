@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/obentoo/bentoolkit/internal/common/logger"
-	"github.com/obentoo/bentoolkit/internal/common/output"
 	"github.com/obentoo/bentoolkit/internal/snapshot"
 	"github.com/spf13/cobra"
 )
@@ -65,11 +64,37 @@ func runSnapshotRun(cmd *cobra.Command, _ []string) {
 	if perr := result.SaveLastRun(); perr != nil {
 		logger.Warn("snapshot run: persist result: %v", perr)
 	}
-	if runErr != nil {
-		logger.Error("snapshot run: %v", runErr)
-		osExit(1)
-		return
-	}
 
-	output.PrintSuccess("snapshot run completed (%d stages)", len(result.Stages))
+	// The run ends in a report, and it ends in exactly one (S046-R1.2).
+	//
+	// What stood here was output.PrintSuccess("snapshot run completed (%d
+	// stages)") on the way out of a successful run, and logger.Error with the
+	// pipeline's own error on the way out of a failed one. Both are gone, and
+	// they are gone for the reason runManifest states for its own removal: two
+	// statements of one run's outcome, in two voices on two streams, is the
+	// defect rather than a safety net — an operator would have no way to tell
+	// which of the two was authoritative the day they disagreed.
+	//
+	// Neither was a loss. "3 stages" answered neither of R1.6's questions —
+	// which subvolume, and how each step came out — and the failure line said
+	// "snapshot run completed with failures", which is the number the report now
+	// prints beside the name of every step that produced it. The error paths
+	// ABOVE this point keep their logger.Error calls, and the rule is the same
+	// one: before a report exists, the log line is the only statement there is;
+	// after it exists, a second one is a competing account of the same run.
+	//
+	// It is rendered BEFORE the exit branch below, not after, because the run
+	// that most needs a report is the one that failed. A report reached only on
+	// success would be missing exactly when it is read.
+	//
+	// ctx.Err() is the interruption half of the envelope: Manager.Run records a
+	// cancellation as a sentence in the same string field it uses for ordinary
+	// failures, so the context — which cannot be mistaken for anything else — is
+	// what the report is told.
+	presentSnapshotReport(snapshotReportConfig(),
+		buildSnapshotReport(&result, cfg.Engine.Subvolumes, ctx.Err() != nil))
+
+	if runErr != nil {
+		osExit(1)
+	}
 }

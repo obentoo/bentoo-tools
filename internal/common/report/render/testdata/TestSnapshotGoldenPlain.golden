@@ -1,0 +1,12 @@
+Snapshot Run
+────────────
+  The run operated on 1 subvolume(s): /home.
+  3 step(s) ran: 2 succeeded, 1 failed.
+
+  SUBVOLUME  STEP            STATE
+  /home      ship (offsite)  failed
+    rclone exited 1: directory not found
+
+  2 step(s) succeeded and are not listed; pass --all to list them.
+  How long each step took is not carried here: the run's own result file keeps the timings, and
+  'snapshot status' is what reads them back.
