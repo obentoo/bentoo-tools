@@ -62,19 +62,27 @@ const (
 	// subvolume snapshots. Its units are subvolumes rather than packages,
 	// which is the distance that proves the envelope carries no domain.
 	KindSnapshotRun Kind = "snapshot.run"
-	// KindOverlayValidate is RESERVED for `overlay validate --json`, which
-	// task 8 of story 046 migrates off its own JSON schema and onto this
-	// envelope (R4.3). It is declared now, ahead of its one call site, so
-	// that task sets a value where the document is built instead of
-	// reopening this file.
+	// KindOverlayValidate is `overlay validate`: the run that asks whether
+	// each ebuild still matches the source it points at, gate by gate. It was
+	// RESERVED here by sub-task 1.3 and is emitted by sub-task 8.1, which
+	// migrated `--json` off the schema of its own and onto this envelope
+	// (R4.3, D8) — the flag now names the same document `--export` writes to a
+	// `.json` path, at stdout.
 	//
-	// Its string was checked against the two rules above by hand — it equals
-	// no other kind and is a prefix of none, `overlay.manifest` included. That
-	// check is NOT yet mechanical: run_test.go's collision sweep works from a
-	// list it declares itself, and this constant is deliberately absent from
-	// it, because a reserved kind nothing produces is not yet part of the
-	// contract a consumer filters on. Task 8 adds it to that list in the same
-	// change that starts emitting it.
+	// Its payload is the only one this package does not declare, and that is
+	// the dependency direction rather than an omission: the facts a validation
+	// run establishes live in internal/autoupdate/validate, which
+	// boundary_test.go forbids this package from importing, so the type that
+	// puts them in the payload position sits at the adapter
+	// (cmd/bentoo/overlay_validate_report.go). Story 047 gives it a model of
+	// its own here, with sections; until then only the JSON export carries it,
+	// because that renderer reaches a payload's fields through encoding/json
+	// rather than through Sections.
+	//
+	// It is on run_test.go's collision sweep as of 8.1. That was the condition
+	// stated when it was reserved: a kind nothing produces is not yet part of
+	// the contract a consumer filters on, and the change that starts emitting
+	// it is the change that owes the mechanical check.
 	KindOverlayValidate Kind = "overlay.validate"
 )
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -112,7 +111,7 @@ Examples:
 		Args: cobra.MaximumNArgs(1),
 		Run:  runValidate,
 	}
-	cmd.Flags().Bool("json", false, "Write the whole report to stdout as a single JSON document")
+	cmd.Flags().Bool("json", false, "Write the whole report to stdout as a single JSON document. It is the same document --export=<path>.json writes to a file, at stdout instead: schema and kind at the root, and this command's own model one level down under payload. A consumer that already reads an exported report reads this one, and `jq '.kind'` says which command wrote it")
 	cmd.Flags().String("distdir", "", "Read distfiles from this directory (never created, never written to)")
 	// The default is the shipped behaviour, spelled out rather than left empty
 	// (R11.3): `--depth` absent and `--depth=options` are the same run, and the
@@ -282,11 +281,12 @@ func runValidate(cmd *cobra.Command, args []string) {
 		// run and a run that produced no output were indistinguishable to the `|
 		// jq` the flag exists for.
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			if asJSON {
-				renderValidateJSON(report, diag)
-			} else {
-				renderValidateText(report)
-			}
+			// complete=false, and this is the one call site that passes it. The
+			// envelope's Complete means "the run reached the end of its plan",
+			// and this branch is reached precisely because it did not — so the
+			// exported document says so in the key every kind of run answers,
+			// beside the diagnostic below that only a human reads.
+			presentValidateReport(report, false, asJSON, diag)
 			_, _ = fmt.Fprintf(diag, "  %v\n", err)
 			// 128 + SIGINT, the shell's own convention — and deliberately NOT 2.
 			// Report.ExitCode documents 2 as "the selector matched nothing", and
@@ -301,11 +301,11 @@ func runValidate(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	if asJSON {
-		renderValidateJSON(report, diag)
-	} else {
-		renderValidateText(report)
-	}
+	presentValidateReport(report, true, asJSON, diag)
+	// The status is the RUN's, computed from what the gates said. It is read
+	// after the export deliberately and is unaffected by it: exportReport
+	// returns nothing, so a path that could not be written has no value to
+	// travel back through (R3.5).
 	osExit(report.ExitCode())
 }
 
@@ -491,18 +491,19 @@ func overlayLabel(path string) string {
 	return path
 }
 
-// renderValidateJSON writes the whole report as ONE document (R5.8).
+// renderValidateJSON moved to overlay_validate_report.go with story 046's
+// sub-task 8.1, and its encoder went with it (R4.3, design D8). It used to build
+// a json.Encoder here and write validate.Report.Normalized() at the document
+// ROOT — the project's second JSON schema, which `--export` could not produce
+// and no consumer of `--export` could read. It now writes the same report.Run
+// every other command exports, through the same renderExport, with the model one
+// level down under "payload".
 //
-// One document and not a stream: a caller piping this into jq must not have to
-// reassemble it. Normalized turns nil slices into empty ones first, so
-// `.results[].findings[]` works on every entry.
-func renderValidateJSON(report validate.Report, diag io.Writer) {
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(report.Normalized()); err != nil {
-		_, _ = fmt.Fprintf(diag, "  writing the JSON report: %v\n", err)
-	}
-}
+// The note is left rather than deleted because this is where the JSON write path
+// has been since the flag was added, and it is where a reader looking for it will
+// come. What is still HERE is the human renderer below: this command's report
+// content migrates onto the shared model in story 047, and until it does, the
+// text a person reads is this file's own.
 
 // renderValidateText prints the human report.
 //

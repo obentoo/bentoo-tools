@@ -202,6 +202,14 @@ func TestNoThirdKindCollidesWithAnother(t *testing.T) {
 		"KindAutoupdateCheck": KindAutoupdateCheck,
 		"KindOverlayManifest": KindOverlayManifest,
 		"KindSnapshotRun":     KindSnapshotRun,
+		// Added by sub-task 8.1, the change that started emitting it. It was
+		// deliberately absent while it was only reserved — a kind nothing
+		// produces is not part of the contract a consumer filters on — and
+		// run.go said so, naming this list and this task. `overlay.validate`
+		// is the case the PREFIX rule below is for: it shares a domain with
+		// `overlay.manifest`, so the two are neighbours in exactly the way a
+		// `.kind | startswith("overlay.")` consumer would notice.
+		"KindOverlayValidate": KindOverlayValidate,
 	}
 
 	for aName, a := range declared {

@@ -33,7 +33,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   otherwise — the `payload` object is the old root minus those two keys, so a
   mechanical migration is `.payload as $p | ...`.
 
-  **Why break it at all, and why `2`.** `kind` is what lets a consumer tell two
+  **`overlay validate --json` moved onto the same envelope, in the same
+  release.** It had a JSON schema of its own — the validation report at the
+  document root — which meant two `bentoo` commands emitted two shapes and
+  neither said which command wrote it. It now writes exactly what
+  `--export=<path>.json` writes, to stdout:
+
+      before: {"overlay": "...", "results": [...], "unmatched_selector": "..."}
+      after:  {"schema": 2, "kind": "overlay.validate", "complete": true,
+               "payload": {"overlay": "...", "results": [...]}}
+
+      jq '.overlay'             ->  jq '.payload.overlay'
+      jq '.results'             ->  jq '.payload.results'
+      jq '.results[].gates[]'   ->  jq '.payload.results[].gates[]'
+      jq '.unmatched_selector'  ->  jq '.payload.unmatched_selector'
+
+  `--json` is now an alias for `--export` at stdout rather than a second
+  mechanism: one code path, one document shape, and `kind` telling a consumer
+  which command produced it. Both migrations are announced here, together,
+  because a consumer piping `bentoo` into `jq` should read the change once.
+
+  **One gap, stated rather than left to be found.** `overlay validate
+  --export=report.md` and `--export=report.txt` write an **empty file**. Those
+  two renderers draw sections, and the validation payload has none yet: turning
+  a validation run into blocks means deciding what it says gate by gate, which
+  is the next release's work. Only the JSON form carries the run today, because
+  that renderer reaches the payload through its fields rather than through
+  sections. `--json` and `--export=<path>.json` are unaffected.
+
+    **Why break it at all, and why `2`.** `kind` is what lets a consumer tell two
   exported documents apart without being told which command wrote them, and it
   is what makes every subsequent addition non-breaking: a fourth command adds a
   `kind` value and changes no existing key. `schema` is `2` rather than `1`

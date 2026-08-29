@@ -1,0 +1,237 @@
+package main
+
+// The seam between `overlay validate` and the one export path the rest of the
+// CLI already goes through.
+//
+// Story 046, sub-task 8.1 — R4.3, R3.5, design D8.
+//
+// `overlay validate` carried the project's SECOND export format: its own
+// `--json` flag, over its own report type, in a schema no other command shared.
+// A consumer that had learned to read `--export`'s documents could not read this
+// one, and nothing in either document said why. D8 spends one announced break to
+// end that: `--json` becomes an alias for `--export` at stdout with a `.json`
+// shape, and the run it writes is the same report.Run every other command hands
+// to the same writer.
+//
+// # What this file moves, and what it deliberately does not
+//
+// It moves the FLAG'S MEANING and the ENVELOPE. The validate report's CONTENT —
+// the sections a human reads — migrates in story 047, and nothing here designs
+// it. That split is the reason validatePayload below is a wrapper rather than a
+// model: the payload is what `overlay validate` already assembles, wrapped, so
+// that 047 has one export path to migrate into rather than a choice to
+// re-litigate.
+//
+// # Why the wrapper lives HERE and not in internal/common/report
+//
+// internal/common/report may not import internal/autoupdate — boundary_test.go's
+// forbiddenImports makes that mechanical, and its remedy names this kind of file
+// as the fix. So the type that puts a validate.Report in the payload position has
+// to sit on the cmd/bentoo side of the boundary, which is where
+// overlay_manifest_report.go and snapshot_report.go already sit for the same
+// reason. This is the third instance of one register, not a new arrangement.
+
+import (
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/obentoo/bentoolkit/internal/autoupdate/validate"
+	"github.com/obentoo/bentoolkit/internal/common/report"
+)
+
+// validatePayload is one validation run's own facts, standing in the payload
+// position of the envelope.
+//
+// # It EMBEDS rather than copies, and that is the whole of its job
+//
+// An embedded struct field with no json tag is inlined by encoding/json, so the
+// document under "payload" carries exactly the keys validate.Report has always
+// carried — `overlay`, `results`, `unmatched_selector` — with the same tags,
+// which are documented in internal/autoupdate/validate/report.go as the contract
+// they are. A field-by-field copy here would be a second declaration of those
+// keys, wrong the first time somebody adds a field to the producer and forgets
+// this file, and silent on both sides when it happened.
+//
+// The consequence a reader should take from that: this story renames nothing and
+// drops nothing. The break it spends is the `.payload` hop and the two root keys
+// above it, and one break is what the CHANGELOG announces.
+//
+// # It is a WRAPPER because story 047 replaces it
+//
+// A proper report.ValidateRun payload — primitive facts, its own vocabulary, its
+// own Sections — is 047's work, and doing it here would be designing the content
+// this story's Out of Scope removes from it. What this story owes 047 is a single
+// export path with the kind already reserved and emitted, which is all this type
+// provides.
+type validatePayload struct {
+	validate.Report
+}
+
+// Sections is report.Payload's one method, and this payload has nothing to say
+// through it YET.
+//
+// # nil is the honest answer, not a stub
+//
+// Sections are the blocks a human-facing renderer draws — plain, Markdown,
+// inline, fullscreen. Turning a validation run into them means deciding what a
+// validation run SAYS: which gates get a block, how a skip states its reason,
+// what the headline column is. That is content, it is story 047's, and this
+// story's Out of Scope says so in as many words.
+//
+// The alternative was to invent a block here. It was rejected because a section
+// heading is the REPORT's to emit, never cmd/bentoo's, and because a
+// placeholder block would have to be un-invented in 047 by whoever then owns the
+// real one — after an operator had already seen it.
+//
+// # What that costs, stated rather than discovered later
+//
+// `overlay validate --export=report.md` and `--export=report.txt` write an EMPTY
+// file: those two renderers consume sections, and there are none. Only the
+// `.json` path — and `--json`, which is the same path at stdout — carries the run
+// today, because render.JSON serializes the envelope and reaches the payload's
+// fields through encoding/json rather than through this method. Story 047 fills
+// the other two by implementing this method, and changes no caller.
+//
+// The parameters are unnamed because neither is read. report.SectionOptions says
+// what a report should SAY, and a payload with nothing to say has nothing to
+// shorten or expand.
+func (validatePayload) Sections(report.SectionOptions) []report.Section { return nil }
+
+// validateEnvelope puts one validation run's facts inside the envelope every
+// exported document carries: the schema version, the kind of run that produced
+// it, the reader's label for it, and whether it reached the end of its plan
+// (R4.1, R4.3).
+//
+// It is manifestEnvelope's shape with the domain swapped, and every decision it
+// makes is that function's decision, made for a reason that has not changed just
+// because the command did.
+//
+// # The kind and the title are fixed per COMMAND, never per run
+//
+// report.KindOverlayValidate was reserved in sub-task 1.3 for exactly this call
+// site, and this is the change that starts emitting it. It is derived from
+// nothing this run establishes — not the overlay, not how many ebuilds matched,
+// not whether a gate failed — which is what makes `.kind == "overlay.validate"`
+// a filter rather than a guess. A kind that varied with what a run found would
+// answer one string for an empty run and another for a full one, so a consumer
+// filtering on it would receive some of this command's documents and silently
+// miss the rest.
+//
+// The title is a LABEL and not a discriminator, exactly as report.Run documents
+// it: two runs may share one, and a consumer that matched on it would be
+// matching on prose.
+//
+// # Normalized() is applied HERE, on the producer's side of the boundary
+//
+// render/json.go states the rule it will not break: a nil slice reaches the wire
+// as null, and a consumer that trips over one is looking at a producer that left
+// a slice nil — fixed there, not by a quiet rewrite on the way out. This is
+// "there". validate.Report.Normalized turns nil Results, Sources and Gates into
+// empty slices, `overlay validate --json` has applied it since the flag existed,
+// and `jq '.results[].gates[]'` works today because of it.
+//
+// Dropping it would be a SECOND break riding along with the announced one: the
+// same consumer that adds `.payload` would also have to start guarding against
+// null. This story spends one break, and this is how it stays one.
+//
+// # NotEvaluated is 0 even on an interrupted run, and that is a fact not a stub
+//
+// The envelope's gap counts planned units the run NEVER REACHED. validate.Run has
+// none: its governing rule is that a package in view is never left unmentioned,
+// so a cancelled sweep appends an interruptedResult for every remaining target
+// (internal/autoupdate/validate/run.go, both cancellation branches) and the
+// report still lists them all. Nothing is missing from the document, so the
+// honest count is zero — while Complete still says the run was cut short, which
+// is the fact the operator needs and the one the count cannot carry.
+func validateEnvelope(rep validate.Report, complete bool) report.Run {
+	return report.Run{
+		Schema:       report.SchemaVersion,
+		Kind:         report.KindOverlayValidate,
+		Title:        "Overlay validation",
+		Complete:     complete,
+		NotEvaluated: 0,
+		Payload:      validatePayload{Report: rep.Normalized()},
+	}
+}
+
+// renderValidateJSON writes the whole run to stdout as ONE document — the
+// document `--export=<path>.json` writes to a file, at stdout instead (R4.3).
+//
+// # It goes through renderExport, which is the entire point of sub-task 8.1
+//
+// Not through an encoder of its own. Two writers producing "the JSON document"
+// is how the CLI ended up with two JSON schemas in the first place, and a second
+// one would drift again — the indent, the HTML escaping, the trailing newline
+// and the envelope are all decided in render/json.go, once, for every caller.
+// exportJSON is named rather than inferred because there is no path here for
+// exportFormatFor to read an extension off: stdout has no extension, and `--json`
+// IS the extension the operator typed.
+//
+// # It still reports to diag rather than to the logger
+//
+// This is the one JSON surface where stdout belongs to the document alone, so
+// runValidate points diag at stderr for the whole `--json` run — a diagnostic in
+// the middle of the document would break the `| jq` the flag exists for. Passing
+// that same writer keeps this failure in the stream every other diagnostic of
+// this run went to, rather than opening a third voice for one line.
+//
+// A failed write is REPORTED and does not change the exit status: the caller
+// below exits on what the run DECIDED, and a stdout that went away is not a
+// finding about anybody's ebuild (R3.5).
+func renderValidateJSON(run report.Run, diag io.Writer) {
+	if err := renderExport(os.Stdout, run, exportJSON); err != nil {
+		_, _ = fmt.Fprintf(diag, "  writing the JSON report: %v\n", err)
+	}
+}
+
+// presentValidateReport puts the finished report in front of the operator: the
+// terminal first, then the export (R3.4, R3.5, R4.3).
+//
+// It is presentManifestReport's three steps in this command's vocabulary — build
+// the run, render it once, export it last — and the third step is what this
+// sub-task adds. `overlay validate` is now reachable by `--export` like every
+// other report-producing command, so an operator who learned the flag on
+// `overlay autoupdate` does not have to discover that one command spells it
+// differently.
+//
+// # The two terminal renderers are NOT the same choice as --ui
+//
+// asJSON picks between a machine's document and a human's text, and that is a
+// choice about WHO IS READING. --ui picks between plain, inline and fullscreen,
+// which is a choice about WHAT THE DEVICE ALLOWS, and this command does not make
+// it yet: its human half is still renderValidateText, its own printer, until
+// story 047 gives the payload sections for the shared renderers to draw. Wiring
+// --ui here before there is anything for it to render would be a flag that
+// changes nothing, which is worse than one that is not there.
+//
+// # The export happens LAST, and that ordering is R3.5
+//
+// An export is an additional copy; the report the operator is looking at is the
+// answer. Writing the file first would let a bad path — a missing directory, a
+// read-only mount — cost them the report itself. Rendering first makes that
+// impossible rather than merely unlikely, and exportReport returns nothing
+// precisely so a failed export cannot reach this run's exit status either: the
+// caller exits on validate.Report.ExitCode, computed from what the gates said
+// and from nothing about a file.
+//
+// It is also UNCONDITIONAL, including under --json. `--json --export=out.json`
+// asks for the document twice, in two places, and answering only the first would
+// be this command re-deciding what --export means for itself — which is the
+// arrangement D8 exists to end.
+func presentValidateReport(rep validate.Report, complete, asJSON bool, diag io.Writer) {
+	run := validateEnvelope(rep, complete)
+
+	if asJSON {
+		renderValidateJSON(run, diag)
+	} else {
+		renderValidateText(rep)
+	}
+
+	// LAST, and unconditional. exportReport is the CLI's one export path
+	// (report_export.go): it does nothing when --export named no path, it warns
+	// rather than fails when the path cannot be written, and it returns nothing
+	// so this run's exit status cannot be altered by a copy of an answer already
+	// delivered above.
+	exportReport(run)
+}
