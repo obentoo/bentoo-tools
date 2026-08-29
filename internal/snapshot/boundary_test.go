@@ -15,9 +15,42 @@ package snapshot
 //
 // GREEN ON ARRIVAL, unlike its twin in internal/overlay: no file in this
 // package imports the printer today, so this half of the rule is a guard rather
-// than a repair. R8.3 is answered by mutation — an import of
-// internal/common/output was reinstated in internal/snapshot/runner.go, the
-// failure was recorded in .draft/red-evidence.yaml, and the mutation reverted.
+// than a repair. R8.3 is answered by mutation, and the mutation is written out
+// below rather than pointed at.
+//
+// # The evidence lives here, not in the story artifacts
+//
+// It was recorded in .draft/red-evidence.yaml when this file was authored, and
+// that file is not committed — `git ls-files .epic/` returns nothing — so a
+// pointer to it is a pointer to nothing for anyone who cloned this repository.
+// The same correction was made in internal/overlay/boundary_test.go and in
+// internal/common/report/render/contract_test.go, for the same reason.
+//
+// Measured on 2026-08-29, against sub-task 7.4. One mutation, applied on its
+// own, run, and reverted immediately, with runner.go restored byte for byte and
+// the restore verified by `git status --porcelain` reporting nothing.
+//
+// Mutation: the printer import was reinstated in runner.go, blank —
+//
+//	_ "github.com/obentoo/bentoolkit/internal/common/output"
+//
+// Observed:
+//
+//	--- FAIL: TestNoPrinterImport (0.00s)
+//	    boundary_test.go:85: internal/snapshot: runner.go imports
+//	    ".../internal/common/output" — the library is choosing how a finding
+//	    looks (R5.3).
+//	            a package under internal/snapshot establishes findings; it does
+//	            not print them (R5.1). Return the finding to the caller as a
+//	            value and let cmd/bentoo render it — that is what lets the same
+//	            finding be shown in three modes, exported and counted (R5.2).
+//	            Moving the call to another package under internal/ does NOT fix
+//	            this; the rule is about the layer, not the file.
+//
+// A BLANK import was used on purpose: it is the weakest form the violation can
+// take, since no symbol is used and nothing else in the file changes, and the
+// guard still catches it. The rule is about the dependency, not about whether
+// anything came of it.
 //
 // It exists anyway because R5.3 names BOTH trees, and because internal/snapshot
 // is where the next printing library would be written: a rule enforced on one

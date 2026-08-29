@@ -239,12 +239,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still prints its plan and produces no report. `overlay manifest --dry-run`
   does produce one.
 
-- **BREAKING for anyone reading `overlay compare` by eye: the report is no
-  longer coloured.** Every one of the 61 places where a library under
-  `internal/overlay` picked a colour, padded a column or composed a sentence has
-  been replaced by a value returned to the caller. The information is unchanged
-  and the layout is unchanged; the escape sequences are gone. Piped or
-  redirected output is byte-identical to before, because it never carried them.
+- **BREAKING for anyone reading `overlay compare`, `overlay status` or
+  `overlay add` by eye: their output is no longer coloured.** Every one of the
+  61 places where a library under `internal/overlay` picked a colour, padded a
+  column or composed a sentence has been replaced by a value returned to the
+  caller. The information is unchanged and the layout is unchanged; the escape
+  sequences are gone. Piped or redirected output is byte-identical to before,
+  because it never carried them.
+
+  Three commands are affected, and each for the same reason: the package that
+  read git or compared two trees was the package deciding what a terminal would
+  look like. `overlay compare` loses the colouring of its whole report;
+  `overlay status` and `overlay add` lose the blue package headings and the
+  green/yellow/red change letters. Nothing re-applies the styling at the call
+  site on purpose — all three move into the report envelope in the next release,
+  which renders every mode from one place, and a second styled renderer built in
+  the meantime would be a second thing to migrate and a second place for the
+  wording to drift.
 
   This is deliberate and it is temporary. A library that prints has already
   decided how its facts look, and a fact in that shape can be printed and
