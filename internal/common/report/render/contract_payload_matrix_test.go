@@ -11,6 +11,54 @@ package render
 //
 // Red on arrival: none of the three payloads exists.
 //
+// # Evidence that it still fails once they do (R8.3)
+//
+// The line above is a COMPILE failure, and a compile failure is not the rule
+// this file states — it says only that the fixtures below name types task 1 had
+// not written yet. It also stops being checkable the moment the package builds:
+// from then on the matrix passes, and a green test proves nothing about what it
+// would catch. R8.3 asks for the evidence a green guard cannot supply, and the
+// story artifacts holding it (.draft/red-evidence.yaml) are not committed —
+// `git ls-files .epic/` returns nothing — so a pointer to that file is a
+// pointer to nothing for anyone who cloned this. citation_test.go makes that
+// argument in full. The evidence is written down here instead, and it breaks
+// the RULE rather than the build: a payload that does not survive a renderer.
+//
+// Measured on 2026-08-29, against sub-task 10.6. One mutation, applied on its
+// own, run, and reverted immediately with `git checkout --`, the restore
+// verified by `git status --porcelain` reporting nothing and by a second run of
+// this test going green.
+//
+// Mutation: SnapshotRun.Sections in snapshot_run.go was made to answer with one
+// EMPTY section. The payload still describes itself as a block, so it clears
+// the len(blocks) check below and reaches all five renderers; it just puts no
+// title, no lead, no row and no note inside the block —
+//
+//	func (r SnapshotRun) Sections(opts SectionOptions) []Section {
+//	        return []Section{{}}
+//	}
+//
+// Observed:
+//
+//	--- FAIL: TestEveryPayloadEveryRenderer (0.00s)
+//	    --- FAIL: TestEveryPayloadEveryRenderer/snapshot.run (0.00s)
+//	        contract_payload_matrix_test.go:182: plain rendered snapshot.run as nothing
+//	        contract_payload_matrix_test.go:182: inline rendered snapshot.run as nothing
+//
+// Two renderers out of five, and the three that stayed silent are the argument
+// for running all five. Markdown still wrote a "## " for the empty title, the
+// export still carried the envelope wrapped around the empty payload and named
+// its kind, and the fullscreen model still drew its border and its key hint:
+// each of those three produces output of its OWN, so each would have answered
+// "yes, the payload arrived" about a payload that had arrived as nothing. Only
+// plain and inline print nothing but what the section holds, which is what
+// makes them the two that can answer the question at all — and a matrix built
+// on the export alone, the obvious economy, would have caught none of it.
+//
+// The other two payloads passed in the same run, which is the second half of
+// what makes the failure usable: it names the payload that broke rather than
+// condemning the renderers.
+//
 // It is authored beside contract_test.go rather than into it: 6.3's guard and
 // this matrix fail for different reasons, and one file failing for two reasons
 // is one file whose failure has to be read twice.

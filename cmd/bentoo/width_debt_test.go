@@ -24,6 +24,52 @@ package main
 //
 // Red on arrival: not by mutation and not by a missing symbol — the eight
 // widths are in the tree right now.
+//
+// # Evidence that it still fails, taken after those eight were measured (R8.3)
+//
+// The line above is true of the day this file was written and stopped being
+// checkable the moment task 9 finished: the eight widths are gone, this guard
+// passes, and a green test proves nothing about what it would catch. R8.3 asks
+// for the evidence a green guard cannot supply, and the story artifacts holding
+// the original Red (.draft/red-evidence.yaml) are not committed — `git ls-files
+// .epic/` returns nothing — so a pointer to that file is a pointer to nothing
+// for anyone who cloned this. internal/common/report/citation_test.go makes
+// that argument in full; this is the same correction, applied here.
+//
+// Measured on 2026-08-29, against sub-task 10.6. One mutation, applied on its
+// own, run, and reverted immediately with `git checkout --`, the restore
+// verified by `git status --porcelain` reporting nothing and by a second run of
+// this test going green.
+//
+// Mutation: ONE of the six widths this story took out of overlay_autoupdate.go
+// was put back where it had stood. The unclaimed-ebuild line is handed a key
+// already padded to a column render.ColumnWidth measured; it was returned to
+// typing that column into the format string, exactly as it read at c8e347e —
+//
+//	return fmt.Sprintf("%s %s", key, d.Disk)        // measured, today
+//	return fmt.Sprintf("%-45s %s", d.Key, d.Disk)   // typed, as it was
+//
+// Observed, wrapped to this comment's width and otherwise unedited:
+//
+//	--- FAIL: TestWidthDebt (0.00s)
+//	    width_debt_test.go:220: cmd/bentoo/overlay_autoupdate.go:1146: "%-45s %s"
+//	    declares a fixed column width (R6.2).
+//	            Remedy: measure it. render.ColumnWidth(values) gives the width the
+//	            values actually need, in display cells, and render.Shorten bounds
+//	            it — a width typed into a format string is wrong in both
+//	            directions at once, too narrow the moment one value outgrows it
+//	            and too wide on every run that never comes close.
+//
+// The mutation went inside a file on the touched list deliberately, and the
+// same run shows what that buys: TestWidthDebtRemainderIsCounted PASSED while
+// this test failed. The two guards divide the tree between them — this one owns
+// the files the story edits, that one counts what is left outside them — so a
+// width typed into a touched file has exactly one guard that can catch it, and
+// this run is the demonstration that the one which can, does.
+//
+// The literal is quoted above inside a COMMENT, which costs nothing: the sweep
+// reads string literals out of the parsed source, for the reason the section
+// above gives, so this note cannot make its own file the defect.
 
 import (
 	"fmt"
