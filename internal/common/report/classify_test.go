@@ -13,7 +13,7 @@ import "testing"
 //   did not say. Note that Cause does NOT change the answer today: all three
 //   land on Inconclusive (D2 says both named causes are limitations, D3 says
 //   the unrecorded one fails open to the same column). It is carried because
-//   R5.6 requires the output to NAME the cause, and because D3 expects the rule
+//   S044-R5.6 requires the output to NAME the cause, and because D3 expects the rule
 //   to tighten as producers learn to tag. Do not branch on it here.
 
 func passingGate() GateFact { return GateFact{Deciding: true, Passed: true} }
@@ -25,7 +25,7 @@ func declinedGate(cause string) GateFact {
 // TestClassifyTable walks D2's four-line rule.
 //
 // One case is deliberately ABSENT: a run where one deciding gate passed and
-// another declined. The design does not fix that answer, and R5.7 measures it
+// another declined. The design does not fix that answer, and S044-R5.7 measures it
 // where it is measurable — sub-task 6.2 asserts the Proved and Errored counts
 // are byte-identical to the current implementation over a fixture set. Pinning
 // a guess here would freeze whichever answer the author happened to assume.
@@ -124,7 +124,7 @@ func TestClassifyUnrecordedCauseIsInconclusive(t *testing.T) {
 	}
 }
 
-// TestClassifyNeverProvesWithoutADecidingGate is the invariant R5.7 leans on.
+// TestClassifyNeverProvesWithoutADecidingGate is the invariant S044-R5.7 leans on.
 // "Proved" claims the toolkit established the package builds; with no gate
 // participating in the verdict, nothing established anything.
 func TestClassifyNeverProvesWithoutADecidingGate(t *testing.T) {

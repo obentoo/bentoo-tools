@@ -14,7 +14,7 @@
 // Every width in this package is either measured from the values a run actually
 // produced, or read from the device the report is being printed to. The one
 // number that is written down is the width assumed when the device cannot be
-// reached at all, and it is documented as such (R6.3, R6.5).
+// reached at all, and it is documented as such (R6.3, S044-R6.5).
 package render
 
 import (
@@ -28,7 +28,7 @@ import (
 
 const (
 	// fallbackTerminalWidth is the width assumed when nothing can say what the
-	// real one is (R6.5): 80 cells.
+	// real one is (S044-R6.5): 80 cells.
 	//
 	// This is an assumption about a device that could not be reached, not a
 	// field width — the distinction is the whole of R6.3. A field width decides
@@ -86,7 +86,7 @@ func columnWidth(values []string) int {
 }
 
 // shorten returns s reduced to at most cells display columns, marking the cut
-// so the reader can see one happened (R6.4).
+// so the reader can see one happened (S044-R6.4).
 //
 // # The limit is hard
 //
@@ -117,7 +117,7 @@ func columnWidth(values []string) int {
 // the same string. Being grapheme- and escape-aware, it never lands a cut
 // inside a wide character or inside an escape sequence: a severed escape is
 // printed literally by the terminal, which is a corrupted row rather than a
-// shortened one. It inserts no line break, which is the other half of R6.4.
+// shortened one. It inserts no line break, which is the other half of S044-R6.4.
 func shorten(s string, cells int) string {
 	// Stated here rather than delegated. ansi.Truncate happens to return "" for
 	// a budget too small to hold the tail, but it does not document that, and a
@@ -133,7 +133,7 @@ func shorten(s string, cells int) string {
 // terminalWidth is how many display cells one line may occupy before the
 // terminal wraps it.
 //
-// It always answers a width and never an error (R6.5). There is no second place
+// It always answers a width and never an error (S044-R6.5). There is no second place
 // to ask, so an error would give the caller nothing to do but give up, and a
 // report that refuses to print because it could not size a column is a worse
 // outcome than one printed at the wrong size.

@@ -21,7 +21,7 @@ func TestTallyTotalIsZeroForTheEmptyTally(t *testing.T) {
 	}
 }
 
-// TestReconcilesWhenTheCountsMatchThePlan pins R5.5: every planned package is
+// TestReconcilesWhenTheCountsMatchThePlan pins S044-R5.5: every planned package is
 // counted exactly once, in exactly one column.
 func TestReconcilesWhenTheCountsMatchThePlan(t *testing.T) {
 	r := AutoupdateCheck{

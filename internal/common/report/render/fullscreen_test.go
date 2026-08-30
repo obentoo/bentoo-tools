@@ -113,7 +113,7 @@ func headingsIn(plain string) []string {
 	return headings
 }
 
-// TestFullscreenOmissionIsVisible pins R2.5. Silently truncating is the failure
+// TestFullscreenOmissionIsVisible pins S044-R2.5. Silently truncating is the failure
 // mode: an operator reading a screen that shows four rows has no way to know
 // the run produced forty, and a report that hides its own incompleteness is
 // worse than one that will not fit.
@@ -141,7 +141,7 @@ func TestFullscreenOmissionIsVisible(t *testing.T) {
 	// Some count of what is not on screen has to appear. The wording is the
 	// renderer's to choose; the presence of a number is not.
 	if !strings.ContainsAny(view, "0123456789") || !mentionsOmission(view) {
-		t.Errorf("a viewport too small for the report says nothing about what it left out (R2.5)\n--- view ---\n%s", view)
+		t.Errorf("a viewport too small for the report says nothing about what it left out (S044-R2.5)\n--- view ---\n%s", view)
 	}
 }
 
@@ -388,7 +388,7 @@ func TestAllThreeModesAgreeOnContent(t *testing.T) {
 	}))), "\n")
 
 	// A viewport tall enough that nothing is paginated away — pagination is a
-	// property of the screen, not of the report, and R2.5 covers the case where
+	// property of the screen, not of the report, and S044-R2.5 covers the case where
 	// it does have to omit.
 	model := newModel(screenSections(fixtureReport(), report.SectionOptions{}), opts)
 	sized, _ := model.Update(tea.WindowSizeMsg{Width: 104, Height: 200})

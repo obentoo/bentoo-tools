@@ -68,35 +68,64 @@ type validatePayload struct {
 	validate.Report
 }
 
-// Sections is report.Payload's one method, and this payload has nothing to say
-// through it YET.
+// Sections is report.Payload's one method, and this payload uses it to say the
+// one thing it can honestly say today: the validate report is not in this
+// document, and here is where it went.
 //
-// # nil is the honest answer, not a stub
+// # It DECLARES an absence; it does not fill one
 //
 // Sections are the blocks a human-facing renderer draws — plain, Markdown,
 // inline, fullscreen. Turning a validation run into them means deciding what a
 // validation run SAYS: which gates get a block, how a skip states its reason,
 // what the headline column is. That is content, it is story 047's, and this
-// story's Out of Scope says so in as many words.
+// story's Out of Scope says so in as many words. So nothing below names a
+// package, a gate or a finding, and there is nothing here for 047 to
+// un-invent: it replaces this block with the real ones rather than inheriting a
+// placeholder an operator has already learned to read.
 //
-// The alternative was to invent a block here. It was rejected because a section
-// heading is the REPORT's to emit, never cmd/bentoo's, and because a
-// placeholder block would have to be un-invented in 047 by whoever then owns the
-// real one — after an operator had already seen it.
+// What this block states is a fact about THE SPLIT, not about the run — which
+// is why it is knowable today when the content is not.
 //
-// # What that costs, stated rather than discovered later
+// # nil was the previous answer, and it was the silent kind of honest
 //
-// `overlay validate --export=report.md` and `--export=report.txt` write an EMPTY
-// file: those two renderers consume sections, and there are none. Only the
-// `.json` path — and `--json`, which is the same path at stdout — carries the run
-// today, because render.JSON serializes the envelope and reaches the payload's
-// fields through encoding/json rather than through this method. Story 047 fills
-// the other two by implementing this method, and changes no caller.
+// Returning nil left `overlay validate --export=report.md` and
+// `--export=report.txt` writing a file of ZERO BYTES: those two renderers
+// consume sections, and there were none. An operator asked for a report,
+// received a file, and nothing anywhere said the two were not the same thing —
+// which is the silent omission R2.3 forbids in as many words. One section is
+// what it costs to stop making the reader guess.
 //
-// The parameters are unnamed because neither is read. report.SectionOptions says
-// what a report should SAY, and a payload with nothing to say has nothing to
-// shorten or expand.
-func (validatePayload) Sections(report.SectionOptions) []report.Section { return nil }
+// # It is UNCONDITIONAL, and that is the requirement rather than an oversight
+//
+// The same block is returned for a run that failed three gates and for a run
+// over a clean overlay, because what it states is equally true of both. A
+// declaration derived from the payload instead would fall silent for the empty
+// run — the case least able to survive it, and the one where a zero-byte file
+// most resembles a clean result.
+//
+// # The `.json` document does not move, and cannot
+//
+// render.JSON serializes the envelope and reaches this payload's fields through
+// encoding/json rather than through this method, so `--export=<path>.json` — and
+// `--json`, which is the same path at stdout — writes byte for byte what it
+// wrote before this block existed. The consumer asked once, this release, to add
+// a `.payload` hop finds no second change riding along with it.
+//
+// The parameter is unnamed because it is not read. report.SectionOptions says
+// whether a report lists every unit or counts them, and a block with no unit to
+// list has nothing to shorten or expand.
+func (validatePayload) Sections(report.SectionOptions) []report.Section {
+	return []report.Section{{
+		Title: "Overlay Validation",
+		Lead: []string{
+			"This document does not carry the validation report itself: no package, no gate and no finding is listed below.",
+		},
+		Notes: []string{
+			"What is missing is missing from this DOCUMENT and not from the run: 'overlay validate' still prints every finding to the terminal, through a printer of its own that this export cannot reach.",
+			"Story 047 migrates that report onto these sections, and replaces this block with the real ones. Until then the run is available in full as JSON: give --export a path ending in .json, or pass --json for the same document at stdout.",
+		},
+	}}
+}
 
 // validateEnvelope puts one validation run's facts inside the envelope every
 // exported document carries: the schema version, the kind of run that produced
@@ -201,9 +230,11 @@ func renderValidateJSON(run report.Run, diag io.Writer) {
 // choice about WHO IS READING. --ui picks between plain, inline and fullscreen,
 // which is a choice about WHAT THE DEVICE ALLOWS, and this command does not make
 // it yet: its human half is still renderValidateText, its own printer, until
-// story 047 gives the payload sections for the shared renderers to draw. Wiring
-// --ui here before there is anything for it to render would be a flag that
-// changes nothing, which is worse than one that is not there.
+// story 047 gives the payload the CONTENT the shared renderers would draw. The
+// one section it has today declares its own absence and nothing else (Sections,
+// above), so wiring --ui here would offer three ways of drawing one sentence —
+// a flag that changes the frame and never the answer, which is worse than one
+// that is not there.
 //
 // # The export happens LAST, and that ordering is R3.5
 //

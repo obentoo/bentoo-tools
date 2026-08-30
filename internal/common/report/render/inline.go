@@ -139,7 +139,7 @@ func painter(s lipgloss.Style) func(string) string {
 //
 // Detecting here would also be a SECOND answer to a question already settled.
 // ResolveMode picks inline only for an interactive terminal, and folds NO_COLOR
-// and the other opt-outs into a downgrade to plain (R3.4, R3.7) — so by the
+// and the other opt-outs into a downgrade to plain (R3.4, S044-R3.7) — so by the
 // time this runs, "this end wants styling" is decided. A probe here could only
 // contradict it.
 //

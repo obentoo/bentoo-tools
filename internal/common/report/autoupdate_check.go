@@ -45,7 +45,7 @@ import "fmt"
 // ShowAll and SkipPlan answer what the report should SAY; Width answers what the
 // DEVICE allows. Only the first pair reaches this method, and that separation is
 // what keeps a screen setting off the export path: there is no Width field here
-// for an export to be handed by accident (R9.3).
+// for an export to be handed by accident (S044-R9.3).
 //
 // # The plan is the one section a caller may drop
 //
@@ -93,11 +93,11 @@ func (r AutoupdateCheck) Sections(opts SectionOptions) []Section {
 //
 // The rows a run produces depend on listEvery and the counts never do: a
 // package left out of the list is still counted in the note below it, so the
-// short list is a stated omission rather than a silent one (R2.5).
+// short list is a stated omission rather than a silent one (S044-R2.5).
 //
 // listEvery is the screen's --all (R8.2, R8.3) and the export's only setting:
 // an export lists every package it looked at whatever the terminal was asked
-// for (R9.3).
+// for (S044-R9.3).
 func versionCheckSection(r AutoupdateCheck, listEvery bool) Section {
 	s := Section{Title: "Version Check Results"}
 

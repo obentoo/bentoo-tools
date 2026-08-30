@@ -80,7 +80,7 @@ func TestTallyKeepsItsFourColumnNames(t *testing.T) {
 	}
 }
 
-// TestTallyReconcilesAgainstThePlan pins R5.5 as this story inherits it: the
+// TestTallyReconcilesAgainstThePlan pins S044-R5.5 as this story inherits it: the
 // denominator is the plan, never the result list.
 //
 // The two failing cases are the point. A package counted TWICE and a package

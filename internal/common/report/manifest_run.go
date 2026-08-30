@@ -144,7 +144,7 @@ type ManifestTarget struct {
 // and counted otherwise. The count is taken from the run's own Ok, never from
 // the rows, so the number under the table cannot move when the listing does
 // (R8.3) — and the note says the list is short and why, so the omission is
-// stated rather than silent (R2.3, R2.5).
+// stated rather than silent (R2.3, S044-R2.5).
 //
 // A FAILURE is always listed, whatever the flag says. It is the reason an
 // operator is reading the report at all, and a report that hid failures behind
@@ -222,7 +222,7 @@ func manifestSection(r ManifestRun, listEvery bool) Section {
 	s.Rows.Headers = []string{"PACKAGE", "STATE"}
 	for _, target := range r.Targets {
 		if target.Success && !listEvery {
-			// Counted in the note below, not listed here (R2.5).
+			// Counted in the note below, not listed here (S044-R2.5).
 			continue
 		}
 		s.Rows.Rows = append(s.Rows.Rows, Row{
@@ -269,7 +269,7 @@ func manifestPreview(s Section, r ManifestRun) Section {
 	return s
 }
 
-// manifestNotes is what the table left out, and why (R2.3, R2.5).
+// manifestNotes is what the table left out, and why (R2.3, S044-R2.5).
 //
 // Both sentences are conditional on there having been a success, because both
 // are about the successful targets: a run in which everything failed listed
@@ -330,7 +330,7 @@ func manifestState(target ManifestTarget) string {
 // findings: joining is not shortening, because no finding is dropped and no
 // detail is truncated. What a writer with a line budget then does with a long
 // sentence is a rendering decision, made in a renderer, and marked where it cuts
-// (R6.4, R7.4).
+// (S044-R6.4, R7.4).
 func manifestDetail(target ManifestTarget) string {
 	if target.Success {
 		return ""

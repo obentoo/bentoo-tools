@@ -53,13 +53,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which command produced it. Both migrations are announced here, together,
   because a consumer piping `bentoo` into `jq` should read the change once.
 
-  **One gap, stated rather than left to be found.** `overlay validate
-  --export=report.md` and `--export=report.txt` write an **empty file**. Those
-  two renderers draw sections, and the validation payload has none yet: turning
-  a validation run into blocks means deciding what it says gate by gate, which
-  is the next release's work. Only the JSON form carries the run today, because
-  that renderer reaches the payload through its fields rather than through
-  sections. `--json` and `--export=<path>.json` are unaffected.
+  **One gap, and the export now says so itself.** `overlay validate
+  --export=report.md` and `--export=report.txt` do not carry the validation
+  report: those two renderers draw sections, and the validation payload has
+  none yet — turning a validation run into blocks means deciding what it says
+  gate by gate, which is the next release's work. What they write is a block
+  naming the omission and its reason, so an operator holding the file learns
+  from the file that it is not the report, instead of from a release note they
+  may never have read. It used to be an empty file, which is the same omission
+  made silently. Only the JSON form carries the run today, because that
+  renderer reaches the payload through its fields rather than through sections.
+  `--json` and `--export=<path>.json` are unaffected, byte for byte.
 
     **Why break it at all, and why `2`.** `kind` is what lets a consumer tell two
   exported documents apart without being told which command wrote them, and it
@@ -235,9 +239,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ui.mode` is honoured. A config carrying unknown keys will show that loader's
   own warnings where a timer-driven run previously showed none.
 
-  Known gap, stated rather than left to be discovered: `snapshot run --dry-run`
-  still prints its plan and produces no report. `overlay manifest --dry-run`
-  does produce one.
+  `snapshot run --dry-run` prints its plan and produces no report, and that is
+  the decision rather than the one path left unfinished. A preview declines to
+  start a run, so no result exists to report — only a plan, which is the same
+  sentences the plan itself prints, with no outcome to put beside them. Stated
+  as a run it would render empty steps beside zero succeeded and zero failed,
+  which is indistinguishable from a run that achieved nothing. `overlay
+  manifest --dry-run` does produce a report, and the difference is what each
+  preview holds: that one resolves its targets off the filesystem first, so it
+  has a row per target and only the outcomes are missing. The reasoning is
+  recorded beside the early return in the code, not only here.
 
 - **BREAKING for anyone reading `overlay compare`, `overlay status` or
   `overlay add` by eye: their output is no longer coloured.** Every one of the
@@ -313,6 +324,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on a payload type. Together they are what makes "adding a command edits no
   renderer" a property with a test behind it rather than a claim in a design
   document.
+
+- **A requirement number in a comment now names the story that issued it.**
+  Internal, with no operator-visible effect. `internal/common/report` was built
+  by an earlier story and its comments cite that story's requirement numbers
+  bare — `R9.3`, `R2.5`, `R6.4` and nine others, 79 occurrences across 21
+  files. The story documents are not in this repository, so a bare number is
+  the whole record and it resolves to nothing: `R2.5` alone is defined in
+  sixteen story files across twelve of them, so a reader meeting it has no way
+  to find the sentence it points at. Each of the twelve was resolved against
+  the owning story's requirement **text** rather than its number and prefixed
+  `S044-`, the disambiguation this repository already uses several hundred
+  times. Bare citations that resolve inside the current story are left bare —
+  they are unambiguous where they stand.
+
+  A guard now fails the suite on a citation that names a requirement the
+  current story does not have without saying which story does, and it rejects
+  the cheap wrong fix as well: prefixing an offender with the story being
+  worked on produces a citation that is confidently false, which is worse than
+  the bare one because it looks resolved. What the guard prints when each of
+  those is reintroduced is recorded in the test file, since a green guard
+  proves nothing about what it would catch.
+
+- **`overlay.FormatManifestResult` carries the reason it is kept.** Internal.
+  Moving `overlay manifest` onto the report envelope took away this function's
+  last non-test caller, but four comments elsewhere cite what it does as the
+  canonical reading — the error field that carries no atom, the preview
+  answered before any count is taken, and what a nil result gets instead of a
+  crash. Deleting it would have left all four pointing at nothing, so the
+  orphaning is now stated in its doc comment rather than left for the next
+  reader to rediscover and act on.
 
 
 ### Added

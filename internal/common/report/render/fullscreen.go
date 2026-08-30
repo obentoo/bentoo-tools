@@ -403,7 +403,7 @@ func (m fullscreenModel) layout(cells int) pane {
 	return p
 }
 
-// fit reduces the pane to budget rows, STATING what it dropped (R2.5).
+// fit reduces the pane to budget rows, STATING what it dropped (S044-R2.5).
 //
 // # The last row buys the sentence that explains the others
 //

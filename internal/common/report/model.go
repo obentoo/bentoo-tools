@@ -63,7 +63,7 @@ package report
 // them together lets a defect in the toolkit hide behind the operator's own
 // policy (R5). Which of the four a package earns is decided from a typed cause
 // carried by the validation result, never by matching text in a human-readable
-// reason (R5.4).
+// reason (S044-R5.4).
 type Outcome string
 
 const (
@@ -78,7 +78,7 @@ const (
 	// not evaluate the package — an unsupported build system, an unpreparable
 	// tree, a missing dependency (R5.2). A package whose result records no
 	// cause at all lands here too, so an unclassified case stays visible
-	// instead of being absorbed into policy (R5.6).
+	// instead of being absorbed into policy (S044-R5.6).
 	Inconclusive Outcome = "inconclusive"
 	// Skipped means no gate was run because POLICY said not to run one — a
 	// configured depth of none, a package type the run excludes (R5.3). It is
@@ -90,9 +90,9 @@ const (
 //
 // This amends archived story 033's three-column tally (S033-R9.5) by dividing
 // its third column: proved and errored are untouched and count exactly the
-// packages they counted before (R5.7). The invariant that column set protected
+// packages they counted before (S044-R5.7). The invariant that column set protected
 // is preserved — each planned package lands in exactly one column, and the
-// columns sum to the number of planned packages (R5.5,
+// columns sum to the number of planned packages (S044-R5.5,
 // AutoupdateCheck.Reconciles).
 type Tally struct {
 	// Proved counts the packages whose deciding gates all passed.
@@ -175,7 +175,7 @@ type AutoupdateCheck struct {
 }
 
 // Reconciles reports whether the tally accounts for every planned package
-// exactly once (R5.5, preserving S033-R9.5).
+// exactly once (S044-R5.5, preserving S033-R9.5).
 //
 // The denominator is the plan, not the result list: a package that produced no
 // row still had to be counted somewhere, and comparing against the rows would

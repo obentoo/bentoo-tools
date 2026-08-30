@@ -38,6 +38,29 @@ func runSnapshotRun(cmd *cobra.Command, _ []string) {
 		// 008 R2.2: preview only — print the pipeline (engine driver per
 		// subvolume, then each ship target) and return BEFORE the engine-config
 		// render, the pipeline execution, and the RunResult persistence below.
+		//
+		// It returns before the REPORT as well, and that is the decision rather
+		// than the one path story 046 missed (S046-R1.2).
+		//
+		// R1.2 binds "WHEN snapshot run FINISHES", and a preview does not finish a
+		// run — it declines to start one. Nothing below this line executes, so no
+		// snapshot.RunResult exists to report and no step of any subvolume has an
+		// outcome. All a report could describe here is PlanRun's []string: the
+		// same conditional sentences printed on the next line, with no status to
+		// put beside them. Reporting that as a run would render empty Steps beside
+		// Ok=0/Failed=0 — which report.SnapshotRun documents as "a run that ran no
+		// step at all" — so the preview would be indistinguishable from a real run
+		// that achieved nothing.
+		//
+		// `overlay manifest --dry-run` DOES end in a report, and the difference is
+		// what each preview HOLDS rather than a disagreement between two commands.
+		// That one resolves its targets off the filesystem before previewing them,
+		// so RegenerateManifests hands back a row per target and only the outcomes
+		// are missing; report.ManifestRun.DryRun is the preview arm that says so
+		// before any count is taken (overlay_manifest_report.go). A snapshot
+		// preview has no rows to carry, and report.SnapshotRun has no such field.
+		// Adding one would answer a new requirement about previews, not this one
+		// about runs.
 		printDryRunPlan(snapshot.PlanRun(cfg))
 		return
 	}

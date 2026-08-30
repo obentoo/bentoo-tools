@@ -134,7 +134,7 @@ func screenSections(r report.AutoupdateCheck, content report.SectionOptions) []r
 
 // exportSections is the same for the export path, where the two decisions are
 // not the caller's to make. An export lists every package the run looked at
-// whatever the terminal was asked for (R9.3), and it states the plan whatever
+// whatever the terminal was asked for (S044-R9.3), and it states the plan whatever
 // the screen was told to do with it (R2.4) — a record missing the plan answers
 // no question later, because the plan is where a package's reason is stated at
 // all (R7.2).
@@ -324,7 +324,7 @@ func TestReasonSurvivesShortening(t *testing.T) {
 
 // renderMarkdown mirrors renderPlain. Note what it CANNOT take: Markdown has no
 // Options parameter, so there is no width to shorten to and no ShowAll to
-// honour. R9.3 is enforced by the signature rather than by a branch somebody
+// honour. S044-R9.3 is enforced by the signature rather than by a branch somebody
 // has to remember — an export that mirrored screen truncation would be a
 // useless record, and this is why it cannot.
 func renderMarkdown(t *testing.T) string {
@@ -344,7 +344,7 @@ func TestMarkdownGolden(t *testing.T) {
 	golden(t, "TestMarkdownGolden", []byte(renderMarkdown(t)))
 }
 
-// TestExportIsCompleteKeepsEveryReasonWhole pins the first half of R9.3. The
+// TestExportIsCompleteKeepsEveryReasonWhole pins the first half of S044-R9.3. The
 // terminal shows 96 cells of the 232-character reason; the export shows all
 // 232. Shortening is a rendering decision, and an export is not a rendering of
 // a terminal.
@@ -352,14 +352,14 @@ func TestExportIsCompleteKeepsEveryReasonWhole(t *testing.T) {
 	out := renderMarkdown(t)
 
 	if !strings.Contains(out, planReason) {
-		t.Errorf("the %d-character reason was not exported whole (R9.3)\n--- export ---\n%s", len(planReason), out)
+		t.Errorf("the %d-character reason was not exported whole (S044-R9.3)\n--- export ---\n%s", len(planReason), out)
 	}
 	if strings.Contains(out, "…") {
-		t.Errorf("the export carries an ellipsis, so something was shortened (R9.3)")
+		t.Errorf("the export carries an ellipsis, so something was shortened (S044-R9.3)")
 	}
 }
 
-// TestExportIsCompleteListsEveryPackage pins the other half of R9.3: every
+// TestExportIsCompleteListsEveryPackage pins the other half of S044-R9.3: every
 // package, regardless of --all. The two up-to-date packages that the plain
 // render hides behind a count must be named here.
 func TestExportIsCompleteListsEveryPackage(t *testing.T) {
@@ -367,7 +367,7 @@ func TestExportIsCompleteListsEveryPackage(t *testing.T) {
 
 	for _, pkg := range fixtureReport().Scanned {
 		if !strings.Contains(out, pkg.Package) {
-			t.Errorf("the export does not name %q — an export that honoured --all would be an incomplete record (R9.3)", pkg.Package)
+			t.Errorf("the export does not name %q — an export that honoured --all would be an incomplete record (S044-R9.3)", pkg.Package)
 		}
 	}
 }

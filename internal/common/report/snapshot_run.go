@@ -160,7 +160,7 @@ type SnapshotStep struct {
 //
 // A step that succeeded has nothing to report about, which is precisely the
 // class of unit SectionOptions.ShowAll governs: listed when the flag asks,
-// counted otherwise, with the omission stated in words (R2.3, R2.5). The count
+// counted otherwise, with the omission stated in words (R2.3, S044-R2.5). The count
 // comes from the run's own Ok, never from the rows, so the number above the
 // table cannot move when the listing does (R8.3).
 //
@@ -217,7 +217,7 @@ func snapshotSection(r SnapshotRun, listEvery bool) Section {
 	s.Rows.Headers = []string{"SUBVOLUME", "STEP", "STATE"}
 	for _, step := range r.Steps {
 		if step.Success && !listEvery {
-			// Counted in the note below, not listed here (R2.5).
+			// Counted in the note below, not listed here (S044-R2.5).
 			continue
 		}
 		s.Rows.Rows = append(s.Rows.Rows, Row{
@@ -319,7 +319,7 @@ func snapshotDetail(step SnapshotStep) string {
 	return foldToOneLine(step.Error)
 }
 
-// snapshotNotes is what the table left out, and why (R2.3, R2.5).
+// snapshotNotes is what the table left out, and why (R2.3, S044-R2.5).
 func snapshotNotes(r SnapshotRun, listEvery bool) []string {
 	var notes []string
 

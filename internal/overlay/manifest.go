@@ -674,6 +674,29 @@ func RegenerateManifestsForScope(cfg *config.Config, scope ManifestScope, opts *
 }
 
 // FormatManifestResult renders a ManifestResult for display.
+//
+// It has had NO production caller since sub-task 5.2 moved `overlay manifest`
+// onto the report envelope: the counts are values the run hands back
+// (ManifestResult.Ok/Failed) and the rendering moved to internal/common/report
+// (S046-R5.1). Nothing outside its own three tests calls it.
+//
+// It stays because four comments elsewhere cite what it DOES as the canonical
+// reading, and deleting the function would leave all four pointing at nothing:
+//
+//   - rename.go, on ManifestUpdate.Error — the field carries no atom because
+//     this formatter and FormatRenameResult both write "<category>/<package>: "
+//     immediately before it, so an atom in the field would print twice.
+//   - cmd/bentoo/overlay_manifest.go — records logger.Info over this function
+//     as the sentence story 046 replaced.
+//   - cmd/bentoo/overlay_manifest_report.go, on buildManifestReport — cites the
+//     dry-run branch below being answered BEFORE any count is taken as the
+//     order that avoids reporting every previewed package as failed.
+//   - the same comment, on a nil result — cites the reading a nil gets here,
+//     "No packages processed" and not a crash, beside the one
+//     report.Run.Sections gives a nil payload.
+//
+// So removing it is a change to those four comments first and to this function
+// second; the orphaning is recorded rather than acted on.
 func FormatManifestResult(result *ManifestResult, dryRun bool) string {
 	var sb strings.Builder
 

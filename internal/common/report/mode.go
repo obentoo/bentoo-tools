@@ -42,7 +42,7 @@ const (
 
 // modes is the accepted set (R3.1), in the order the rejection message names
 // them. The message is DERIVED from this slice rather than written out beside
-// it, because R3.9's whole point is that the message names the set that is
+// it, because S044-R3.9's whole point is that the message names the set that is
 // actually accepted — a hand-written list drifts the day a fifth value is added
 // and then tells the operator something false.
 var modes = []Mode{ModeAuto, ModePlain, ModeInline, ModeFullscreen}
@@ -84,7 +84,7 @@ type ModeInputs struct {
 	// same convention tui.Enabled follows, an empty value means "not set".
 	Env string
 	// Config is the ui.mode configuration value, empty when the key is
-	// absent. Absent is the case R3.7 protects: it must produce exactly
+	// absent. Absent is the case S044-R3.7 protects: it must produce exactly
 	// today's behaviour.
 	Config string
 	// NoTUI is the opt-out layer, and the CALLER MUST FOLD ALL THREE OPT-OUTS
@@ -99,7 +99,7 @@ type ModeInputs struct {
 	// struct deliberately has no NO_COLOR field of its own. Drop NO_COLOR
 	// from that expression and a user who set it, and configured nothing
 	// about ui.mode, silently starts getting inline output where they get
-	// plain today: precisely the change R3.7 forbids.
+	// plain today: precisely the change S044-R3.7 forbids.
 	//
 	// It is applied as ModePlain at the flag layer (R3.4), so --no-tui is an
 	// alias for --ui=plain rather than a second mechanism competing with it.
@@ -121,12 +121,12 @@ type ModeInputs struct {
 // Precedence is R3.2: the --ui flag, then BENTOO_UI, then ui.mode, then auto.
 // The first source that speaks decides; the ones below it are not consulted.
 //
-// # Composition, and why R3.7 holds by construction
+// # Composition, and why S044-R3.7 holds by construction
 //
 // With nothing configured, this reproduces tui.Enabled exactly: NoTUI yields
 // plain, and otherwise auto yields inline on a terminal and plain off one —
 // the same two answers today's boolean gives, under names instead of a bool.
-// A user who configured no ui.mode therefore sees no change, which is R3.7
+// A user who configured no ui.mode therefore sees no change, which is S044-R3.7
 // satisfied by construction rather than by a compatibility branch.
 //
 // # auto never yields fullscreen (R3.3)
@@ -139,7 +139,7 @@ type ModeInputs struct {
 // A value outside the accepted set is rejected wherever it appears, even when
 // a higher-precedence source would have outranked it. Two reasons:
 //
-//   - R3.9 is unconditional — "IF --ui is given a value outside the accepted
+//   - S044-R3.9 is unconditional — "IF --ui is given a value outside the accepted
 //     set" says nothing about --no-tui also being passed, so validating only
 //     the source that happens to win would let `--ui=bogus --no-tui` run.
 //   - A typo that is merely outranked today decides the run tomorrow, the
@@ -189,7 +189,7 @@ func ResolveMode(in ModeInputs) (Mode, string, error) {
 		return requested, "", nil
 	}
 
-	// R3.6: a mode was requested explicitly and this terminal cannot carry
+	// S044-R3.6: a mode was requested explicitly and this terminal cannot carry
 	// it. That is a downgrade, not a failure — the run still produces its
 	// report — so it returns a sentence rather than an error.
 	return ModePlain, fmt.Sprintf(
@@ -198,7 +198,7 @@ func ResolveMode(in ModeInputs) (Mode, string, error) {
 	), nil
 }
 
-// requestedMode applies R3.2's precedence and R3.9's rejection, returning the
+// requestedMode applies R3.2's precedence and S044-R3.9's rejection, returning the
 // mode that was ASKED FOR — which may still be ModeAuto, and which ResolveMode
 // then resolves against the terminal.
 //
@@ -238,7 +238,7 @@ func requestedMode(in ModeInputs) (Mode, error) {
 	}
 
 	// The flag layer, after validation so that --ui=bogus is still rejected
-	// when --no-tui is also passed (R3.9), and before stated is returned so
+	// when --no-tui is also passed (S044-R3.9), and before stated is returned so
 	// that the opt-out outranks an explicit --ui.
 	if in.NoTUI {
 		return ModePlain, nil
@@ -251,7 +251,7 @@ func requestedMode(in ModeInputs) (Mode, error) {
 }
 
 // parseMode turns one source's raw value into a Mode, or explains why it is not
-// one (R3.9).
+// one (S044-R3.9).
 //
 // The match is EXACT: no trimming, no case folding. Not an oversight — the same
 // four words are read from three different places, and a normalization applied

@@ -55,7 +55,7 @@ const (
 //
 // Markdown and JSON have no width to shorten to and no listing to honour, so
 // neither takes one — an omission that is the requirement rather than an
-// oversight (R9.3). Giving an export path a parameter of this type would be
+// oversight (S044-R9.3). Giving an export path a parameter of this type would be
 // giving it questions an export must never ask.
 type Options struct {
 	// Width is the line budget in display cells: no rendered line exceeds it
@@ -132,7 +132,7 @@ func Plain(w io.Writer, blocks []report.Section, opts Options) error {
 //
 // # It takes no Options, and that absence IS the requirement
 //
-// R9.3 says an export carries the complete report — every package, every reason
+// S044-R9.3 says an export carries the complete report — every package, every reason
 // in full, no shortening, whatever the terminal was asked for. Stating that as a
 // signature rather than as a branch is what makes it hold: there is no width
 // here to shorten to and no ShowAll here to honour, so an export that mirrored
@@ -155,7 +155,7 @@ func Plain(w io.Writer, blocks []report.Section, opts Options) error {
 // Sections arrive built, so that choice was made before this function was
 // reached — which is the only place it was ever decidable. This function has
 // never been able to add a row it was not handed, and now it cannot be mistaken
-// for the place the decision lives either (R9.3).
+// for the place the decision lives either (S044-R9.3).
 //
 // # It differs from Plain by table syntax and nothing else
 //
@@ -183,7 +183,7 @@ func Markdown(w io.Writer, blocks []report.Section) error {
 //
 // plainStyle takes the line budget and closes over it. markdownStyle takes no
 // argument at all, and this struct has no field to hold one, so an export has
-// nowhere to receive a width even from a caller offering it. R9.3 rests on that
+// nowhere to receive a width even from a caller offering it. S044-R9.3 rests on that
 // absence rather than on a branch somebody has to remember.
 type style struct {
 	// heading writes the section title, however this syntax marks one.
@@ -261,7 +261,7 @@ func plainStyle(width int) style {
 //
 // Every field is a plain function and not a closure, because there is nothing
 // for one to close over — which is what an export having no settings looks like
-// in code (R9.3).
+// in code (S044-R9.3).
 func markdownStyle() style {
 	return style{
 		heading: writeMarkdownHeading,
@@ -337,7 +337,7 @@ func writePlainHeading(out *lineWriter, title string, width int, p paint) {
 // lines. A reason wrapped between two rows costs the table the property that
 // makes it scannable — one record, one line — and a reader looking for the next
 // package has to re-find the column instead of following it down. The cut is
-// marked (R6.4) and the model still holds the whole string, so a syntax with no
+// marked (S044-R6.4) and the model still holds the whole string, so a syntax with no
 // width budget prints all of it (R7.4).
 func writePlainTable(out *lineWriter, t report.Table, width int, p paint) {
 	widths := plainColumnWidths(t, width)
@@ -524,7 +524,7 @@ const (
 // end the ROW, and the syntax has no escape for that one: a row is one line by
 // definition. Folding a break to a space is the single place this writer alters
 // a value, and it alters only the break — every character around it still
-// reaches the reader, which is what separates folding from shortening (R9.3).
+// reaches the reader, which is what separates folding from shortening (S044-R9.3).
 // CRLF is listed before CR so a Windows line ending folds to one space and not
 // to two; a Replacer prefers the pattern given first.
 //
@@ -550,7 +550,7 @@ func writeMarkdownHeading(out *lineWriter, title string) {
 //
 // Nothing is wrapped and nothing is cut. A document has no line to fit, and
 // hard-wrapping a paragraph that will be re-flowed by whatever renders it only
-// puts breaks where the reader's window is not (R9.3).
+// puts breaks where the reader's window is not (S044-R9.3).
 func writeMarkdownProse(out *lineWriter, text string) {
 	out.line(text)
 }
@@ -562,7 +562,7 @@ func writeMarkdownProse(out *lineWriter, text string) {
 // A pipe table needs no alignment in its source — whatever renders it aligns
 // the columns — so this writer computes no width at all. That is not tidiness:
 // a column width here would be the first place a line budget could enter the
-// export path, and an export carries the complete report (R9.3). Every cell
+// export path, and an export carries the complete report (S044-R9.3). Every cell
 // holds its value in full, including the ~230-character reason the terminal
 // shows sixty cells of.
 //

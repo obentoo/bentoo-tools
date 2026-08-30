@@ -31,7 +31,7 @@ type Section struct {
 	// which is how "nothing to validate" is said without an empty frame.
 	Rows Table
 	// Notes is what is said after the rows: what was left out and why, and
-	// what the run did not do. R2.5 lives here — an omitted row is stated,
+	// what the run did not do. S044-R2.5 lives here — an omitted row is stated,
 	// never silent.
 	Notes []string
 }

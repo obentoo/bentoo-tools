@@ -38,7 +38,7 @@ func exportedPayload(t *testing.T, doc []byte) report.AutoupdateCheck {
 	return envelope.Payload
 }
 
-// TestJSONRoundTrip pins R9.4: a machine reader sees the fields the renderers
+// TestJSONRoundTrip pins S044-R9.4: a machine reader sees the fields the renderers
 // saw. Round-tripping the fixture and comparing it whole is the only assertion
 // that stays true as the model grows — a field-by-field list would be checked
 // against the fields somebody remembered to add to it.
@@ -57,7 +57,7 @@ func TestJSONRoundTrip(t *testing.T) {
 	}
 }
 
-// TestJSONRoundTripKeepsTheReasonWhole is R9.3 for the JSON path. The screen
+// TestJSONRoundTripKeepsTheReasonWhole is S044-R9.3 for the JSON path. The screen
 // shows 96 cells; the record holds all 232.
 func TestJSONRoundTripKeepsTheReasonWhole(t *testing.T) {
 	var buf bytes.Buffer

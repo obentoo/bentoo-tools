@@ -26,7 +26,7 @@ const jsonIndent = "  "
 // one. report.Run is handed to encoding/json as it stands — envelope and
 // payload together — which is what makes R4.2, "the document carries every fact
 // the renderers read", true by construction rather than by a mapping somebody
-// has to keep in sync (D3, and story 044's R9.4 before it).
+// has to keep in sync (D3, and S044-R9.4 before it).
 //
 // The payload half is the part that keeps proving this. Nothing in this file
 // names a payload TYPE: report.Payload is an interface, and encoding/json
