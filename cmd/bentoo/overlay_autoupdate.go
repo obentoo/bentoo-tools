@@ -599,25 +599,48 @@ func runAutoupdate(cmd *cobra.Command, args []string) {
 	// function of the flags, the config and the terminal, so whoever needs the
 	// mode asks for it where it is used and gets the same value; see its doc
 	// comment for why a package variable holding it would be worse than the
-	// three os.Getenv calls it saves. What this call is for is the two things
-	// that must happen BEFORE any package work:
+	// three os.Getenv calls it saves.
 	//
-	//   - S044-R3.9 — a --ui that does not name a mode stops the run here, with
-	//     no scan, no validation and no write behind it. Falling back to a
-	//     default would render in a mode the operator did not ask for, which is
-	//     doing work they did not ask for.
-	//   - S044-R3.6 — the downgrade sentence reaches stderr, and warnUIDowngrade
-	//     keeps it to one line however many times the mode is resolved after
-	//     this.
 	// The apply path's gate is two call frames below runApply and carries no
 	// config of its own, so the value it resolves against is parked here — the
 	// same once-per-run hand-down the three decisions above use.
+	//
+	// # This call had two jobs and now has one
+	//
+	// It used to end the run on any error, citing S044-R3.9: "IF --ui is given a
+	// value outside the accepted set … SHALL NOT run the check" — the flag, and
+	// nothing else. resolveAutoupdateUIMode resolves the whole precedence chain,
+	// so the gate fired on all four sources while claiming the authority of one.
+	// Story 046's Task 4 made that gap total: root.go's PersistentPreRunE now
+	// validates --ui for all 30 commands before any run function, so by the time
+	// this line runs the flag has already been judged, and every rejection left
+	// here is an AMBIENT one — a BENTOO_UI or a ui.mode, inherited from a shell
+	// profile or a config file rather than typed for this run, which S046-R3.7
+	// answers the opposite way: the report renders in plain and says so, and the
+	// run keeps the status it would have had.
+	//
+	// Two things went wrong while the exit stood here, both measured: an
+	// unusable BENTOO_UI cost this command its entire report, and on a run that
+	// was going to fail for a reason of its own it replaced the operator's real
+	// diagnostic — "packages.toml not found in overlay" — with one about a
+	// display key that could not have caused it.
+	//
+	// What survives is the job the citation never covered, and it is why the
+	// call is not simply deleted: S044-R3.6's downgrade sentence reaches stderr
+	// HERE, before any package work, because resolving is what routes it — and
+	// warnUIDowngrade keeps it to one line however many times the mode is
+	// resolved after this.
 	autoupdateUIConfig = appCtx.Config
 
 	if _, err := resolveAutoupdateUIMode(appCtx.Config); err != nil {
-		logger.Error("%v", err)
-		osExit(1)
-		return
+		// Debug, not Error, and that is R3.6 rather than indifference. The
+		// refusal is stated once per run, at Warn, by whoever produces a report
+		// — presentCheckReport, through reportModeOrPlain — naming the source,
+		// the value and the mode used instead. One typo answered in two voices
+		// is the duplication 11.1 already paid for once at the root. The line is
+		// kept so a --verbose run can still see where the resolution first
+		// failed, which is several frames earlier than where it is announced.
+		logger.Debug("the ambient UI mode did not resolve before the package work: %v", err)
 	}
 
 	// Handle different modes

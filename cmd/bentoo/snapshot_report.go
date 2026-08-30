@@ -271,13 +271,23 @@ func snapshotReportConfig() *config.Config {
 //
 // # The mode is resolved here, not passed in
 //
-// resolveAutoupdateUIMode is a pure function of the flags, the configuration and
-// the terminal, so asking here gives the same answer any other caller gets — and
+// reportModeOrPlain is a pure function of the flags, the configuration and the
+// terminal, so asking here gives the same answer any other caller gets — and
 // --ui is the root's flag now, so the answer is the CLI's rather than one
-// command's (R3.1). An unusable value was already rejected at the root before any
-// work (R3.2), so an error here is unreachable in a real run; it falls back to
-// plain, the mode that always works, and says so at debug level rather than
-// telling the operator a second time in a second voice.
+// command's (R3.1).
+//
+// What stood here was resolveAutoupdateUIMode and a claim that its error was
+// unreachable, because the root had already rejected the value (R3.2). The root
+// rejects the FLAG, deliberately and only the flag, so an unusable BENTOO_UI or
+// ui.mode reaches this call and is refused at it: the render falls back to
+// plain, the refusal is STATED naming the source, the value and the mode used
+// instead, and the exit status does not move (R3.7). The rule and the
+// measurements behind it are on reportModeOrPlain, which the manifest producer
+// calls too, so a typo answered on one command cannot be swallowed on the other.
+//
+// The exit status not moving matters more on this command than on any other:
+// `snapshot run` is what a systemd timer invokes, and a timer that began failing
+// over a display key would page somebody about a backup that in fact ran.
 //
 // # A render that fails is reported and does not stop the export
 //
@@ -285,11 +295,7 @@ func snapshotReportConfig() *config.Config {
 // mid-write is no reason to also withhold the file, which may be the only copy
 // left — and on a timer-driven run it usually is.
 func presentSnapshotReport(cfg *config.Config, run report.Run) {
-	mode, err := resolveAutoupdateUIMode(cfg)
-	if err != nil {
-		logger.Debug("snapshot run: the UI mode did not resolve, rendering in plain: %v", err)
-		mode = report.ModePlain
-	}
+	mode := reportModeOrPlain(cfg)
 
 	// Two questions, kept apart. What the report should SAY — list every step
 	// that succeeded, or count them — is report.SectionOptions, answered here

@@ -184,6 +184,85 @@ func resolveAutoupdateUIMode(cfg *config.Config) (report.Mode, error) {
 	return mode, nil
 }
 
+// reportModeOrPlain is the rung of the resolution ladder that CANNOT fail: the
+// renderer a report producer draws in, with an unusable ambient mode refused out
+// loud and answered with plain (R3.7).
+//
+// The ladder below it is report.ResolveMode (the accepted set, the precedence
+// and the downgrade, over pure data), then resolveUIMode (adds the environment),
+// then resolveAutoupdateUIMode (adds the flags, the config key, the terminal,
+// and routes the downgrade sentence). Each of those three can return an error.
+// This one turns that error into a mode and a sentence, which is what every
+// producer of a REPORT wants and what none of them should decide for itself.
+//
+// # Why an unusable value can still arrive here at all
+//
+// The root rejects --ui and says so eleven lines above the check it performs:
+// validating the environment and the config there would make `bentoo version`
+// fail on a host whose shell profile has a typo, so it deliberately looks at the
+// flag alone. Measured on a binary built from HEAD, `bentoo version --ui=bogus`
+// exits 1 with the sentence and `BENTOO_UI=bogus bentoo version` exits 0 in
+// silence. So the error is reachable, and this is where it arrives.
+//
+// The SOURCE is what decides the answer, and the split is the design:
+//
+//   - --ui is explicit — the operator typed it for this run — so it stops the
+//     run before any work, once, at the root, and is stated there (R3.2, R3.6).
+//   - BENTOO_UI and ui.mode are ambient, inherited from a shell profile or a
+//     config file rather than typed for this run, so failing every invocation on
+//     one would break the commands that render nothing. They are refused HERE
+//     instead: the render falls back to plain, the mode that always works, the
+//     exit status is untouched, and the refusal is stated on stderr.
+//
+// What must never happen is the third option, which is what shipped: the value
+// dropped and nothing said, because every producer handed this error to
+// logger.Debug, which sits below the default LevelInfo and reaches no one.
+//
+// The check producer shipped a FOURTH answer, worse than all three, and 12.3
+// removed it. runAutoupdate resolved the mode before any package work and exited
+// 1 on the error, citing a rule about the --ui flag; measured on a seeded
+// overlay, `BENTOO_UI=bogus bentoo overlay autoupdate --check` lost not a
+// sentence but the whole report, and on a run already failing for a reason of
+// its own it replaced the operator's real diagnostic with one about a display
+// key that could not have caused it.
+//
+// # The sentence carries three facts, and only two of them existed
+//
+// parseMode's message already names the source and the value it refused. The
+// third — the mode used INSTEAD — is what the clause here adds, because listing
+// plain among the accepted values is not the same as saying the report below was
+// rendered in it.
+//
+// Warn rather than Debug, on the same stream and at the same level as
+// warnUIDowngrade, and the two must stay tellable apart: both end in plain, but
+// a downgrade is a device limit with nothing to fix, while this is a typo that
+// costs the operator every run until they find it. The source and the value are
+// what separate them, and they are exactly the two facts a downgrade can never
+// carry.
+//
+// # It is ONE function and not four identical lines per producer
+//
+// The two producers that grew a report in this story carried the same block and
+// the same doc comment, so the cheapest fix touched one of them and left the
+// other as silent as before — which is the failure
+// TestAmbientModeRefusalReachesTheSnapshotProducerToo exists to catch. R3.7 is a
+// rule about reports, not about one command's file, so a producer inherits it by
+// calling this rather than by being reviewed for it.
+//
+// All THREE producers call it now — presentManifestReport, presentSnapshotReport
+// and presentCheckReport — and the third is what the rule was worth spending a
+// function on. Its own file called this shape "already correct" while the run
+// died over the same key on the way in; nothing about that file said otherwise,
+// and only asking here rather than deciding there could have caught it.
+func reportModeOrPlain(cfg *config.Config) report.Mode {
+	mode, err := resolveAutoupdateUIMode(cfg)
+	if err != nil {
+		logger.Warn("%v — this report is rendered in plain instead", err)
+		return report.ModePlain
+	}
+	return mode
+}
+
 // modeUsesLiveRegion answers the only question the two live-region call sites
 // ask of a mode: does this run redraw in place, or does it print lines?
 //
@@ -238,12 +317,25 @@ var autoupdateUIConfig *config.Config
 func autoupdateUsesTUI(cfg *config.Config) bool {
 	mode, err := resolveAutoupdateUIMode(cfg)
 	if err != nil {
-		// Unreachable in a real run: R3.9 stops an unusable --ui, BENTOO_UI or
-		// ui.mode in runAutoupdate, before any package work. Debug rather than
-		// Warn because the operator has already been told, as a fatal error,
-		// and one run answering the same thing twice in two voices is worse
-		// than a line in a log. Plain is the fallback because plain is the mode
-		// that always works.
+		// Reachable, and only from the two AMBIENT sources. S044-R3.9 stops an
+		// unusable --ui and says nothing about the other two; the root has
+		// enforced that rule for all 30 commands since Task 4, and the gate in
+		// runAutoupdate has stopped exiting on what it never governed. So what
+		// arrives here is a BENTOO_UI or a ui.mode that does not name a mode,
+		// which S046-R3.7 answers with plain rather than with a failure.
+		//
+		// Debug rather than Warn, and that is a decision about WHO SPEAKS. R3.7
+		// is a rule about REPORTS; this is a live-region boolean on the apply
+		// path, which streams a worker's progress instead of drawing one (see
+		// modeUsesLiveRegion). Where the same command produces a report,
+		// presentCheckReport states the refusal once through reportModeOrPlain,
+		// naming the source, the value and the mode used instead — and a second
+		// sentence from here would answer one typo in two voices, which is the
+		// duplication R3.6 forbids. On a path that draws no report the refusal
+		// is therefore recorded rather than announced.
+		//
+		// False is the fallback for the same reason plain is: it is the answer
+		// that assumes nothing about the terminal.
 		logger.Debug("apply: the UI mode did not resolve, rendering in plain: %v", err)
 		return false
 	}

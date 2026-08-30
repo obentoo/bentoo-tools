@@ -419,6 +419,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not yet emitted; `--export` still writes the shape it wrote before. The commits
   that move the renderers and the check onto it say so where they land.
 
+
+### Fixed
+- **A render mode inherited from the environment or the config no longer
+  disappears in silence — or takes the run with it.** `BENTOO_UI` and the
+  `ui.mode` config key are *ambient*: inherited from a shell profile or a config
+  file rather than typed for this run. A value outside the accepted set had two
+  wrong answers depending on which command you ran, and neither was the one the
+  operator needed.
+
+  On `overlay manifest` and `snapshot run` the value was **dropped without a
+  word**. Both producers refused it, fell back to plain — the correct fallback —
+  and reported that at `logger.Debug`, which sits below the default level and
+  reaches nobody. The run rendered in a mode the operator did not choose and
+  nothing said why.
+
+  On `overlay autoupdate` it was worse: the value **killed the run**. A gate
+  before any package work resolved the whole precedence chain and exited 1, so a
+  typo in a shell profile cost you the entire check:
+
+      before:  BENTOO_UI=bogus bentoo overlay autoupdate --check
+               exit 1, no report — "BENTOO_UI: \"bogus\" is not a UI mode"
+      after:   exit 0, the full report in plain, and on stderr
+               "BENTOO_UI: \"bogus\" is not a UI mode; the accepted values are
+                auto, plain, inline or fullscreen — this report is rendered in
+                plain instead"
+
+  The refusal now names the three facts an operator needs: the **source**
+  (`BENTOO_UI` or `ui.mode`), the **value** refused, and the **mode used
+  instead** — that last one being the fact no existing message carried, since
+  listing `plain` among the accepted values is not the same as saying the report
+  in front of you was rendered in it. It arrives at `Warn`, on stderr, and is
+  deliberately distinguishable from the pre-existing downgrade sentence
+  ("fullscreen output needs an interactive terminal…"): both end in plain, but
+  one is a device limit with nothing to fix and the other is a typo that costs
+  you every run until you find it.
+
+  **An explicit `--ui` is unchanged and still fatal.** `bentoo <anything>
+  --ui=bogus` still exits 1 before doing any work, naming the accepted set. The
+  split is the point: a value you just typed is rejected, a value you inherited
+  degrades the render. Validating ambient sources at the root would make
+  `bentoo version` fail on a host whose shell profile has a typo.
+
+  **A run that fails for its own reasons keeps its own failure.** Previously an
+  unusable `BENTOO_UI` replaced the operator's real diagnostic with one about the
+  display; now the two are independent:
+
+      overlay autoupdate --check, overlay with no packages.toml
+      control:          exit 1, "failed to initialize checker: … packages.toml not found in overlay"
+      BENTOO_UI=bogus:  exit 1, identical message
+
 ## [0.28.2] - 2026-08-27
 
 ### Changed

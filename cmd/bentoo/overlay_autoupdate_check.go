@@ -634,12 +634,28 @@ func runValidationCheck(plan validationPlan, run func(validationPlanEntry) valid
 //
 // # The mode is resolved here, not passed in
 //
-// resolveAutoupdateUIMode is a pure function of the flags, the config and the
-// terminal, so asking here gives the same answer any other caller gets. An
-// error is unreachable in a real run — runAutoupdate rejects an unusable --ui
-// before any package work (R3.9) — so it falls back to plain, which is the mode
-// that always works, and says so at debug level rather than telling the
-// operator a second time in a second voice.
+// reportModeOrPlain is a pure function of the flags, the configuration and the
+// terminal, so asking here gives the same answer any other caller gets — and
+// --ui is the root's flag now, so the answer is the CLI's rather than one
+// command's (R3.1).
+//
+// What stood here was resolveAutoupdateUIMode and a claim that its error was
+// unreachable, because runAutoupdate rejected an unusable --ui before any
+// package work (S044-R3.9). That rule names the FLAG and nothing else; the root
+// has enforced it for all 30 commands since Task 4, and the gate this function
+// was trusting has stopped exiting on the sources it never governed. So every
+// error that reaches this line is an AMBIENT one — a BENTOO_UI or a ui.mode,
+// inherited from a shell profile or a config file rather than typed for this
+// run — and it is refused at this call: the render falls back to plain, the
+// refusal is STATED naming the source, the value and the mode used instead, and
+// the exit status does not move (R3.7). The rule and the measurements behind it
+// are on reportModeOrPlain, which the manifest and snapshot producers call too,
+// so a typo answered on one command cannot be swallowed on this one.
+//
+// This is also the ONLY voice the run has for that refusal, which is R3.6. The
+// gate in runAutoupdate resolves the same value to route the downgrade sentence
+// and records its own failure at debug level; a second sentence from there would
+// answer one typo twice, in two voices, about a value the operator typed once.
 //
 // # The `--list` hint is printed from here, and that placement IS the decision
 //
@@ -733,11 +749,7 @@ func presentCheckReport(run report.Run, planPrinted bool) {
 		content := report.SectionOptions{ShowAll: autoupdateAll, SkipPlan: planPrinted}
 		device := render.Options{}
 
-		mode, err := resolveAutoupdateUIMode(autoupdateUIConfig)
-		if err != nil {
-			logger.Debug("check: the UI mode did not resolve, rendering in plain: %v", err)
-			mode = report.ModePlain
-		}
+		mode := reportModeOrPlain(autoupdateUIConfig)
 
 		// The sections are built ONCE, here, and every mode below is handed the
 		// same slice — which is what makes "the three modes differ in

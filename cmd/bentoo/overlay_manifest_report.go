@@ -209,13 +209,19 @@ func manifestTargetFacts(update overlay.ManifestUpdate) report.ManifestTarget {
 //
 // # The mode is resolved here, not passed in
 //
-// resolveAutoupdateUIMode is a pure function of the flags, the configuration and
-// the terminal, so asking here gives the same answer any other caller gets — and
+// reportModeOrPlain is a pure function of the flags, the configuration and the
+// terminal, so asking here gives the same answer any other caller gets — and
 // --ui is the root's flag now, so the answer is the CLI's rather than one
-// command's (R3.1). An unusable value was already rejected at the root before
-// any package work (R3.2), so an error here is unreachable in a real run; it
-// falls back to plain, the mode that always works, and says so at debug level
-// rather than telling the operator a second time in a second voice.
+// command's (R3.1).
+//
+// What stood here was resolveAutoupdateUIMode and a claim that its error was
+// unreachable, because the root had already rejected the value (R3.2). The root
+// rejects the FLAG, deliberately and only the flag, so an unusable BENTOO_UI or
+// ui.mode reaches this call and is refused at it: the render falls back to
+// plain, the refusal is STATED naming the source, the value and the mode used
+// instead, and the exit status does not move (R3.7). The rule and the
+// measurements behind it are on reportModeOrPlain, which owns both halves so
+// that this producer and the snapshot one cannot come to answer differently.
 //
 // # A render that fails is reported and does not stop the export
 //
@@ -223,11 +229,7 @@ func manifestTargetFacts(update overlay.ManifestUpdate) report.ManifestTarget {
 // mid-write is no reason to also withhold the file, which may be the only copy
 // left.
 func presentManifestReport(cfg *config.Config, run report.Run) {
-	mode, err := resolveAutoupdateUIMode(cfg)
-	if err != nil {
-		logger.Debug("manifest: the UI mode did not resolve, rendering in plain: %v", err)
-		mode = report.ModePlain
-	}
+	mode := reportModeOrPlain(cfg)
 
 	// Two questions, kept apart. What the report should SAY — list every target
 	// that succeeded, or count them — is report.SectionOptions, answered here
