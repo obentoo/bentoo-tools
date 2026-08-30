@@ -14,6 +14,12 @@ package main
 // overlay_validate.go — so this test fails until they are measured, and then
 // reports the ten that remain as a number story 047 can check.
 //
+// CORRECTED, sub-task 13.4: the number handed on is EIGHT, not ten. Two
+// measurements moved it after this paragraph was written — a nineteenth width
+// story.md's count had missed, and the three in overlay_prune.go that sub-task
+// 11.3 measured away — and both are recorded at widthDebtBaseline below, which
+// now equals what the sweep prints instead of sitting ten steps above it.
+//
 // # Why the AST and not grep
 //
 // internal/common/report/render/width.go is on the touched list and contains
@@ -82,6 +88,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -104,23 +111,53 @@ const repoRoot = "../.."
 //     looks like once it reaches Printf. Flagging it would flag the fix.
 var typedWidth = regexp.MustCompile(`%-\d+(\.\d+)?s`)
 
-// widthDebtBaseline is the count story.md measured at c8e347e: 18 typed widths
-// in 6 files. It is the number this story may not exceed, in a repository where
-// story 044 recorded three as accepted debt and found 18 when it came back.
-const widthDebtBaseline = 18
+// widthDebtBaseline is the ceiling on the typed column widths left in files
+// this story does NOT touch, and it is a MEASUREMENT rather than a target:
+// EIGHT, over four files, which is what TestWidthDebtRemainderIsCounted below
+// printed on 2026-08-30 against the tree exactly as it is committed. Nothing
+// was picked to make the number fit — it is what the sweep prints, and
+// TestWidthDebtBaselineEqualsTheMeasurement holds the two together so the
+// published figure cannot drift above the thing it is a ceiling on.
+//
+// It may only FALL, and it is never raised. That trigger is what story 044
+// lacked when it recorded three typed widths as accepted debt "to be repaid
+// when one of them is next touched": none were touched, and the count had
+// reached 18 by the time anyone looked. A debt figure edited upward to
+// accommodate what was found records nothing, so the prohibition is not left as
+// a sentence here — widthDebtHighWaterMark holds the highest value this pin has
+// ever taken and TestWidthDebtBaselineNeverRises refuses a run that exceeds it.
+// The shape is internal/common/report/citation_test.go's, where
+// unattributedCitationDebt is pinned to its own measurement for the same reason
+// and says so in the same words.
+const widthDebtBaseline = 8
 
+// # How this number reached 8, and why every fall was allowed
+//
+// 18, story.md's count at c8e347e: 18 typed widths in 6 files. That is the
+// figure this story was handed and the highest the pin has ever stood, which is
+// what widthDebtHighWaterMark now records.
+//
 // MEASURED, 2026-08-27: this sweep finds NINETEEN, not eighteen — eight in the
 // two touched files and eleven outside them. The nineteenth is in
 // misc/design/design-system/component/catalogue.go, which story.md's own count
-// missed because it was taken over cmd/ and internal/ only. The baseline stays
-// at 18 rather than being quietly raised to 19: it is the number story 047 will
-// be handed, and a debt figure edited to match what was found is not a check.
+// missed because it was taken over cmd/ and internal/ only. The baseline stayed
+// at 18 rather than being quietly raised to 19: a debt figure edited to match
+// what was found is not a check.
 //
 // MEASURED AGAIN, 2026-08-30, after sub-task 11.3 pulled overlay_prune.go onto
 // the list below and measured the three widths it carried: eleven outside
 // becomes EIGHT. The three did not move from one side of the hand-off to the
 // other, they stopped existing — which is the only way this number is allowed
-// to fall. The baseline is still 18 and still unedited.
+// to fall.
+//
+// LOWERED to 8, sub-task 13.4. The pin had stayed at 18 while the quantity it
+// bounds was 8, because the two count different sets: 18 included the eight
+// widths that were then INSIDE the touched files and have since been measured
+// away. Ten steps of headroom is not a ceiling — ten further typed widths could
+// have landed in untouched files with this suite green and still publishing 8
+// as the debt, which is the same silence story 044 was left holding. Lowering
+// the pin onto its measurement is the one move the never-raise rule above
+// always permits; it is that rule applied, not an exception to it.
 
 // filesThisStoryTouches is R6.2's subject: every file this story MODIFIES.
 //
@@ -143,6 +180,23 @@ const widthDebtBaseline = 18
 // TestSubjectListAccountsForTheDiff. Written out AND checked: the offline
 // property survives, and the list stops being a claim about the diff that
 // nothing compares to the diff. That is how the gap above was able to open.
+//
+// BOTH DIRECTIONS are checked, and it took both. Until sub-task 13.4 only one
+// was: every diff-touched file carrying a typed width had to appear here, which
+// a list naming the whole repository satisfies. The converse — nothing here
+// that the diff does not support — is subjectEntriesOutsideTheDiff, driven by
+// TestSubjectListNamesNothingOutsideTheDiff, and it is not tidiness:
+// TestWidthDebtRemainderIsCounted subtracts every listed file from the counted
+// remainder, so a name added here removes that file's typed widths from the
+// number story 047 is handed. An entry the diff does not support is an
+// unaudited discount on the published debt.
+//
+// internal/common/report/render/style.go was such an entry and was removed
+// here. It had been on this list since the list existed, while `git diff --stat
+// c8e347e HEAD -- <it>` was empty — byte-identical to the branch point, so this
+// story provably did not modify it. Its discount happened to be zero, because
+// it carries no typed width, and that is exactly why nothing but a rule could
+// have caught it: the number never looked wrong.
 var filesThisStoryTouches = []string{
 	"cmd/bentoo/main.go",
 	"cmd/bentoo/overlay_autoupdate.go",
@@ -158,7 +212,6 @@ var filesThisStoryTouches = []string{
 	"internal/common/report/render/fullscreen.go",
 	"internal/common/report/render/inline.go",
 	"internal/common/report/render/json.go",
-	"internal/common/report/render/style.go",
 	"internal/common/report/render/text.go",
 	"internal/common/report/render/width.go",
 	"internal/overlay/annotate_baseline.go",
@@ -390,57 +443,36 @@ func TestWidthDebt(t *testing.T) {
 // It fails if the debt GROWS. That is the trigger story 044 lacked — it
 // recorded three widths as debt "to be repaid when one of them is next
 // touched", none were touched, and the count reached 18.
+//
+// The count comes from measuredWidthDebtRemainder rather than from a walk
+// written out here, and that sharing is load-bearing rather than tidiness. This
+// test PUBLISHES the number; TestWidthDebtBaselineEqualsTheMeasurement asserts
+// that widthDebtBaseline IS it. Those two statements only mean something about
+// each other while one sweep produces both — two copies that drifted would pin
+// the constant exactly against a count nobody publishes, which is the same
+// two-declarations-of-one-fact failure that let overlay_prune.go sit outside
+// filesThisStoryTouches for a whole story.
 func TestWidthDebtRemainderIsCounted(t *testing.T) {
-	touched := make(map[string]bool, len(filesThisStoryTouches))
-	for _, rel := range filesThisStoryTouches {
-		touched[rel] = true
+	remaining, perFile := measuredWidthDebtRemainder(t)
+
+	// Sorted, so that two runs of the same tree print the same lines: this log
+	// is the hand-off itself, and a breakdown that reorders on every run cannot
+	// be diffed against the last one.
+	files := make([]string, 0, len(perFile))
+	for file := range perFile {
+		files = append(files, file)
 	}
-
-	remaining := 0
-	perFile := map[string]int{}
-
-	err := filepath.WalkDir(repoRoot, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			switch entry.Name() {
-			case ".git", ".epic", "testdata", "vendor", "node_modules":
-				return fs.SkipDir
-			}
-			return nil
-		}
-
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			return nil
-		}
-
-		rel, relErr := filepath.Rel(repoRoot, path)
-		if relErr != nil {
-			return relErr
-		}
-		if touched[filepath.ToSlash(rel)] {
-			return nil
-		}
-
-		if hits := typedWidthsIn(t, path); len(hits) > 0 {
-			perFile[filepath.ToSlash(rel)] = len(hits)
-			remaining += len(hits)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walking the repository: %v", err)
-	}
+	sort.Strings(files)
 
 	t.Logf("typed column widths remaining in files this story does not touch: %d", remaining)
-	for file, count := range perFile {
-		t.Logf("    %2d  %s", count, file)
+	for _, file := range files {
+		t.Logf("    %2d  %s", perFile[file], file)
 	}
 
 	if remaining > widthDebtBaseline {
-		t.Errorf("the typed-width debt GREW to %d, from the %d measured at c8e347e — the count is carried so that it can be checked, not so that it can rise (Constraint 8)",
+		t.Errorf("the typed-width debt GREW to %d, from the %d widthDebtBaseline publishes — the count is carried so that it can be checked, not so that it can rise (Constraint 8).\n"+
+			"    Remedy: measure the width that pushed it over, named in the breakdown above. The ceiling is a\n"+
+			"    measurement and may only fall; raising it to meet a new width is what left story 044 with 18.",
 			remaining, widthDebtBaseline)
 	}
 }

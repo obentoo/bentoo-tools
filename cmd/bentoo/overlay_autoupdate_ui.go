@@ -249,11 +249,27 @@ func resolveAutoupdateUIMode(cfg *config.Config) (report.Mode, error) {
 // rule about reports, not about one command's file, so a producer inherits it by
 // calling this rather than by being reviewed for it.
 //
-// All THREE producers call it now — presentManifestReport, presentSnapshotReport
-// and presentCheckReport — and the third is what the rule was worth spending a
-// function on. Its own file called this shape "already correct" while the run
-// died over the same key on the way in; nothing about that file said otherwise,
-// and only asking here rather than deciding there could have caught it.
+// EVERY producer of a report calls it. That is the rule, and it is stated as a
+// rule rather than as a count on purpose: this comment read "All THREE producers
+// call it now" and named them, while presentValidateReport
+// (overlay_validate_report.go) built the same report.Run through the same
+// envelope and resolved no mode at all. Measured on one fixture, same overlay,
+// same BENTOO_UI=bogus, all exit 0 — `overlay manifest --dry-run` stated the
+// refusal once, `overlay validate` stated it zero times, with and without
+// --json. A number in a doc comment goes stale the moment a fourth call site
+// lands and says nothing when it does, which is the same silence R3.7 forbids,
+// one level up.
+//
+// `overlay validate` calls it for the SENTENCE alone: its human half is a
+// printer of its own until story 047, so the mode it gets back has no consumer
+// there and is dropped at the call. That is the rule holding rather than an
+// exception to it — R3.7 is about what the operator is told, and a command with
+// one renderer is already rendering in the mode it would have fallen back to.
+//
+// The check producer is why the rule was worth spending a function on. Its own
+// file called this shape "already correct" while the run died over the same key
+// on the way in; nothing about that file said otherwise, and only asking here
+// rather than deciding there could have caught it.
 func reportModeOrPlain(cfg *config.Config) report.Mode {
 	mode, err := resolveAutoupdateUIMode(cfg)
 	if err != nil {

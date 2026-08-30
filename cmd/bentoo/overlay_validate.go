@@ -112,7 +112,16 @@ Examples:
 		Args: cobra.MaximumNArgs(1),
 		Run:  runValidate,
 	}
-	cmd.Flags().Bool("json", false, "Write the whole report to stdout as a single JSON document. It is the same document --export=<path>.json writes to a file, at stdout instead: schema and kind at the root, and this command's own model one level down under payload. A consumer that already reads an exported report reads this one, and `jq '.kind'` says which command wrote it")
+	// NO BACK-QUOTE IN THE SENTENCE BELOW, and that is load-bearing rather than
+	// stylistic: pflag reads the first back-quoted substring of a usage string as
+	// the flag's VALUE PLACEHOLDER and prints it after the flag name
+	// (UnquoteUsage, flag.go:594; FlagUsagesWrapped, flag.go:725). Quoting
+	// jq '.kind' here made --help advertise "--json jq '.kind'" on a boolean that
+	// rejects every argument — and stripped the quotes out of the sentence anyway,
+	// so it bought nothing and cost the flag its own signature. The damage exists
+	// only in rendered help and never in this line, which is why the guard is a
+	// test rather than a reading of this file: flag_usage_test.go.
+	cmd.Flags().Bool("json", false, "Write the whole report to stdout as a single JSON document. It is the same document --export=<path>.json writes to a file, at stdout instead: schema and kind at the root, and this command's own model one level down under payload. A consumer that already reads an exported report reads this one, and jq '.kind' says which command wrote it")
 	cmd.Flags().String("distdir", "", "Read distfiles from this directory (never created, never written to)")
 	// The default is the shipped behaviour, spelled out rather than left empty
 	// (R11.3): `--depth` absent and `--depth=options` are the same run, and the

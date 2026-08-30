@@ -37,6 +37,8 @@ import (
 	"os"
 
 	"github.com/obentoo/bentoolkit/internal/autoupdate/validate"
+	"github.com/obentoo/bentoolkit/internal/common/config"
+	"github.com/obentoo/bentoolkit/internal/common/logger"
 	"github.com/obentoo/bentoolkit/internal/common/report"
 )
 
@@ -214,6 +216,43 @@ func renderValidateJSON(run report.Run, diag io.Writer) {
 	}
 }
 
+// validateReportConfig reads the configuration this run resolves its render
+// mode against, and answers nil when there is none.
+//
+// # Why this file reads it rather than being handed it
+//
+// runValidate has already loaded it — loadAppContextNoValidation, at
+// overlay_validate.go:209 — and keeps one boolean out of it. What it does not do
+// is carry the *config.Config down here, and presentValidateReport is called
+// from two places in that file, so growing a parameter would edit a file this
+// change has no other reason to touch. Reading it here costs one extra parse of
+// one small YAML file per run, and buys the SECOND ambient source: with a nil
+// config configuredUIMode reads "nothing configured", which answers BENTOO_UI
+// and leaves a typo in ui.mode exactly as silent as it was (R3.7).
+//
+// The cost that is not free: LoadFrom reports an unknown key in that file on
+// every load, so a config with a genuine typo in it now draws that warning twice
+// on this command — once for the run's load, once for this one. Both name the
+// same key and the same file, which is a repetition rather than a
+// contradiction; the alternative is a second reader of ui.mode, and a second
+// reader of a key is how two answers to it get written.
+//
+// # A configuration that cannot be read is not an error on this path
+//
+// It is snapshotReportConfig's reading and runValidate's own: a condition that
+// stops the gate becomes a reported outcome, never an aborted run. A nil config
+// leaves --ui, the environment and the terminal deciding — exactly what this
+// command did before ui.mode existed — and the miss is logged at debug because
+// on a host with no bentoo config it is the normal case, not a fault.
+func validateReportConfig() *config.Config {
+	cfg, err := config.Load()
+	if err != nil {
+		logger.Debug("overlay validate: no bentoo configuration was read, so ui.mode is not consulted: %v", err)
+		return nil
+	}
+	return cfg
+}
+
 // presentValidateReport puts the finished report in front of the operator: the
 // terminal first, then the export (R3.4, R3.5, R4.3).
 //
@@ -236,6 +275,11 @@ func renderValidateJSON(run report.Run, diag io.Writer) {
 // a flag that changes the frame and never the answer, which is worse than one
 // that is not there.
 //
+// The mode is nonetheless RESOLVED in the body below, and the two facts do not
+// contradict: refusing an unusable ambient value out loud (R3.7) and drawing a
+// report in the mode that survives the refusal are separate obligations. This
+// command owes the first today and the second in 047. The call carries the rest.
+//
 // # The export happens LAST, and that ordering is R3.5
 //
 // An export is an additional copy; the report the operator is looking at is the
@@ -252,6 +296,66 @@ func renderValidateJSON(run report.Run, diag io.Writer) {
 // arrangement D8 exists to end.
 func presentValidateReport(rep validate.Report, complete, asJSON bool, diag io.Writer) {
 	run := validateEnvelope(rep, complete)
+
+	// R3.7, stated for BOTH branches below and drawn by neither.
+	//
+	// # What was measured here before this line existed
+	//
+	// One fixture, one overlay, the same unusable value in the same variable,
+	// the refusal counted on stderr:
+	//
+	//	BENTOO_UI=bogus bentoo overlay manifest --dry-run   exit 0, stated once
+	//	BENTOO_UI=bogus bentoo overlay validate             exit 0, stated 0 times
+	//	BENTOO_UI=bogus bentoo overlay validate --json      exit 0, stated 0 times
+	//
+	// This producer resolved no mode at all, so there was no error to report and
+	// nothing was reported — design.md's forbidden third option, "the value
+	// dropped and nothing said", on the one command whose flag semantics story
+	// 046 exists to change, and the one an operator is most likely to be running
+	// from a script whose shell profile they did not write. The report they got
+	// was identical to the one they would have got with no BENTOO_UI at all, so
+	// there was nothing in front of them from which the typo could be inferred.
+	//
+	// # The MODE is dropped; the SENTENCE is what this call is for
+	//
+	// reportModeOrPlain answers "which renderer", and this producer has exactly
+	// one until story 047 — the section above says why. So the mode has no
+	// consumer here and is dropped where a reader can see it being dropped. The
+	// refusal is not droppable: it is what R3.7 owes, in the same words, on the
+	// same stream, at the same level as the other three producers state it, so
+	// an operator grepping for it finds this command beside them rather than
+	// missing from them.
+	//
+	// A call whose result is discarded reads like dead code and is not. Delete
+	// it and the silence measured above returns, unannounced;
+	// TestValidateAmbientModeFromTheEnvironmentKeepsTheRunAndStatesItself and
+	// its two siblings in validate_ambient_mode_test.go are what say so.
+	//
+	// # Here, and not at the top of the run
+	//
+	// Before the fork because both output paths owe the sentence and neither can
+	// state it for the other: placed in the human branch it reaches nobody
+	// piping to jq, placed in the JSON branch it reaches nobody reading a
+	// terminal. Under --json it lands on stderr, where the document is not, so
+	// the `| jq` the flag exists for is untouched.
+	//
+	// Never in runValidate, which is the cheap way to the same three facts and
+	// the way the check producer got it wrong: a mode resolved before the work
+	// and exited on turned "your shell profile has a typo" into "your validation
+	// did not run", and answered a run failing for a reason of its own with a
+	// diagnostic about a display key that could not have caused it. Resolved
+	// here, the status stays the run's — 1 for an error finding, 2 for a
+	// selector that matched nothing, 130 for an interrupt — and every one of
+	// them keeps meaning what this command's help says it means.
+	//
+	// # On stderr, which is not an exception to this file's stream rule
+	//
+	// reportModeOrPlain states it through logger.Warn, so it is on stderr on
+	// both paths. overlay_validate.go's rule that the default mode's text goes
+	// to stdout is about THE REPORT — a SKIPPED line and the reason beside it
+	// have to be read together — and this is not the report. It is a fact about
+	// the display, which is why the design puts it on stderr for every producer.
+	_ = reportModeOrPlain(validateReportConfig())
 
 	if asJSON {
 		renderValidateJSON(run, diag)

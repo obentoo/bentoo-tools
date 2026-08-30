@@ -128,6 +128,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -149,13 +150,13 @@ import (
 // citation of it exists in this package, so the guard had nothing to be wrong
 // about yet. It would have been wrong the moment one appeared — a real
 // requirement reported as a number story 046 never issued. Anyone adding a
-// requirement to story 046 adds it here too, and the count below is 34.
+// requirement to story 046 adds it here too, and the count below is 35.
 // (Written R-3.6, with the hyphen, for the reason the header gives: this file
 // is swept by its own rule.)
 var story046Requirements = map[string]bool{
 	"R1.1": true, "R1.2": true, "R1.3": true, "R1.4": true, "R1.5": true, "R1.6": true,
 	"R2.1": true, "R2.2": true, "R2.3": true, "R2.4": true,
-	"R3.1": true, "R3.2": true, "R3.3": true, "R3.4": true, "R3.5": true, "R3.6": true,
+	"R3.1": true, "R3.2": true, "R3.3": true, "R3.4": true, "R3.5": true, "R3.6": true, "R3.7": true,
 	"R4.1": true, "R4.2": true, "R4.3": true, "R4.4": true,
 	"R5.1": true, "R5.2": true, "R5.3": true,
 	"R6.1": true, "R6.2": true, "R6.3": true,
@@ -736,3 +737,508 @@ func unattributedCitations(t *testing.T) map[string]int {
 
 	return perFile
 }
+
+// # THE TABLE AND THE STORY IT COPIES (sub-task 13.1 — S046-R8.3)
+//
+// story046Requirements is a copy, and the header above already says what a copy
+// does: it drifts. It has now drifted twice.
+//
+// The first time, story 046's third refinement added R-3.6 and the table kept
+// its 33 entries. Sub-task 11.2 found it by READING, not by running anything —
+// no citation of R-3.6 existed in this package yet, so the guard had nothing to
+// be wrong about. The paragraph beside the table records that history and
+// states the remedy as a sentence addressed to a maintainer: "anyone adding a
+// requirement to story 046 adds it here too, and the count below is N". The
+// fourth refinement then added R-3.7 (story.md, in the R3 group) and did not.
+//
+// Nothing failed, and that is the entire defect. A sentence is not a check.
+// While no citation of the new number existed the omission cost nothing; the
+// moment one appeared, the guard reported a requirement story 046 genuinely
+// issues as a number 046 never issued — and its own printed remedy failed with
+// it, because citationFault refuses this story's prefix on a number missing
+// from the table. A citation of R-3.7 under this package was, at that point,
+// unwritable in EVERY form the guard accepts: bare and prefixed both fail, so
+// the failure message asks for something it will then reject.
+//
+// Four checks replace the sentence. They are separate because a fix for one is
+// not a fix for the others, and the last two are green the day they are written
+// — deliberately, and the evidence that each can fail is recorded below.
+//
+//   - TestCitationTableMatchesTheRequirementsStory046Issues — the table holds
+//     an entry for every requirement 046 issues, and none it does not. Both
+//     directions, because each is a different lie: a missing entry reports a
+//     real requirement as fictional, and a spurious one accepts a citation that
+//     resolves to nothing.
+//   - TestCitationTableResolvesTheRefinementRequirement — R-3.7 specifically,
+//     in the bare and the prefixed form, which is what a reader will actually
+//     type and what the failure message tells them to type.
+//   - TestCitationTableCountMatchesTheSentenceBesideIt — the sentence and the
+//     table cannot part company. A maintainer reading "the count below is N" is
+//     entitled to believe it, and half-fixing the table would leave it false.
+//   - TestCitationTableAgreesWithTheStoryFileWhereItIsPresent — the
+//     transcription below against story.md itself, where .epic/ is on disk.
+//
+// The chain is deliberate: story.md → the transcription → the guard's table.
+// The middle link exists because .epic/ is not committed. A check that read
+// story.md directly into the guard's table would be the only link there is, and
+// it would skip for everyone who cloned this repository — the header's reason
+// for copying the set in the first place. The transcription is committed, so
+// the link that matters most (transcription → table) runs everywhere; the link
+// that cannot (story.md → transcription) runs wherever the story exists, which
+// is wherever someone is in a position to add a requirement to it.
+
+// story046IssuedRequirements is story 046's acceptance-criteria set, read off
+// story.md and written here: 35 requirements in eight groups, R1.1 through
+// R8.4. Every line of that file opening with "- RN.M:" is one of them and
+// nothing else in the file matches that shape.
+//
+// The ids are assembled from their numbers through bareID rather than written
+// whole, for the reason bareID gives: this file is swept by its own rule, and a
+// literal citation of a number the table does not yet list would make the file
+// fail against itself — which is precisely the state this sub-task exists to
+// end, and it would be indistinguishable from it.
+func story046IssuedRequirements() []string {
+	numbers := []string{
+		// R1. Every long-running command ends in a report.
+		"1.1", "1.2", "1.3", "1.4", "1.5", "1.6",
+		// R2. The same three ways to read it, in every command.
+		"2.1", "2.2", "2.3", "2.4",
+		// R3. One declaration of the flags. The last of these is the one the
+		// fourth refinement added: an out-of-set mode from the environment or
+		// the configuration falls back to plain and says so.
+		"3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7",
+		// R4. A machine reader can tell two exports apart.
+		"4.1", "4.2", "4.3", "4.4",
+		// R5. Findings cross the library boundary as facts.
+		"5.1", "5.2", "5.3",
+		// R6. A column is measured, never declared.
+		"6.1", "6.2", "6.3",
+		// R7. The model describes runs; it does not describe screens.
+		"7.1", "7.2", "7.3", "7.4",
+		// R8. Each change is proved by a test that can fail for its own reason.
+		"8.1", "8.2", "8.3", "8.4",
+	}
+
+	ids := make([]string, 0, len(numbers))
+	for _, number := range numbers {
+		ids = append(ids, bareID(number))
+	}
+	return ids
+}
+
+// TestCitationTableMatchesTheRequirementsStory046Issues pins the guard's table
+// to the set it claims to be, in both directions.
+//
+// Neither direction is the other's restatement. A requirement 046 issues that
+// the table omits makes the guard SPLIT one thing into two: the number in the
+// code and the number in the story stop being the same requirement, and a
+// truthful citation is reported as a fiction. An id in the table that 046 does
+// not issue makes the guard COLLAPSE: a citation of a requirement that does not
+// exist is waved through as resolved, which is worse than the first because it
+// is silent.
+//
+// The second direction is not hypothetical bookkeeping — it is the cheapest
+// wrong fix for this very sub-task. TestCitationTableCountMatchesTheSentence-
+// BesideIt asks the table to hold as many entries as its comment claims, and
+// that is satisfied by adding ANY thirty-fifth id. Padding the table to the
+// right size while R-3.7 stays missing would satisfy the count, satisfy nothing
+// else, and leave the guard accepting a number nobody issued. This test is what
+// makes the identity of the entries matter rather than their number.
+func TestCitationTableMatchesTheRequirementsStory046Issues(t *testing.T) {
+	issued := story046IssuedRequirements()
+
+	// A transcription that read as empty would agree with any table at all.
+	if len(issued) == 0 {
+		t.Fatal("the transcription of story 046's requirements is empty — every check below would pass against a table holding anything")
+	}
+
+	issuedSet := make(map[string]bool, len(issued))
+	for _, id := range issued {
+		issuedSet[id] = true
+	}
+
+	// The split: 046 issues it, the table does not list it.
+	for _, id := range issued {
+		if !story046Requirements[id] {
+			t.Errorf("story 046 issues %s and the guard's table does not list it — a citation of it "+
+				"in this package is reported as a number 046 never issued, and the remedy the guard "+
+				"prints (%s%s) is refused for the same reason, so the citation cannot be written in "+
+				"any form this guard accepts",
+				id, thisStoryPrefix, id)
+		}
+	}
+
+	// The collapse: the table lists it, 046 does not issue it.
+	for id := range story046Requirements {
+		if !issuedSet[id] {
+			t.Errorf("the guard's table lists %s and story 046 does not issue it — a bare citation of "+
+				"%s would be accepted as resolvable and resolve to nothing, which is the failure this "+
+				"guard exists to prevent, committed by the guard itself",
+				id, id)
+		}
+	}
+}
+
+// TestCitationTableResolvesTheRefinementRequirement is the objective stated on
+// the two forms a reader writes, hostile cases first.
+//
+// The order is the point, as it is in TestCitationRule above. Written after the
+// table has been corrected, a case asking "does a citation of R-3.7 pass?"
+// passes against a classifier that approves everything — including against a
+// table padded until the count fits. The cases that must FIRE come first: each
+// one is a number story 046 does NOT issue, and each must stay refused however
+// the table is repaired.
+func TestCitationTableResolvesTheRefinementRequirement(t *testing.T) {
+	// The requirement the fourth refinement added, and the one it did not: the
+	// next number in the same group, which no refinement has issued.
+	refinement := bareID("3.7")
+	absent := bareID("3.8")
+
+	cases := []struct {
+		name     string
+		citation string
+		fault    bool
+		why      string
+	}{
+		// Hostile: the number immediately after the last one 046 issues in that
+		// group. It is what padding the table to the right size most plausibly
+		// adds, and it must stay a fault.
+		{
+			name:     "a bare citation of the number just past the end of that group",
+			citation: absent,
+			fault:    true,
+			why:      "story 046 stops at the number below it; accepting this one buys the count and loses the rule",
+		},
+		// Hostile, the converse form: this story's prefix on the same number.
+		// The prefix is the remedy's own invention, so nothing in the rule
+		// forbids spelling it over a number that does not exist.
+		{
+			name:     "this story's prefix on the number just past the end of that group",
+			citation: thisStoryPrefix + absent,
+			fault:    true,
+			why:      "a confident, checkable falsehood — it looks resolved and names nothing",
+		},
+		// Hostile: a number 046 never issued at any refinement, cited bare.
+		// This is the class the guard was built for and must not be weakened.
+		{
+			name:     "a bare citation of a number 046 never issued",
+			citation: bareID("9.3"),
+			fault:    true,
+			why:      "story 044's most-cited number, carried in with the code; bare, it names nothing",
+		},
+		// The requirement itself, bare — the form 356 citations in this package
+		// already use, and the form someone answering R-3.7 will reach for.
+		{
+			name:     "a bare citation of the requirement the fourth refinement added",
+			citation: refinement,
+			fault:    false,
+			why:      "story 046 issues it, so the guard must not report it as a number 046 never issued",
+		},
+		// The requirement itself, prefixed — the form the guard's OWN failure
+		// message demands. Refusing this one is what made the citation
+		// unwritable: the remedy and the rule contradicted each other.
+		{
+			name:     "this story's prefix on the requirement the fourth refinement added",
+			citation: thisStoryPrefix + refinement,
+			fault:    false,
+			why:      "this is the remedy the guard prints; a guard that refuses its own remedy leaves no way to comply",
+		},
+		// The third element. Two spellings are handled above; a third reaches
+		// the same number by another route. Another story's prefix on it is not
+		// this guard's business and must not become so as the table is
+		// repaired — the guard knows one story's set and cannot audit 044's.
+		{
+			name:     "another story's prefix on the same number",
+			citation: "S044-" + refinement,
+			fault:    false,
+			why:      "attributed to a story this guard does not audit; deciding it here would invent violations",
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fault := citationFault(testCase.citation)
+
+			if testCase.fault && fault == "" {
+				t.Errorf("%s was accepted — %s", testCase.citation, testCase.why)
+			}
+			if !testCase.fault && fault != "" {
+				t.Errorf("%s was rejected as %q — %s", testCase.citation, fault, testCase.why)
+			}
+		})
+	}
+}
+
+// requirementTableName is the table this file's own checks read, by the name it
+// is declared under.
+const requirementTableName = "story046Requirements"
+
+// tableCountSentence reads the size the table's comment claims for it.
+//
+// The phrase is fixed on purpose. A looser pattern — "any number in the
+// paragraph" — would match the requirement numbers the same paragraph quotes
+// and pin the table against one of those, which is a check that fails for a
+// reason nobody can act on. When the sentence is reworded the test says so and
+// names the form it reads, rather than passing quietly.
+var tableCountSentence = regexp.MustCompile(`the count below is ([0-9]+)`)
+
+// requirementTableDoc returns the doc comment attached to the requirement
+// table, read from this file's own source.
+//
+// Reading the source rather than restating the sentence in the test is what
+// makes the check non-trivial: the assertion is about the words a maintainer
+// will actually read on the way past the table, not about a copy of them.
+func requirementTableDoc(t *testing.T) string {
+	t.Helper()
+
+	fileSet := token.NewFileSet()
+	file, err := parser.ParseFile(fileSet, requirementTableFile, nil, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parsing %s to read the table's comment: %v", requirementTableFile, err)
+	}
+
+	for _, decl := range file.Decls {
+		genDecl, isGen := decl.(*ast.GenDecl)
+		if !isGen || genDecl.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range genDecl.Specs {
+			valueSpec, isValue := spec.(*ast.ValueSpec)
+			if !isValue {
+				continue
+			}
+			for _, name := range valueSpec.Names {
+				if name.Name != requirementTableName {
+					continue
+				}
+				if genDecl.Doc == nil {
+					t.Fatalf("%s has no doc comment — the paragraph stating how the table is maintained is the only instruction a maintainer gets", requirementTableName)
+				}
+				return genDecl.Doc.Text()
+			}
+		}
+	}
+
+	t.Fatalf("%s is not declared in %s — this check reads the table's comment from source and has just read nothing", requirementTableName, requirementTableFile)
+	return ""
+}
+
+// TestCitationTableCountMatchesTheSentenceBesideIt keeps the table and the
+// sentence beside it from parting company.
+//
+// This one is GREEN on the day it is written, and that is deliberate rather
+// than an oversight: at the moment of writing, the comment says one number and
+// the table holds that many entries. What it forbids is the half-fix. Adding
+// the missing requirement to the table without touching the sentence leaves a
+// paragraph that instructs the next maintainer with a number that is now wrong
+// — which is exactly how the omission this sub-task repairs went unnoticed for
+// two refinements. The evidence that it fails when that happens is recorded at
+// the foot of this file, because a green check proves nothing on its own.
+func TestCitationTableCountMatchesTheSentenceBesideIt(t *testing.T) {
+	doc := requirementTableDoc(t)
+
+	match := tableCountSentence.FindStringSubmatch(doc)
+	if match == nil {
+		t.Fatalf("the table's comment no longer states its size in the form this check reads "+
+			"(\"the count below is N\"), so the sentence and the table are no longer held together.\n"+
+			"    Remedy: restore that phrase with the current number, or teach this test the new "+
+			"wording — do not leave the paragraph making a claim nothing checks.\n"+
+			"    The comment read:\n%s", doc)
+	}
+
+	if stated, actual := match[1], fmt.Sprint(len(story046Requirements)); stated != actual {
+		t.Errorf("the table's comment says the count below is %s and the table holds %s entries.\n"+
+			"    The paragraph is the only instruction a maintainer adding a requirement gets, and a "+
+			"stale number in it is how the table fell behind story 046 twice.\n"+
+			"    Remedy: change both together — the entry and the sentence.",
+			stated, actual)
+	}
+}
+
+// story046File is story 046's requirements as the story itself states them.
+// The path is relative to this package, which is where a test runs.
+const story046File = "../../../.epic/stories/046-report-across-the-cli/story.md"
+
+// storyCriterionLine reads one acceptance criterion's id off a line of the
+// story file. Every criterion in that file opens a list item with its id and a
+// colon, and nothing else in the file takes that shape — a requirement quoted
+// mid-sentence is not at the start of a line, and a heading has no colon after
+// the number.
+var storyCriterionLine = regexp.MustCompile(`(?m)^- (R[0-9]+\.[0-9]+):`)
+
+// TestCitationTableAgreesWithTheStoryFileWhereItIsPresent checks the
+// transcription against the story it transcribes.
+//
+// It SKIPS where .epic/ is absent, and the skip is the whole reason the
+// transcription exists rather than this test replacing it. `git ls-files .epic/`
+// returns nothing: for anyone who cloned this repository the story file is not
+// there, and a guard that read it directly would pass vacuously for them. So
+// the link that must hold everywhere is transcription → table, checked by
+// TestCitationTableMatchesTheRequirementsStory046Issues, which reads no file at
+// all. This test covers the one link a committed file cannot: it runs wherever
+// the story is on disk, which is wherever someone is in a position to add a
+// requirement to it — and it fires when they do, instead of waiting for a
+// citation of the new number to appear before anything notices.
+func TestCitationTableAgreesWithTheStoryFileWhereItIsPresent(t *testing.T) {
+	source, err := os.ReadFile(story046File)
+	if err != nil {
+		t.Skipf("story 046's file is not on disk (%v).\n"+
+			"    .epic/ is not committed, so this cross-check runs only where the story is present. "+
+			"The transcription it would check is pinned against the guard's table by "+
+			"TestCitationTableMatchesTheRequirementsStory046Issues, which reads no file.", err)
+	}
+
+	var stated []string
+	statedSet := map[string]bool{}
+	for _, match := range storyCriterionLine.FindAllStringSubmatch(string(source), -1) {
+		stated = append(stated, match[1])
+		statedSet[match[1]] = true
+	}
+
+	// The story was found and read as having almost no requirements: the reader
+	// is broken, not the story. Without this, a changed heading style would
+	// turn this check into a comparison of two empty sets.
+	if len(stated) < 20 {
+		t.Fatalf("read %d acceptance criteria from %s — story 046 has eight requirement groups and "+
+			"more than thirty criteria, so this reader has stopped matching the file's shape rather "+
+			"than found a shrunken story", len(stated), story046File)
+	}
+
+	transcribed := map[string]bool{}
+	for _, id := range story046IssuedRequirements() {
+		transcribed[id] = true
+	}
+
+	for _, id := range stated {
+		if !transcribed[id] {
+			t.Errorf("story 046 states %s and the transcription in this file does not carry it — the "+
+				"story has been refined since the transcription was written, and the guard's table is "+
+				"about to fall behind it exactly as it did twice before", id)
+		}
+	}
+	for id := range transcribed {
+		if !statedSet[id] {
+			t.Errorf("the transcription in this file carries %s and story 046 does not state it — a "+
+				"requirement was removed or renumbered, and the guard would go on accepting citations "+
+				"of a criterion that no longer exists", id)
+		}
+	}
+}
+
+// # EVIDENCE THAT THESE CHECKS FAIL WHEN THE RULE THEY GUARD IS BROKEN (S046-R8.3)
+//
+// Two of the four checks above are RED on the day they are written and two are
+// GREEN, and the two states need different evidence.
+//
+// The red pair — the set match and the two forms of R-3.7 — fail against the
+// tree exactly as committed, which is the defect this sub-task exists to close.
+// A check that fails always is no more informative than one that passes always,
+// so what they still owe is proof that they go green when, and only when, the
+// table is corrected. Mutation A supplies it.
+//
+// The green pair — the count sentence and the story-file cross-check — would
+// otherwise be assertions nobody has ever seen fail. Mutations B through E
+// break each of their rules in turn. The artifacts holding these runs
+// (.draft/red-evidence.yaml) are not committed, so a pointer to them is a
+// pointer to nothing for anyone who cloned this; the transcripts are written
+// here instead, as this file's header does for the guard itself.
+//
+// Measured on 2026-08-30, Go 1.27. Each mutation was applied on its own to a
+// copy of this file placed in the package, run once, and the file restored
+// immediately; the tree was returned with `git checkout -- ` and the restore
+// verified by an empty `git status --porcelain`.
+//
+// Every requirement number below is written with a hyphen after the R — R-3.7
+// for what the runs printed without one — because this file is swept by its own
+// rule and quoting these citations verbatim would make the evidence violate the
+// thing it records. The hyphen is the only edit; the lines are otherwise as
+// printed, re-wrapped to this comment's width, and the PASS lines of unrelated
+// subtests are elided where marked.
+//
+// Mutation A — the fix applied by halves: R-3.7 added to the table, the
+// sentence beside it left saying 34.
+//
+//	--- PASS: TestCitationTableMatchesTheRequirementsStory046Issues (0.00s)
+//	--- PASS: TestCitationTableResolvesTheRefinementRequirement (0.00s)
+//	    [... its six subtests, every one PASS ...]
+//	    citation_test.go:1050: the table's comment says the count below is 34
+//	        and the table holds 35 entries.
+//	        The paragraph is the only instruction a maintainer adding a
+//	        requirement gets, and a stale number in it is how the table fell
+//	        behind story 046 twice.
+//	        Remedy: change both together — the entry and the sentence.
+//	--- FAIL: TestCitationTableCountMatchesTheSentenceBesideIt (0.00s)
+//	--- PASS: TestCitationTableAgreesWithTheStoryFileWhereItIsPresent (0.00s)
+//
+// It carries two facts at once. The count check fires on the half-fix — which
+// is the state this sub-task's own remedy leaves behind if the sentence is
+// forgotten, and forgetting the sentence is how the table fell behind story 046
+// the first time. And the two checks that are red on arrival PASS here: they
+// are not failing vacuously, they go green precisely when the table gains the
+// entry the story issues.
+//
+// Mutation B — the converse half: the sentence updated to 35, the table left at
+// 34. The check must be symmetric, or a maintainer could satisfy it by editing
+// the easier of the two.
+//
+//	citation_test.go:1050: the table's comment says the count below is 35 and
+//	    the table holds 34 entries.
+//	    [the same three lines, word for word]
+//	--- FAIL: TestCitationTableCountMatchesTheSentenceBesideIt (0.00s)
+//
+// Mutation C — R-3.7 removed from the transcription in this file, so that the
+// transcription and the table are wrong TOGETHER. This is the most instructive
+// of the five, and it is the reason the story-file check exists at all:
+//
+//	--- PASS: TestCitationTableMatchesTheRequirementsStory046Issues (0.00s)
+//	    citation_test.go:966: R-3.7 was rejected as "story 046 has no R-3.7, and
+//	        the citation is bare, so it names nothing a reader can resolve" —
+//	        story 046 issues it, so the guard must not report it as a number 046
+//	        never issued
+//	    citation_test.go:966: S046-R-3.7 was rejected as "the citation claims
+//	        story 046 owns R-3.7, and story 046 has no R-3.7" — this is the
+//	        remedy the guard prints; a guard that refuses its own remedy leaves
+//	        no way to comply
+//	--- FAIL: TestCitationTableResolvesTheRefinementRequirement (0.00s)
+//	--- PASS: TestCitationTableCountMatchesTheSentenceBesideIt (0.00s)
+//	    citation_test.go:1114: story 046 states R-3.7 and the transcription in
+//	        this file does not carry it — the story has been refined since the
+//	        transcription was written, and the guard's table is about to fall
+//	        behind it exactly as it did twice before
+//	--- FAIL: TestCitationTableAgreesWithTheStoryFileWhereItIsPresent (0.00s)
+//
+// The set match PASSES: two copies that agree with each other and with nothing
+// else are consistent, and consistency is all that check can see. Only the run
+// that reads story.md notices, and the named-requirement check keeps failing
+// for its own reason. That is the shape of the original defect — a table
+// agreeing with a maintainer's memory of the story rather than with the story —
+// and it is why the transcription is checked against the file wherever the file
+// is on disk, rather than trusted.
+//
+// Mutation D — the converse: "3.8" added to the transcription, a number no
+// refinement has issued.
+//
+//	citation_test.go:1121: the transcription in this file carries R-3.8 and
+//	    story 046 does not state it — a requirement was removed or renumbered,
+//	    and the guard would go on accepting citations of a criterion that no
+//	    longer exists
+//	--- FAIL: TestCitationTableAgreesWithTheStoryFileWhereItIsPresent (0.00s)
+//
+// Mutation E — the sentence reworded rather than corrected, to "and there are
+// 34 of them below". Nothing about the table changed; only the phrase the check
+// reads did. A silent pass here would be the worst outcome of the five, because
+// the paragraph would go on instructing maintainers with a number nothing
+// verifies:
+//
+//	citation_test.go:1042: the table's comment no longer states its size in the
+//	    form this check reads ("the count below is N"), so the sentence and the
+//	    table are no longer held together.
+//	    Remedy: restore that phrase with the current number, or teach this test
+//	    the new wording — do not leave the paragraph making a claim nothing
+//	    checks.
+//	    The comment read:
+//	    [the paragraph, printed in full so the reader can see what to restore]
+//	--- FAIL: TestCitationTableCountMatchesTheSentenceBesideIt (0.00s)
+//
+// Every message names the file, what disagreed with what, and what to change —
+// which is what makes these four answerable by someone who did not write them.

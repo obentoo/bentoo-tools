@@ -469,6 +469,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       control:          exit 1, "failed to initialize checker: … packages.toml not found in overlay"
       BENTOO_UI=bogus:  exit 1, identical message
 
+
+- **`overlay validate` states a refused ambient render mode too, and `--json`
+  stops advertising a value it never took.** Two follow-ups to the entry above,
+  found by auditing it rather than by using it.
+
+  `overlay validate` builds the same report envelope as the other three
+  producers but never resolved a render mode, so an unusable `BENTOO_UI` or
+  `ui.mode` was dropped there in silence — the one outcome the entry above calls
+  forbidden. It now refuses on the same terms as the rest:
+
+      BENTOO_UI=bogus bentoo overlay validate
+      exit 0, the same report, and on stderr:
+      BENTOO_UI: "bogus" is not a UI mode; the accepted values are auto, plain,
+      inline or fullscreen — this report is rendered in plain instead
+
+  Under `--json` the refusal goes to stderr and the document on stdout is
+  **byte-identical** to a run without the bad value, so a `| jq` pipeline is
+  unaffected.
+
+  Separately, `bentoo overlay validate --help` advertised `--json` as if it took
+  an argument:
+
+      before:  --json jq '.kind'   Write the whole report to stdout …
+      after:   --json              Write the whole report to stdout …
+
+  `--json` is a boolean and rejects every argument. The usage text had quoted a
+  `jq` expression in back-quotes, which is how pflag is told to name a flag's
+  **value placeholder** — so it lifted the expression out of the sentence and
+  printed it as one. The sentence itself is unchanged: pflag was already
+  stripping those quotes out of the rendered text, so they bought nothing.
+
+  **Nothing else about either command changed** — same exit statuses, same
+  report content, same JSON schema.
+
 ## [0.28.2] - 2026-08-27
 
 ### Changed
