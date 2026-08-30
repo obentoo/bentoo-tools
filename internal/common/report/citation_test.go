@@ -4,16 +4,48 @@ package report
 //
 // The rule: no comment and no string under internal/common/report, render/
 // included, may cite a requirement number that story 046 does not have without
-// saying which story does. A bare number that resolves inside 046 is fine — it
-// is unambiguous where it stands. A number 046 never issued is not: the same
+// saying which story does. A number 046 never issued is unresolvable: the same
 // token exists in a dozen other stories in this repository, so a reader meeting
 // it has no way to find the sentence it points at. .epic/ is not committed
 // (`git ls-files .epic/` returns nothing), which is what makes this a code
 // problem rather than a bookkeeping one — the comment is the whole record.
 //
+// A bare number that DOES resolve inside 046 is not refused here. It is not
+// resolved either, and the section titled "RESOLVING IS NOT ATTRIBUTING" below
+// is the correction — read it before trusting a green run of this guard.
+//
 // The disambiguation already exists and is used several hundred times across
 // the repository: an S0NN- prefix naming the owning story. This guard requires
 // it exactly where a bare citation cannot be resolved, and nowhere else.
+//
+// # RESOLVING IS NOT ATTRIBUTING — amended by sub-task 11.2 (S046-R8.3)
+//
+// This file was written with a second claim beside the rule, and the second
+// claim was wrong. It read: "A bare number that resolves inside 046 is fine —
+// it is unambiguous where it stands." That holds in a package story 046 wrote
+// from nothing. This is not one. Story 044 wrote most of it and issues
+// S044-R1.1 through S044-R10.5, so every number 046 has, 044 has too, with a
+// different sentence behind it. A bare citation here that citationFault accepts
+// has therefore been matched on its NUMBER, not on its MEANING.
+//
+// It is not hypothetical, and the collision is not confined to code 046
+// inherited. section.go is a file story 046 CREATED, and line 84 of it says a
+// repeated reason is "printed once (R7.2), while the report itself still
+// carries the whole string (R7.4)". Those two are S044-R7.2 and S044-R7.4:
+// 046's own R7.2 is the presentation-field guard and its R7.4 is "adding a kind
+// edits no renderer". Neither is what the comment is about, and this guard
+// called both of them resolved.
+//
+// citationFault is UNCHANGED by the amendment. A bare-but-resolvable citation
+// is still not a hard failure, because 356 of them are in this package and
+// failing all 356 would fail the package rather than fix it. What changed is
+// that the class stopped being silent: citation_debt_test.go counts it, prints
+// the per-file breakdown on every run, and fails when it grows.
+// unattributedCitationDebt at the foot of this file is the ceiling, and the
+// evidence that the ceiling bites is recorded beside it. Deciding which story
+// each of the 356 meant is story 047's work — done mechanically it would write
+// confident falsehoods, and a wrong prefix is worse than a bare number because
+// it looks resolved.
 //
 // # RED ON ARRIVAL — 79 of them
 //
@@ -110,10 +142,20 @@ import (
 // into the guard is what gives the rule an existence independent of the story
 // directory, which is the same reason the citations themselves have to be
 // resolvable from the code alone.
+//
+// A copied set drifts, and this one did. R-3.6 was added to story.md by its
+// third refinement, months after sub-task 10.4 transcribed the table, and the
+// omission was found by sub-task 11.2 rather than by anything here: no bare
+// citation of it exists in this package, so the guard had nothing to be wrong
+// about yet. It would have been wrong the moment one appeared — a real
+// requirement reported as a number story 046 never issued. Anyone adding a
+// requirement to story 046 adds it here too, and the count below is 34.
+// (Written R-3.6, with the hyphen, for the reason the header gives: this file
+// is swept by its own rule.)
 var story046Requirements = map[string]bool{
 	"R1.1": true, "R1.2": true, "R1.3": true, "R1.4": true, "R1.5": true, "R1.6": true,
 	"R2.1": true, "R2.2": true, "R2.3": true, "R2.4": true,
-	"R3.1": true, "R3.2": true, "R3.3": true, "R3.4": true, "R3.5": true,
+	"R3.1": true, "R3.2": true, "R3.3": true, "R3.4": true, "R3.5": true, "R3.6": true,
 	"R4.1": true, "R4.2": true, "R4.3": true, "R4.4": true,
 	"R5.1": true, "R5.2": true, "R5.3": true,
 	"R6.1": true, "R6.2": true, "R6.3": true,
@@ -176,9 +218,14 @@ func splitCitation(citation string) (prefix, id string) {
 //
 // Three outcomes, and the third is the one a reader is most likely to miss:
 //
-//   - Bare, and 046 has the requirement: resolvable. Left alone. Inside this
-//     story's own code the number is unambiguous, and rewriting the tree to
-//     prefix them would buy nothing.
+//   - Bare, and 046 has the requirement: not a fault here — and not resolved
+//     either. Story 044 issues the same numbers, so the match is on the digits
+//     rather than on the sentence. It stays outside the hard-failure class
+//     because 356 of them are in this package and refusing all 356 at once
+//     would fail the package rather than fix it; sub-task 11.2 gave the class a
+//     counted ceiling instead. citationIsUnattributed at the foot of this file
+//     is that class, and the header section "RESOLVING IS NOT ATTRIBUTING" is
+//     why it exists.
 //   - Bare, and 046 does not: the fault this guard exists for.
 //   - Prefixed S046-, and 046 does not have the requirement: also a fault. The
 //     prefix is the fix's own invention, so nothing in the rule above forbids
@@ -264,7 +311,7 @@ func TestCitationRule(t *testing.T) {
 			name:     "bare citation of a requirement 046 does have",
 			citation: "R7.2",
 			fault:    false,
-			why:      "unambiguous where it stands: this is 046's code and 046 has R7.2",
+			why:      "not refused: 046 has R7.2, so this class is counted as debt rather than failed",
 		},
 		// Hostile, the third element: the prefix is a spelling the fix invents,
 		// so the rule that motivated it cannot name what would collide with it.
@@ -420,25 +467,40 @@ func TestCitationViolationNamesFileAndCitation(t *testing.T) {
 	}
 }
 
-// TestCitationsResolve is the guard itself: every citation written in a comment
-// or a string anywhere under internal/common/report, render/ included.
+// eachCitationInPackage reads every citation this package writes and hands each
+// one to visit: the file it stands in, the line it stands on, and the citation
+// itself. It returns the number of files it parsed.
 //
-// Strings are swept alongside comments because a citation in a test's failure
-// message is read by the same person with the same question, and five of the
-// occurrences this guard found on arrival live in exactly that position.
-// _test.go files are swept for the same reason: a citation in a test is a
-// citation.
-func TestCitationsResolve(t *testing.T) {
+// This is the SUBJECT, written once and shared by both sweeps below. Every .go
+// file under internal/common/report, render/ and the _test.go files included —
+// a citation in a test's failure message is read by the same person with the
+// same question, and five of the 79 violations this guard found on arrival
+// lived inside strings, so literals are read alongside comments.
+//
+// skip is the ONLY difference between the guard and the ceiling, and making it
+// an argument is what keeps the two from drifting apart. Before this, each
+// sweep declared the subject for itself, so narrowing one of them would have
+// gone unnoticed by the other — and a ceiling reading fewer files than the
+// guard reports a debt that fell without anything being fixed. A nil skip
+// reads everything.
+//
+// The returned count is what each caller's vacuity guard is built on: a sweep
+// that read nothing finds no violation and no debt, and both of those look
+// exactly like success.
+func eachCitationInPackage(t *testing.T, skip func(path string) bool, visit func(path string, line int, citation string)) int {
+	t.Helper()
+
 	fileSet := token.NewFileSet()
 	filesScanned := 0
-	citationsRead := 0
-	violations := 0
 
 	walkErr := filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if entry.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		if skip != nil && skip(path) {
 			return nil
 		}
 
@@ -451,11 +513,7 @@ func TestCitationsResolve(t *testing.T) {
 		inspect := func(pos token.Pos, text string) {
 			base := fileSet.Position(pos).Line
 			for _, ref := range citationsIn(text) {
-				citationsRead++
-				if fault := citationFault(ref.text); fault != "" {
-					violations++
-					t.Errorf("%s", citationViolation(path, base+ref.line, ref.text, fault))
-				}
+				visit(path, base+ref.line, ref.text)
 			}
 		}
 
@@ -478,6 +536,27 @@ func TestCitationsResolve(t *testing.T) {
 		t.Fatalf("sweeping the package: %v", walkErr)
 	}
 
+	return filesScanned
+}
+
+// TestCitationsResolve is the guard itself: every citation written in a comment
+// or a string anywhere under internal/common/report, render/ included, must
+// name a sentence a reader can find.
+//
+// It exempts nothing, this file included — an exemption would be a hole exactly
+// where someone tempted to hide a citation would put one.
+func TestCitationsResolve(t *testing.T) {
+	citationsRead := 0
+	violations := 0
+
+	filesScanned := eachCitationInPackage(t, nil, func(path string, line int, citation string) {
+		citationsRead++
+		if fault := citationFault(citation); fault != "" {
+			violations++
+			t.Errorf("%s", citationViolation(path, line, citation, fault))
+		}
+	})
+
 	// A sweep that read nothing passes, and would keep passing after the
 	// citations were moved out from under it.
 	if filesScanned == 0 {
@@ -490,4 +569,170 @@ func TestCitationsResolve(t *testing.T) {
 	if violations > 0 {
 		t.Logf("%d of the %d citations read across %d files cannot be resolved", violations, citationsRead, filesScanned)
 	}
+}
+
+// # THE SECOND CLASS — WHAT RESOLVES WITHOUT BEING ATTRIBUTED (sub-task 11.2)
+//
+// Everything below serves the ceiling in citation_debt_test.go, and it lives in
+// THIS file for a reason that is not tidiness. The debt sweep excludes
+// citation_test.go by name: story046Requirements above DEFINES story 046's set,
+// and counting the definition as a citation OF the set would pin a ceiling
+// against the definition. Putting the counter inside the one excluded file
+// keeps both sweeps reading an identical subject with a single exclusion rule
+// to maintain, and keeps the counter's own explanation — which cites
+// requirements in almost every sentence — out of the number it reports. A
+// helper in a third file would sit inside the subject it measures.
+
+// requirementTableFile is the one file the debt sweep does not read: this one,
+// where the requirement table lives. citation_debt_test.go's independent walk
+// names the same basename, and TestCitationDebtSweepAgreesWithTheGuardsSubject
+// fails if the two subjects ever part company.
+const requirementTableFile = "citation_test.go"
+
+// isRequirementTable is that exclusion as eachCitationInPackage takes it.
+func isRequirementTable(path string) bool { return filepath.Base(path) == requirementTableFile }
+
+// citationIsUnattributed answers whether a citation was matched on its NUMBER
+// rather than on its MEANING: written bare, and let through by citationFault
+// only because story 046 issues that number too — as does story 044, which
+// wrote most of this package.
+//
+// It is written THROUGH citationFault rather than beside it so that the two
+// classes cannot drift into overlapping. Whatever citationFault rejects is a
+// hard failure and is never counted as debt; what this counts is exactly the
+// residue citationFault lets through bare. A prefixed citation is attributed by
+// definition, whichever story the prefix names — that is what a prefix is FOR,
+// and re-deciding it here would put the counter and the guard at odds.
+func citationIsUnattributed(citation string) bool {
+	prefix, _ := splitCitation(citation)
+	return prefix == "" && citationFault(citation) == ""
+}
+
+// unattributedCitationDebt is the ceiling, and it is a MEASUREMENT rather than
+// a target: 356 bare citations over 36 of the 37 files the sweep reads, taken
+// on 2026-08-29 against the tree exactly as it is committed. Nothing was picked
+// to make the number fit — it is what the sweep printed on the day it landed,
+// and classify_test.go is the single swept file with none.
+//
+// It may not rise. That trigger is the thing story 044 lacked when it recorded
+// three typed column widths as debt "to be repaid when one of them is next
+// touched": none were touched, and the count had reached 18 by the time anyone
+// looked (cmd/bentoo/width_debt_test.go carries that history, and this ceiling
+// is built in its shape). A number that can only fall is the hand-off
+// Constraint 8 asks for — story 047 can CHECK it instead of believing a
+// description of it.
+//
+// It will not fall by itself. Repaying it means reading 356 comments and
+// deciding which story's sentence each one meant; done mechanically it would
+// write confident falsehoods, and a wrong prefix is worse than a bare number
+// because it looks resolved. Sub-task 11.2 therefore prefixes nothing and hands
+// the reading to story 047.
+const unattributedCitationDebt = 356
+
+// # EVIDENCE THAT THE CEILING BITES, AND THAT IT LEFT THE GUARD ALONE (S046-R8.3)
+//
+// The pin above is green on the day it lands, and a green ceiling proves
+// nothing about what it would catch — the same hole this file's header
+// identifies for TestCitationsResolve and closes there. The artifacts holding
+// the Red (.draft/red-evidence.yaml) are not committed, so a pointer to them is
+// a pointer to nothing for anyone who cloned this. It is written here instead.
+//
+// Measured on 2026-08-29. Two mutations, applied to mode.go one at a time from
+// a copy taken first, each run and reverted immediately, the restore verified
+// by `git status --porcelain` reporting no change to mode.go and by a rerun
+// going green. Both transcripts are re-wrapped to this comment's width and the
+// long breakdowns are elided where marked; no other character is edited, and
+// the single exception to that is named at the foot.
+//
+// Mutation 1 — ONE bare citation of a number story 046 DOES issue, added as a
+// comment at the end of mode.go. This is the class the ceiling counts:
+//
+//	=== RUN   TestCitationDebtDoesNotGrow
+//	    citation_debt_test.go:97: unattributed citations remaining in this package: 357, over 36 files
+//	        [... 7 rows unchanged ...]
+//	        mode.go                                                    12
+//	        [... 28 rows unchanged ...]
+//	    citation_debt_test.go:101: unattributed citations rose to 357, above the pinned 356.
+//	        A bare citation in this package resolves by NUMBER, and story 044's numbering
+//	        covers story 046's entirely — so a new one names a sentence the reader cannot
+//	        find. Prefix it with the story that owns it, in the S0NN- form.
+//	        Per file:
+//	        [the same 36 rows, mode.go again at 12]
+//	--- FAIL: TestCitationDebtDoesNotGrow (0.01s)
+//
+// mode.go stood at 11 before the mutation and at 12 after, and that is what
+// makes the breakdown the answerable half: the total says the debt grew, the
+// list says which file to open. The elided rows are identical in both listings
+// and identical to the ones a green run prints.
+//
+// Mutation 2 — ONE bare citation of a number story 046 does NOT have, in the
+// same position. It is not a repetition of the first. It is the demonstration
+// that the two classes stayed disjoint once this file grew a second one: the
+// ceiling must NOT move, and the hard guard must refuse the citation exactly as
+// it did before sub-task 11.2 touched anything. Both tests were run together,
+// in one command, against one mutated tree:
+//
+//	=== RUN   TestCitationDebtDoesNotGrow
+//	    citation_debt_test.go:97: unattributed citations remaining in this package: 356, over 36 files
+//	        [the 36 rows, every one as a green run prints it]
+//	--- PASS: TestCitationDebtDoesNotGrow (0.01s)
+//	=== RUN   TestCitationsResolve
+//	    citation_test.go:546: mode.go:272 cites R-9.3 — story 046 has no R-9.3, and the
+//	        citation is bare, so it names nothing a reader can resolve.
+//	        Remedy: prefix the citation with the story that owns the requirement, in the
+//	        S0NN- form used throughout this repository. The story files under .epic/ are
+//	        not committed, so this comment is the only record of what the code was
+//	        answering.
+//	    citation_test.go:560: 1 of the 499 citations read across 38 files cannot be resolved
+//	--- FAIL: TestCitationsResolve (0.01s)
+//
+// Read together, the two runs say what neither says alone: an unresolvable
+// citation still fails the package and is NOT counted as debt, and an
+// unattributed one is counted and does NOT fail the package. Neither mutation
+// moved the other verdict. Mutation 2's message is word for word the one this
+// file's header recorded for its own first mutation, before the ceiling
+// existed — a different line of mode.go, the same sentence — which is the
+// evidence that sub-task 11.2 left the hard guard's behaviour where it was.
+//
+// The one exception: R-9.3 above is written with a hyphen the run did not
+// print. TestCitationsResolve sweeps this file too, so quoting that number bare
+// would make the transcript violate the rule it is transcribing — the device is
+// this file's own, from the header. Mutation 1's transcript needed no device at
+// all, and that is a property of the ceiling worth noticing: its failure names
+// files and counts, never a requirement number, so it can be quoted anywhere.
+
+// unattributedCitations counts, per file, the citations this package resolves
+// on their number alone.
+//
+// It reads eachCitationInPackage's subject — the guard's own — less exactly one
+// file. A narrower subject would let the debt hide in the difference, which is
+// why the exclusion is an argument here rather than a second walk, and why
+// TestCitationDebtSweepAgreesWithTheGuardsSubject checks this count against an
+// independent sweep written in citation_debt_test.go.
+//
+// The exclusion is the whole file rather than the table alone. Every citation
+// in citation_test.go is either the definition of 046's set or a fixture for
+// the rule, and neither is a claim this package's code makes about a
+// requirement.
+func unattributedCitations(t *testing.T) map[string]int {
+	t.Helper()
+
+	perFile := map[string]int{}
+	filesScanned := eachCitationInPackage(t, isRequirementTable, func(path string, _ int, citation string) {
+		if citationIsUnattributed(citation) {
+			perFile[path]++
+		}
+	})
+
+	// A sweep that read nothing reports a debt of zero, and zero is exactly
+	// what a finished repayment looks like — so the vacuity guard counts FILES
+	// and not hits. Guarding on hits would turn story 047's success into a
+	// failure. That the reader itself still works is pinned by
+	// TestCitationScannerReadsWholeCitations and by TestCitationsResolve's own
+	// "read no citation at all" check, which share citationsIn with this sweep.
+	if filesScanned == 0 {
+		t.Fatal("scanned no Go file — the debt sweep reported its count without looking at anything")
+	}
+
+	return perFile
 }

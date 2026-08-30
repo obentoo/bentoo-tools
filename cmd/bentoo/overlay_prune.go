@@ -12,6 +12,7 @@ import (
 	"github.com/obentoo/bentoolkit/internal/common/logger"
 	"github.com/obentoo/bentoolkit/internal/common/output"
 	"github.com/obentoo/bentoolkit/internal/common/provider"
+	"github.com/obentoo/bentoolkit/internal/common/report/render"
 	"github.com/obentoo/bentoolkit/internal/overlay"
 	"github.com/spf13/cobra"
 )
@@ -635,6 +636,30 @@ func divergingPrunePrompt(plans []overlay.PrunePlan) string {
 	return b.String()
 }
 
+// prunePlanAtom is the category/package a plan is about, spelled the one way
+// this command shows it to an operator.
+//
+// Rebuilt from Category and Package rather than carried on the plan: those two
+// are the only names any path in this file is built from (R3.5), so a stored
+// atom would be a third copy of the same fact and could go stale against them.
+func prunePlanAtom(plan overlay.PrunePlan) string {
+	return plan.Category + "/" + plan.Package
+}
+
+// prunePlanAtoms is every atom in plans, in the order given — the values an
+// atom column is measured over.
+//
+// Order is preserved because the caller prints in it: a column measured over a
+// reordered copy is still the right WIDTH, but a function that quietly reorders
+// is one edit from being reached for by something that prints its result.
+func prunePlanAtoms(plans []overlay.PrunePlan) []string {
+	atoms := make([]string, len(plans))
+	for i, plan := range plans {
+		atoms[i] = prunePlanAtom(plan)
+	}
+	return atoms
+}
+
 // reportPruneOutcome prints what actually happened, per package, and returns how
 // many removals went through and how many FAILED — the second is the number D7
 // turns into an exit code.
@@ -652,18 +677,52 @@ func reportPruneOutcome(results []overlay.PruneResult, consent pruneConsent) (re
 	output.Header.Println("Prune Result")
 	fmt.Println()
 
+	// The atom column is measured over every result this run will print, and
+	// measured ONCE for both line shapes below (R6.2, R6.1).
+	//
+	// Both lines used to open with a forty-five-cell column typed straight into
+	// the format string. Nobody measured forty-five, and it is wrong in both
+	// directions at once: `dev-libs/glib` is 13 cells and paid 32 cells of empty
+	// air on every row, while the longest atom this overlay actually holds,
+	// `media-plugins/gst-plugins-adaptivedemux2`, is 40 — five cells from the day
+	// one package name pushes the second field right on its row alone, which
+	// reads worse than no alignment at all. Neither error is visible where the
+	// number is typed, because the width that is correct depends on the packages
+	// THIS run removed, and that is knowable only once the run has removed them.
+	//
+	// The number is written out in words rather than as the format verb it was,
+	// so that this explanation cannot itself be read as the defect by any sweep
+	// that greps for one.
+	//
+	// One measurement across both, not one per branch: a removed package and a
+	// failed one are rows of the SAME table, printed interleaved in the order the
+	// executor returned them, and two independently measured columns would step
+	// left and right down the report. The width is in display cells rather than
+	// bytes because a cell is the unit the terminal aligns on (R6.1) — padColumn
+	// measures a value with the same function that measured the column, so the
+	// two cannot disagree.
+	atoms := make([]string, len(results))
+	for i, res := range results {
+		atoms[i] = prunePlanAtom(res.Plan)
+	}
+	atomWidth := render.ColumnWidth(atoms)
+
 	for _, res := range results {
-		atom := res.Plan.Category + "/" + res.Plan.Package
+		// The single space that follows in each format string is the gap
+		// BETWEEN two columns — air belonging to neither, which nothing in a
+		// run's data can widen — so it stays written down while the width is
+		// measured (R6.3).
+		atom := padColumn(prunePlanAtom(res.Plan), atomWidth)
 		if prunePackageWentAway(res) {
 			removed++
-			output.Success.Printf("  %-45s removed (%d file(s))\n", atom, len(res.Plan.Files))
+			output.Success.Printf("  %s removed (%d file(s))\n", atom, len(res.Plan.Files))
 			continue
 		}
 		// The package is named here and not left to the error text: PruneResult.Err
 		// says what went wrong ("permission denied") and nothing about which package
 		// it happened to, and a reason with no subject cannot be acted on.
 		failed++
-		output.Error.Printf("  %-45s NOT removed: %v\n", atom, pruneFailureReason(res))
+		output.Error.Printf("  %s NOT removed: %v\n", atom, pruneFailureReason(res))
 	}
 
 	fmt.Println()
@@ -998,8 +1057,14 @@ func printPruneRefusals(plans []overlay.PrunePlan) {
 	}
 
 	fmt.Printf("  Refused — no flag on this command removes these (%d):\n", len(plans))
+
+	// Measured over the refusals, and over them alone. This is a table under its
+	// own heading; widening it to match the outcome table further up would size a
+	// column from values no reader is comparing these against, which is the same
+	// mistake as typing 45 with an extra step (R6.2, R6.1).
+	atomWidth := render.ColumnWidth(prunePlanAtoms(plans))
 	for _, plan := range plans {
-		fmt.Printf("    %-45s %s\n", plan.Category+"/"+plan.Package, plan.Reason)
+		fmt.Printf("    %s %s\n", padColumn(prunePlanAtom(plan), atomWidth), plan.Reason)
 	}
 	fmt.Println()
 }

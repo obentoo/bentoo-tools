@@ -703,8 +703,9 @@ func TestNoLineExceedsWidth(t *testing.T) {
 }
 
 // TestCheckPathHasNoHardCodedWidths pins R6.3 mechanically, in the file the
-// story names. The three %-45s sites OUTSIDE the check path are explicitly Out
-// of Scope and must not be touched, so this is scoped to the one file.
+// story names. The sites OUTSIDE the check path were explicitly Out of Scope for
+// story 045 and must not be touched by it, so this is scoped to the one file.
+// (Which sites those are has since narrowed — see TestOutOfScopeWidthsAreUntouched.)
 func TestCheckPathHasNoHardCodedWidths(t *testing.T) {
 	body, err := os.ReadFile("overlay_autoupdate_check.go")
 	if err != nil {
@@ -719,10 +720,24 @@ func TestCheckPathHasNoHardCodedWidths(t *testing.T) {
 }
 
 // TestOutOfScopeWidthsAreUntouched is the other half, and it guards the story's
-// own boundary. Removing those three would be an improvement nobody asked for,
+// own boundary. Removing those widths would be an improvement nobody asked for,
 // in files this story does not test.
+//
+// NARROWED by story 046, sub-task 11.3. overlay_prune.go was in this list and is
+// no longer: story 046 edited that file (commit 55e6d06, the constructor
+// extraction), which puts it inside S046-R6.2's subject — "a file this story
+// MODIFIES" — so its three widths became that story's to remove rather than
+// anyone's to preserve. The boundary this test defends is story 045's, and a
+// boundary is a statement about one story's scope, not a permanent freeze on a
+// file: leaving prune here would have made this guard pass by forbidding work a
+// later story was required to do.
+//
+// overlay_autoupdate_sweep.go stays, and is not a leftover. It is absent from
+// story 046's diff, and its five widths are part of the eight that story hands
+// to 047 as a counted debt — so "nobody asked for it" is still true of it, and
+// this guard is still the thing keeping it that way.
 func TestOutOfScopeWidthsAreUntouched(t *testing.T) {
-	for _, file := range []string{"overlay_prune.go", "overlay_autoupdate_sweep.go"} {
+	for _, file := range []string{"overlay_autoupdate_sweep.go"} {
 		body, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("reading %s: %v", file, err)

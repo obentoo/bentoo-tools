@@ -37,6 +37,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -335,6 +336,15 @@ func (c *testCLI) Run(args ...string) (stdout, stderr string, code int) {
 		cmd.SetOut(os.Stdout)
 		cmd.SetErr(os.Stderr)
 		if err := cmd.Execute(); err != nil {
+			// Printed here because main() prints it there, and for the same
+			// reason: the root sets SilenceErrors (R3.6, sub-task 11.1), so
+			// the program's only error printer is its entry point. Until
+			// then cobra printed this line and the harness could drop the
+			// error without anyone noticing. Dropping it now would leave
+			// stderr EMPTY where the operator reads one sentence — the
+			// opposite error, but the same kind: a harness whose reading of
+			// a refused run does not match the operator's.
+			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
 		return 0

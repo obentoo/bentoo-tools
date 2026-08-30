@@ -299,10 +299,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wherever a review that ran would have spoken, so it can no longer go missing
   from a count or an export.
 
-- **Columns in `overlay autoupdate --apply` and `overlay validate` are measured
-  rather than typed.** Eight format strings declared a fixed column width —
-  `%-45s` for a package atom, `%-26s` for a summary label, `%-14s` and `%-8s`
-  for validation columns. A typed width is wrong in both directions at once: too
+- **Columns in `overlay autoupdate --apply`, `overlay validate` and `overlay
+  prune` are measured rather than typed.** Eleven format strings declared a
+  fixed column width — `%-45s` for a package atom in the check, apply and prune
+  paths, `%-26s` for a summary label, `%-14s` and `%-8s` for validation
+  columns. A typed width is wrong in both directions at once: too
   narrow the moment one value outgrows it, and too wide on every run that never
   comes close. Each is now measured from the values that run actually produced.
 
@@ -313,8 +314,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   A test now lists every file this work touched and fails if any of them
   declares a fixed width, and it prints the number still outstanding elsewhere
-  in the tree — **11, across five files** — so the figure the next release
+  in the tree — **8, across four files** — so the figure the next release
   starts from is produced by a run instead of typed into a document.
+
+  That list is now checked against the diff rather than merely asserted. It is
+  still written out, because the rule has to hold in a working tree with no
+  branch point to diff against — but where a base commit *is* resolvable, a
+  second check reads `git diff` and fails when a file the work touched carries a
+  width and is missing from the list, skipping with a named reason when it
+  cannot. The list had already drifted once: `overlay prune` was edited for an
+  unrelated reason, nobody added it, and its three widths went on passing a
+  guard whose subject no longer contained them. `%-45s` was costing that command
+  32 cells of empty air on a short package name and misaligning any row with a
+  wide character, since `fmt` pads to runes and a terminal aligns on cells.
 
 - **The producer-to-consumer contract is verified, not assumed.** Every payload
   is rendered through every renderer — three payloads by plain, Markdown,
@@ -335,8 +347,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to find the sentence it points at. Each of the twelve was resolved against
   the owning story's requirement **text** rather than its number and prefixed
   `S044-`, the disambiguation this repository already uses several hundred
-  times. Bare citations that resolve inside the current story are left bare —
-  they are unambiguous where they stand.
+  times. Bare citations that resolve inside the current story were left bare, on
+  the premise that they are unambiguous where they stand — which turned out to
+  hold only in a package the current story wrote. This one was written by the
+  earlier story, and its numbering covers the current story's entirely, so a
+  bare number here is matched on its **number** and not on its **meaning**:
+  `section.go` is a file this story created, and its bare `R7.2` and `R7.4` mean
+  the earlier story's sentences, not this one's.
 
   A guard now fails the suite on a citation that names a requirement the
   current story does not have without saying which story does, and it rejects
@@ -346,6 +363,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   those is reintroduced is recorded in the test file, since a green guard
   proves nothing about what it would catch.
 
+  The citations that resolve by number alone are counted rather than failed —
+  **356, across 36 files** — with the per-file breakdown printed on every run
+  and a ceiling that fails when the count rises. Nothing was prefixed: deciding
+  which story's sentence each of 356 comments meant requires reading them, and a
+  mechanical sweep would write confident falsehoods, which is worse than a bare
+  number because it looks resolved. The next release inherits a figure it can
+  check instead of a description it has to believe.
+
 - **`overlay.FormatManifestResult` carries the reason it is kept.** Internal.
   Moving `overlay manifest` onto the report envelope took away this function's
   last non-test caller, but four comments elsewhere cite what it does as the
@@ -354,6 +379,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   crash. Deleting it would have left all four pointing at nothing, so the
   orphaning is now stated in its doc comment rather than left for the next
   reader to rediscover and act on.
+
+- **`snapshot.NewReportingRunner` carries the reason it is kept.** Internal, and
+  the same case one file over, which the entry above closed for one function and
+  not for its twin. It has only ever had test callers — it arrived that way — and
+  its doc comment claimed the opposite, that "drivers wire this when a TUI/plain
+  reporter is active". No driver does. It stays because it is the only thing that
+  sets a runner's reporter: delete it and the package's whole progress-event path
+  becomes dead code, and the seam the next release wires would have to be rebuilt
+  before it could be used.
 
 
 ### Added

@@ -72,12 +72,14 @@ package main
 // above gives, so this note cannot make its own file the defect.
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -113,21 +115,41 @@ const widthDebtBaseline = 18
 // missed because it was taken over cmd/ and internal/ only. The baseline stays
 // at 18 rather than being quietly raised to 19: it is the number story 047 will
 // be handed, and a debt figure edited to match what was found is not a check.
-
-// filesThisStoryTouches is R6.2's subject: every file named in the task list's
-// Context blocks, which is the set this story edits.
 //
-// It is written out rather than derived from `git diff`, because the rule has
-// to be checkable in a working tree with no branch point to diff against — and
-// because a list somebody has to add to when they touch a seventh file is a
+// MEASURED AGAIN, 2026-08-30, after sub-task 11.3 pulled overlay_prune.go onto
+// the list below and measured the three widths it carried: eleven outside
+// becomes EIGHT. The three did not move from one side of the hand-off to the
+// other, they stopped existing — which is the only way this number is allowed
+// to fall. The baseline is still 18 and still unedited.
+
+// filesThisStoryTouches is R6.2's subject: every file this story MODIFIES.
+//
+// It used to say "every file named in the task list's Context blocks", and that
+// is a strictly narrower set. R6.2 says "modifies"; D9 says "a file this story
+// provably edits", which is the diff. The two readings came apart in the one
+// place where a drift leaves no trace: commit 55e6d06 edited
+// cmd/bentoo/overlay_prune.go for the constructor extraction, no Context block
+// named it, and the three typed widths in it sat inside the requirement and
+// outside the guard that enforces the requirement.
+//
+// It is still written out rather than derived from `git diff`, because the rule
+// has to be checkable in a working tree with no branch point to diff against —
+// and because a list somebody has to add to when they touch a further file is a
 // list that states its own scope. An executor adding a file to this story adds
 // it here.
+//
+// What is new is that the list is now CHECKED against the diff wherever a base
+// commit resolves — widthDebtSubjectGapsAgainst below, driven by
+// TestSubjectListAccountsForTheDiff. Written out AND checked: the offline
+// property survives, and the list stops being a claim about the diff that
+// nothing compares to the diff. That is how the gap above was able to open.
 var filesThisStoryTouches = []string{
 	"cmd/bentoo/main.go",
 	"cmd/bentoo/overlay_autoupdate.go",
 	"cmd/bentoo/overlay_autoupdate_report.go",
 	"cmd/bentoo/overlay_autoupdate_ui.go",
 	"cmd/bentoo/overlay_manifest.go",
+	"cmd/bentoo/overlay_prune.go",
 	"cmd/bentoo/overlay_validate.go",
 	"cmd/bentoo/snapshot_run.go",
 	"internal/common/report/classify.go",
@@ -167,6 +189,137 @@ func typedWidthsIn(t *testing.T, path string) []string {
 		return true
 	})
 	return found
+}
+
+// widthDebtSubjectGaps returns every file this story provably edited that
+// filesThisStoryTouches does not account for, repo-relative.
+//
+// It is the check the list never had. R6.2's subject is "a file this story
+// MODIFIES" and D9 spells that out as "a file this story provably edits" — the
+// diff — while the list is a second, hand-kept declaration of the same set.
+// Two declarations of one fact drift, and this pair did.
+//
+// The diff does not REPLACE the list, for the reason the list's own comment
+// gives: a tree with no branch point to diff against — a shallow clone, a
+// tarball of a tag — still has to be able to run the rule. So the list stays,
+// and where a base commit resolves it is compared to what it claims to mirror.
+// Where one does not, the caller skips and says which of the two reasons it
+// was: a skip nobody can tell apart from a pass is the failure mode this whole
+// cross-check exists to close.
+func widthDebtSubjectGaps(t *testing.T) []string {
+	t.Helper()
+	return widthDebtSubjectGapsAgainst(t, filesThisStoryTouches)
+}
+
+// widthDebtSubjectGapsAgainst is widthDebtSubjectGaps with the subject list
+// passed in, so the same sweep can be run against a list that is missing
+// something and be watched reporting it (R8.3). A guard nobody has seen fail
+// has demonstrated nothing about what it would catch.
+//
+// # What it sweeps, and what counts as a width — READ THIS BEFORE NARROWING IT
+//
+// The files swept are every path in `git diff --name-only <base>..HEAD` that is
+// a .go file, is not a _test.go, and is still on disk. Test files are out for
+// the same reason TestWidthDebtRemainderIsCounted has them out: this
+// repository's standing reading of R6.2's subject is production code, the code
+// that actually prints a column to somebody.
+//
+// The detector is a RAW TEXT match and deliberately NOT typedWidthsIn. The two
+// answer different questions and want different amounts of precision:
+//
+//   - typedWidthsIn asks "does this file still DECLARE a width?" Its answer
+//     puts a file in violation, so it must be exact, and it reads string
+//     literals out of the parsed source precisely so that a comment explaining
+//     a width somebody REMOVED is not reported as the defect for the lifetime
+//     of the file.
+//   - this asks "is this file ACCOUNTED FOR?" Its answer sends a human to look
+//     at a file, not a file to the naughty step. Over-reporting costs one line
+//     added to a list the file already belongs on, since it is in the diff
+//     either way.
+//
+// Using the exact detector here instead leaves the sweep with nothing to find,
+// which is worth working through rather than rediscovering. Once
+// overlay_prune.go's three widths are measured, the only diff-touched file
+// still carrying a typed width in a STRING LITERAL is width_debt_test.go — this
+// file, holding the positive-control fixtures of TestTypedWidthDetectorSeesOne.
+// Include test files and the cross-check reports its own guard's fixtures as a
+// gap. Exclude them, as the paragraph above does, and nothing is left to report
+// against ANY subject list, an empty one included. A sweep that finds nothing
+// against an empty list finds nothing ever: it is the green-on-arrival guard
+// R8.3 exists to reject, and TestSubjectCrossCheckCanFail is what rejects it.
+//
+// The broad net has a real price: a COMMENT mentioning %-45s inside a
+// diff-touched production file that is not on the list gets reported. Three
+// files carry such a comment today — overlay_autoupdate.go, overlay_validate.go
+// and render/width.go, each explaining a width this story took out — and all
+// three are on the list, where they belong. The remedy for a fourth is to add
+// it. That trade is taken on purpose: this function exists because the OPPOSITE
+// error was made silently and cost three live widths.
+//
+// overlay_prune.go is deliberately NOT a fourth: sub-task 11.3's validation
+// greps that file for a typed width and requires nothing back, so its comment
+// spells the number in words. That is why the counterfactual below is worth
+// keeping in writing — this sweep WOULD have caught the original gap, because
+// at the time of it overlay_prune.go held three live widths in string literals
+// and was absent from the list. Measured 2026-08-30 by putting that file back
+// as commit 55e6d06 left it, dropping it from the list, and running the sweep:
+// it reported "cmd/bentoo/overlay_prune.go" and nothing else.
+func widthDebtSubjectGapsAgainst(t *testing.T, subject []string) []string {
+	t.Helper()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("cross-check skipped: git is not on PATH (%v), so the diff cannot be read", err)
+	}
+	if err := exec.Command("git", "-C", repoRoot, "cat-file", "-e", storyBaseCommit+"^{commit}").Run(); err != nil {
+		t.Skipf("cross-check skipped: base commit %s is not resolvable in this clone (%v), "+
+			"so there is no diff to check the subject list against", storyBaseCommit, err)
+	}
+
+	// --name-only because the only thing wanted here is which paths changed.
+	// Git prints them one per line in path order, so the gaps come back
+	// deterministically ordered without this function sorting anything.
+	out, err := exec.Command("git", "-C", repoRoot, "diff", "--name-only", storyBaseCommit+"..HEAD").Output()
+	if err != nil {
+		// Named, like the two skips above. git answering neither a diff nor a
+		// reason would be a guard that switched itself off in silence.
+		detail := err.Error()
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+			detail = fmt.Sprintf("%v: %s", err, strings.TrimSpace(string(exit.Stderr)))
+		}
+		t.Skipf("cross-check skipped: `git diff --name-only %s..HEAD` could not be read (%s), "+
+			"so there is no diff to check the subject list against", storyBaseCommit, detail)
+	}
+
+	accounted := make(map[string]bool, len(subject))
+	for _, rel := range subject {
+		accounted[rel] = true
+	}
+
+	var gaps []string
+	for _, rel := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if rel == "" || !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
+			continue
+		}
+		if accounted[rel] {
+			continue
+		}
+
+		source, readErr := os.ReadFile(filepath.Join(repoRoot, rel))
+		if errors.Is(readErr, fs.ErrNotExist) {
+			// In the diff and not on disk: this story deleted or renamed it.
+			// There is no text to sweep and no remedy to ask anyone for.
+			continue
+		}
+		if readErr != nil {
+			t.Fatalf("reading %s, which the diff since %s names: %v", rel, storyBaseCommit, readErr)
+		}
+
+		if typedWidth.Match(source) {
+			gaps = append(gaps, rel)
+		}
+	}
+	return gaps
 }
 
 // TestTypedWidthDetectorSeesOne is the positive control, and it is not

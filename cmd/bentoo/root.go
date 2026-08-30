@@ -39,6 +39,20 @@ func newRootCmd() *cobra.Command {
 		Use:   "bentoo",
 		Short: "Bentoo Linux tools",
 		Long:  `A collection of tools for managing Bentoo Linux overlay and packages.`,
+		// Set on the root and so covering all 30 commands, unlike the
+		// SilenceUsage below: cobra consults the ROOT's copy of both fields
+		// whichever command ran. This one stops cobra printing the error it
+		// is about to return from Execute(), which main.go already prints —
+		// with both printers live every refusal is stated twice, and R3.6
+		// allows exactly once. main.go is left the single owner.
+		//
+		// It is not the same decision as the one below, because the two
+		// fields silence different things. SilenceUsage governs the usage
+		// block, which an unknown flag still deserves; SilenceErrors governs
+		// only the duplicated sentence. Setting THIS one on the root costs
+		// the unknown-flag error nothing, which is why it can go where the
+		// other one could not.
+		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Publish this tree's flag values to the package variables the run
 			// functions read, before any of them runs.
