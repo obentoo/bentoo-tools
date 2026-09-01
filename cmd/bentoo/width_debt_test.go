@@ -113,8 +113,8 @@ var typedWidth = regexp.MustCompile(`%-\d+(\.\d+)?s`)
 
 // widthDebtBaseline is the ceiling on the typed column widths left in files
 // this story does NOT touch, and it is a MEASUREMENT rather than a target:
-// EIGHT, over four files, which is what TestWidthDebtRemainderIsCounted below
-// printed on 2026-08-30 against the tree exactly as it is committed. Nothing
+// SEVEN, over three files, which is what TestWidthDebtRemainderIsCounted below
+// printed on 2026-09-01 against the tree exactly as it is committed. Nothing
 // was picked to make the number fit — it is what the sweep prints, and
 // TestWidthDebtBaselineEqualsTheMeasurement holds the two together so the
 // published figure cannot drift above the thing it is a ceiling on.
@@ -129,7 +129,7 @@ var typedWidth = regexp.MustCompile(`%-\d+(\.\d+)?s`)
 // The shape is internal/common/report/citation_test.go's, where
 // unattributedCitationDebt is pinned to its own measurement for the same reason
 // and says so in the same words.
-const widthDebtBaseline = 8
+const widthDebtBaseline = 7
 
 // # How this number reached 8, and why every fall was allowed
 //
@@ -158,6 +158,24 @@ const widthDebtBaseline = 8
 // as the debt, which is the same silence story 044 was left holding. Lowering
 // the pin onto its measurement is the one move the never-raise rule above
 // always permits; it is that rule applied, not an exception to it.
+//
+// LOWERED to 7, sub-task 14.2, 2026-09-01, and this fall is a DIFFERENT KIND
+// from the two above it. Nothing was repaid: the eighth unit was never a live
+// typed width. It was a sentence — misc/design/design-system/component/
+// catalogue.go's `Why:` string, asserting in the present tense that
+// overlay_prune.go "reaches for" a width sub-task 11.3 had already removed.
+// Because the claim is a raw STRING LITERAL rather than a comment,
+// typedWidthsIn's *ast.BasicLit walk counted it as debt, and neither
+// design-system file was in the story's diff, so nothing failed and nobody
+// noticed. Constraint 8 promises story 047 "a number that can be checked rather
+// than believed", and that unit is the one that failed checking: seven of the
+// eight are live (lintfix 1, sweep 5, compare_depth 1) and the eighth was a
+// description of a width that no longer exists.
+//
+// Both design-system files are on the subject list above as of this sub-task,
+// which is what the list's own rule asks of an executor that edits them. The
+// discount that adds is ZERO — the rewrite left neither file with a typed width
+// — so the fall to 7 is the literal's removal and nothing else.
 
 // filesThisStoryTouches is R6.2's subject: every file this story MODIFIES.
 //
@@ -218,6 +236,8 @@ var filesThisStoryTouches = []string{
 	"internal/overlay/compare.go",
 	"internal/overlay/manifest.go",
 	"internal/snapshot/runner.go",
+	"misc/design/design-system/component/catalogue.go",
+	"misc/design/design-system/component/layout.go",
 }
 
 // typedWidthsIn returns every typed width in one Go file, as "line: literal".

@@ -503,6 +503,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Nothing else about either command changed** — same exit statuses, same
   report content, same JSON schema.
 
+- **`overlay manifest --ui` now reaches the live region, not just the report.**
+  On a terminal, `bentoo overlay manifest --ui=plain` rendered its report in
+  plain and started the bubbletea live region anyway — so the operator who asked
+  for the one mode whose help text promises "no escape sequence at all" got them
+  regardless:
+
+      before:  --ui=plain  ->  plain report, live region ON  (escape sequences)
+      after:   --ui=plain  ->  plain report, live region off
+
+  The command resolved its render mode twice, from different inputs. Its live
+  region left the `--ui` input unset, on the recorded and once-correct ground
+  that `overlay manifest` registered no such flag; the same release then moved
+  `--ui` onto the root, where every command parses it. Off a terminal the two
+  answers agreed by accident — the mode degrades to plain there anyway — which
+  is why nothing failed in the meantime.
+
+  `--no-tui` still does **not** reach a manifest run. It is declared on `overlay
+  autoupdate` alone, deliberately, and reading it here would be a cross-command
+  leak rather than a fix. Exit statuses, report content and the JSON schema are
+  unchanged.
+
+- **The design system stopped describing a column width that no longer exists.**
+  `misc/design/design-system/component/layout.go` and `catalogue.go` asserted in
+  the present tense that `overlay_prune.go` "reaches for" a hand-picked column
+  width — true when written, and removed earlier in this same release. Neither
+  file was in the release's diff, so nothing contradicted them.
+
+  This is documentation, with one measurable consequence. `catalogue.go` carried
+  the claim as a **string literal** rather than a comment, so the guard that
+  counts remaining hand-picked widths counted it as debt. The figure handed to
+  the next release therefore falls from 8 to 7 — not because anything was
+  repaid, but because the eighth was a sentence rather than a width. The seven
+  that remain are real, and the guard now publishes a number equal to its own
+  measurement.
+
 ## [0.28.2] - 2026-08-27
 
 ### Changed

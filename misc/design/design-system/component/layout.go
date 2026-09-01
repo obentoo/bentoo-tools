@@ -163,9 +163,10 @@ func renderNode(t theme.Theme, n Node, step int, bullets bool) string {
 
 // Table is a grid whose columns are as wide as their widest cell.
 //
-// overlay_prune.go reaches for "%-45s %s" — a width picked once, by hand, that
-// truncates nothing and misaligns the moment an atom exceeds it. Measuring is
-// strictly better and costs one pass.
+// overlay_prune.go used to reach for a hand-picked column width — a number
+// chosen once, which truncates nothing and misaligns the moment an atom exceeds
+// it. Story 046 measured those widths away in sub-task 11.3, and this component
+// is what replaced them: measuring is strictly better and costs one pass.
 type Table struct {
 	Head []string   `json:"head,omitempty"`
 	Rows [][]string `json:"rows"`

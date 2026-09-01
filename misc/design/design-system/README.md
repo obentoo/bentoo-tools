@@ -31,8 +31,9 @@ On top of that:
   of `✓` and one lone `✔`**.
 - `─` appears **572 times**, every run built by hand, so no two separators are
   reliably the same length.
-- `overlay_prune.go` reaches for `"%-45s %s"` — a column width picked once, by hand,
-  that misaligns the moment an atom exceeds it.
+- `overlay_prune.go` reached for a hand-picked 45-column width — a number chosen
+  once, that misaligns the moment an atom exceeds it. Story 046 measured it away in
+  sub-task 11.3; the `Table` component below is what replaced it.
 - `output.Box` closes with a **fixed sixteen dashes** regardless of how wide it
   opened, so the panel almost never squares up.
 
@@ -153,7 +154,7 @@ Publish the realignment? [y]es / [e]dit / [c]ancel
 | `Box` | `output.Box`, whose bottom edge is a fixed 16 dashes |
 | `Group` | `overlay_prune.go`'s `"files (%d)"` / `"registry entries (%d)"` plus their indent loops |
 | `Tree` | `overlay_prune.go` descending 2 → 4 → 6 → 8 spaces with a separate `Printf` per level, so the structure lives in format strings instead of in data |
-| `Table` | `"%-45s %s"` |
+| `Table` | `overlay_prune.go`'s hand-picked 45-column width, measured away by story 046 |
 | `KV` | every `"    %s: %s\n"`, whose colon column drifts per call site |
 | `Gates` | the per-gate verdict list a validation run reports |
 | `Tally` | `overlay_validate.go`'s `"\n%d ebuilds: %d failed, %d passed, %d skipped\n"` |

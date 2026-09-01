@@ -202,7 +202,13 @@ func TestSubjectCrossCheckCanFail(t *testing.T) {
 // value up to 18 could still be absorbed by re-pinning BOTH numbers, which keeps
 // them equal and so satisfies the measurement check too. The ratchet is only a
 // ratchet where it sits on the measurement.
-const widthDebtHighWaterMark = 8
+// LOWERED 8 -> 7, sub-task 14.2, 2026-09-01, under the same clause. The pin
+// fell to 7 when the eighth unit turned out to be a stale sentence rather than
+// a live typed width (width_debt_test.go's ledger records which). Leaving this
+// at 8 would leave one step of exactly the headroom 13.4 closed at eighteen: a
+// growth back to 8 could still be absorbed by re-pinning BOTH numbers, keeping
+// them equal and so satisfying the measurement check too.
+const widthDebtHighWaterMark = 7
 
 // measuredWidthDebtRemainder counts the typed widths in files this story does
 // not touch, and returns the per-file breakdown with it.
@@ -475,7 +481,15 @@ func TestSubjectListNamesNothingOutsideTheDiff(t *testing.T) {
 // ever enters the diff — at which point it would be testing nothing and should
 // be re-pointed rather than deleted.
 func TestSubjectListConverseCanFail(t *testing.T) {
-	const probe = "misc/design/design-system/component/catalogue.go"
+	// RE-POINTED, sub-task 14.2: the probe was
+	// misc/design/design-system/component/catalogue.go until that sub-task
+	// edited it, which put it in the diff and left this check asserting
+	// nothing. The failure it raised is quoted in .draft/red-evidence.yaml —
+	// the probe announcing its own fixture had gone benign is the capability
+	// this test exists to have. internal/autoupdate/ is outside every part of
+	// this story's subject: its internal/ work is common/report, overlay and
+	// snapshot.
+	const probe = "internal/autoupdate/checker.go"
 
 	if _, err := os.Stat(filepath.Join(repoRoot, probe)); err != nil {
 		t.Skipf("converse probe skipped: %s is not present (%v)", probe, err)

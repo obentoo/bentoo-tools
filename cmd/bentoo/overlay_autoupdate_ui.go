@@ -367,29 +367,46 @@ func autoupdateUsesTUI(cfg *config.Config) bool {
 // overlay_manifest.go, so that "both callers resolve through the same path" is
 // something a reader can see instead of having to take on trust.
 //
-// # Neither flag is passed, on purpose
+// # One of the two flags is passed now; the other still is not
 //
-// Flag and NoTUI stay at their zero values because `overlay manifest` registers
-// neither --ui nor --no-tui. Reading autoupdateUI or autoupdateNoTUI here would
-// be a cross-command leak: those hold whatever the autoupdate command was given
-// and a manifest run never parses them at all. The two ENVIRONMENT opt-outs are
-// a different matter — resolveUIMode folds NO_COLOR and BENTOO_NO_TUI in for
-// every caller, which is exactly what keeps this identical to the
-// tui.Enabled(tui.Options{}) it replaces (R3.7).
+// This comment used to say both stayed at their zero values because `overlay
+// manifest` registers neither --ui nor --no-tui. Half of that premise expired
+// two sub-tasks after it was written: sub-task 4.3 moved --ui onto the ROOT's
+// persistent flags, so a manifest run DOES parse it, and autoupdateUI holds
+// what THIS run was given rather than another command's answer.
+//
+// Leaving Flag at zero meant one run resolving its mode TWICE from different
+// inputs. The report obeyed --ui=plain and the live region did not, so on a
+// terminal an operator who asked for the one mode whose help text promises "no
+// escape sequence at all" got them anyway (S046-R3.3). Off a terminal the
+// Interactive input degrades the mode regardless and the two answers agreed by
+// accident, which is why nothing here failed for two sub-tasks.
+//
+// NoTUI stays at zero, for the half that did NOT expire. --no-tui is declared
+// on `overlay autoupdate` alone, by the decision recorded at root.go:122-124,
+// so autoupdateNoTUI holds whatever THAT command was given — reading it here
+// would still be exactly the cross-command leak this comment has always
+// described.
+//
+// The two ENVIRONMENT opt-outs are a different matter again — resolveUIMode
+// folds NO_COLOR and BENTOO_NO_TUI in for every caller, which is what keeps
+// this identical to the tui.Enabled(tui.Options{}) it replaces (S046-R3.7).
 //
 // A nil config reads as "nothing configured" here too; see configuredUIMode.
 func manifestUsesTUI(cfg *config.Config) bool {
 	mode, warning, err := resolveUIMode(uiInputs{
+		Flag:        autoupdateUI,
 		Config:      configuredUIMode(cfg),
 		Interactive: uiIsTerminal(),
 	})
 	if err != nil {
-		// Unlike the apply path there is no earlier gate to have reported this
-		// — `overlay manifest` has no --ui flag to reject — so this is the one
-		// place an operator can learn their ui.mode is not a mode. It warns
-		// rather than fails: regenerating a Manifest is not a rendering
+		// What reaches here is an AMBIENT mode alone. The root has rejected an
+		// unusable --ui for every command since Task 4, so the flag wired in
+		// above cannot arrive unusable; a BENTOO_UI or a ui.mode that does not
+		// name a mode can, and this is the one place an operator learns it. It
+		// warns rather than fails: regenerating a Manifest is not a rendering
 		// question, and refusing to do it over a display key would be a worse
-		// answer than doing it in plain.
+		// answer than doing it in plain (S046-R3.7).
 		logger.Warn("%v — this run renders in plain", err)
 		return false
 	}
