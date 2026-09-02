@@ -799,7 +799,8 @@ func truncatePkgName(name string, maxLen int) string {
 //
 // The decision of WHAT to print lives in the pure builders below and the
 // emission is all that stays here, because logger binds its io.Writer once at
-// first use and exposes no setter (logger.go:44-52) — so a test can reach the
+// first use and exposes no setter (`func Default` in logger.go) — so a test
+// can reach the
 // builders and cannot reach this. That split is not decoration: these three
 // lines are the half of UB3 that used to be guaranteed by "no task modifies this
 // function", and adding the verdict counts spends that guarantee. It is replaced

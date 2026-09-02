@@ -25,7 +25,7 @@ import (
 //
 // Everything the operator must read is printed on STDOUT, through fmt and the
 // output/* colours, and not through logger. logger binds its io.Writer once at
-// first use and it is os.Stderr (logger.go:44-52), so a message sent there
+// first use and it is os.Stderr (`func Default` in logger.go), so a message sent there
 // lands on a different stream from the plan it belongs to — including the
 // failures, which exist precisely to explain the plan that is missing. Splitting
 // one report across two streams costs the operator the ordering between them the
@@ -44,8 +44,9 @@ import (
 
 // prunePlannerFn, pruneExecutorFn and confirmPruneFn are the seams the CLI tests
 // drive, defaulting to the real implementations so a caller that supplies none
-// gets production behaviour. Same shape as the sweep's
-// (overlay_autoupdate_sweep.go:19-23), and for the same reason: a test has to be
+// gets production behaviour. Same shape as the sweep's seam
+// (`var sweepPlannerFn` in overlay_autoupdate_sweep.go), and for the same
+// reason: a test has to be
 // able to prove that the executor was NOT REACHED, which is only observable if
 // reaching it goes through a replaceable name.
 // pruneInteractiveFn is the fourth seam, and it exists because the thing it

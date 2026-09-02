@@ -434,9 +434,18 @@ func LocateBaselineTree(candidate string) (string, error) {
 		return "", fmt.Errorf("%w: nothing at %s, where %s was looked for", ErrNoBaselineTree, root, marker)
 	case err != nil:
 		// There and unexaminable. Still "we could not look", which is what this
-		// error means — the stat's own text is carried with %v rather than %w
-		// because the sentinel is the only thing a caller is meant to match on.
-		return "", fmt.Errorf("%w: %s could not be examined: %v", ErrNoBaselineTree, root, err)
+		// error means — and the stat's own error is wrapped with %w BESIDE the
+		// sentinel, not rendered with %v.
+		//
+		// It carried %v until sub-task 15.7, on the ground that "the sentinel is
+		// the only thing a caller is meant to match on". That is a statement
+		// about what callers match today and it decided what they CAN match
+		// forever: errors.Is found ErrNoBaselineTree and nothing found the
+		// filesystem cause, so a caller could not tell a permission denial from
+		// any other unexaminable root. Go has taken more than one %w since 1.20,
+		// and this module is on 1.26, so both travel and the sentinel match is
+		// unchanged.
+		return "", fmt.Errorf("%w: %s could not be examined: %w", ErrNoBaselineTree, root, err)
 	case !info.IsDir():
 		return "", fmt.Errorf("%w: %s is not a directory, so it carries no %s", ErrNoBaselineTree, root, portageRepoMarker)
 	}
@@ -446,7 +455,8 @@ func LocateBaselineTree(candidate string) (string, error) {
 	case errors.Is(err, os.ErrNotExist):
 		return "", fmt.Errorf("%w: %s carries no %s, so it is a directory rather than a synced repository", ErrNoBaselineTree, root, portageRepoMarker)
 	case err != nil:
-		return "", fmt.Errorf("%w: %s could not be examined: %v", ErrNoBaselineTree, marker, err)
+		// %w for the cause here too, for the reason given on the root stat above.
+		return "", fmt.Errorf("%w: %s could not be examined: %w", ErrNoBaselineTree, marker, err)
 	case markerInfo.IsDir():
 		return "", fmt.Errorf("%w: %s is a directory rather than Portage's marker file, so %s is not a repository", ErrNoBaselineTree, marker, root)
 	}

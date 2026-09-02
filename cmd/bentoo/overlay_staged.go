@@ -25,7 +25,8 @@ import (
 // removes is left precisely by runs that end without applying anything, so
 // hanging it off an apply would reproduce that hole on purpose.
 //
-// The second reason is the dispatch rule at overlay_autoupdate.go:535-543. A
+// The second reason is the mode dispatch inside `func runAutoupdate` in
+// overlay_autoupdate.go — the switch guarding the two `--apply` cases. A
 // case added to that switch above the two `--apply` cases converts every
 // existing `--apply … --clean` invocation into a whole-root sweep. This command
 // is not in that switch at all, so there is no ordering here to get wrong, and
@@ -50,7 +51,8 @@ import (
 
 // confirmStagedCleanFn is the confirmation seam the CLI tests drive, defaulting
 // to the real prompt so a caller that supplies nothing gets production
-// behaviour. Same shape as overlay_autoupdate_sweep.go:19-23 and for the same
+// behaviour. Same shape as `var sweepPlannerFn` in overlay_autoupdate_sweep.go
+// and for the same
 // reason: a test has to be able to prove the executor was NOT REACHED, and that
 // is only observable if reaching it goes through a replaceable name.
 //
@@ -77,8 +79,8 @@ var stagedCleanYes bool
 
 // newStagedCmd builds `overlay staged` and the `clean` subcommand under it.
 //
-// It is a constructor rather than a package-level var, following newValidateCmd
-// (overlay_validate.go:60-63): a fresh command per call means one test's flag
+// It is a constructor rather than a package-level var, following
+// `func newValidateCmd` in overlay_validate.go: a fresh command per call means one test's flag
 // state can never survive into the next.
 func newStagedCmd() *cobra.Command {
 	staged := &cobra.Command{

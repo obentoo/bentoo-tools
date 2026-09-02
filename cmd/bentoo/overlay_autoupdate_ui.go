@@ -383,8 +383,10 @@ func autoupdateUsesTUI(cfg *config.Config) bool {
 // accident, which is why nothing here failed for two sub-tasks.
 //
 // NoTUI stays at zero, for the half that did NOT expire. --no-tui is declared
-// on `overlay autoupdate` alone, by the decision recorded at root.go:122-124,
-// so autoupdateNoTUI holds whatever THAT command was given — reading it here
+// on `overlay autoupdate` alone, by the decision recorded in `func newRootCmd`
+// in root.go — the comment beginning "--no-tui deliberately stays on
+// autoupdate", beside the persistent-flag registration — so autoupdateNoTUI
+// holds whatever THAT command was given. Reading it here
 // would still be exactly the cross-command leak this comment has always
 // described.
 //
@@ -400,14 +402,37 @@ func manifestUsesTUI(cfg *config.Config) bool {
 		Interactive: uiIsTerminal(),
 	})
 	if err != nil {
-		// What reaches here is an AMBIENT mode alone. The root has rejected an
-		// unusable --ui for every command since Task 4, so the flag wired in
-		// above cannot arrive unusable; a BENTOO_UI or a ui.mode that does not
-		// name a mode can, and this is the one place an operator learns it. It
-		// warns rather than fails: regenerating a Manifest is not a rendering
-		// question, and refusing to do it over a display key would be a worse
-		// answer than doing it in plain (S046-R3.7).
-		logger.Warn("%v — this run renders in plain", err)
+		// What reaches here is an AMBIENT mode alone, and only one that
+		// nothing outranks. The root has rejected an unusable --ui for every
+		// command since Task 4, so the flag wired in above cannot arrive
+		// unusable; a BENTOO_UI or a ui.mode that does not name a mode can, and
+		// since sub-task 15.1 one that a higher-precedence source overrules
+		// comes back as a warning instead. It records rather than fails:
+		// regenerating a Manifest is not a rendering question, and refusing to
+		// do it over a display key would be a worse answer than doing it in
+		// plain (S046-R3.7).
+		//
+		// Debug rather than Warn, for the reason autoupdateUsesTUI states above
+		// it: this is a live-region boolean, not a report, and `overlay
+		// manifest` DOES produce a report — presentManifestReport resolves
+		// through reportModeOrPlain, which states the refusal naming the source,
+		// the value and the mode used instead. A second sentence from here
+		// answers one typo in two voices, which is the duplication R3.6 forbids.
+		//
+		// This comment used to claim to be "the one place an operator learns
+		// it". That was true when it was written and stopped being true at
+		// sub-task 12.1, which routed `overlay manifest` through
+		// reportModeOrPlain — and a comment that is confidently false is worse
+		// than none in a package this comment-dense, because a reader has more
+		// reason to believe it.
+		//
+		// WHY FIVE AUDITS READ THIS AS SINGLE-VOICED: every one of them measured
+		// with `--dry-run`, and chooseManifestReporter returns tui.Noop() before
+		// this gate is reached on a dry run. The one flag used to make the
+		// measurement cheap is the one flag that hides the second voice, so the
+		// evidence was real and the conclusion was not. TestManifestSingleVoice
+		// asserts on a REAL run for exactly that reason.
+		logger.Debug("manifest: the UI mode did not resolve, rendering in plain: %v", err)
 		return false
 	}
 

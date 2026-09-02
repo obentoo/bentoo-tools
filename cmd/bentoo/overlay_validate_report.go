@@ -221,8 +221,9 @@ func renderValidateJSON(run report.Run, diag io.Writer) {
 //
 // # Why this file reads it rather than being handed it
 //
-// runValidate has already loaded it — loadAppContextNoValidation, at
-// overlay_validate.go:209 — and keeps one boolean out of it. What it does not do
+// `func runValidate` in overlay_validate.go has already loaded it,
+// by calling `func loadAppContextNoValidation` in app_context.go,
+// and keeps one boolean out of it. What it does not do
 // is carry the *config.Config down here, and presentValidateReport is called
 // from two places in that file, so growing a parameter would edit a file this
 // change has no other reason to touch. Reading it here costs one extra parse of

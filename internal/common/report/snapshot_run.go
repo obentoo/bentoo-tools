@@ -122,9 +122,20 @@ type SnapshotStep struct {
 	// It is the destination's NAME — the one configured for it, or the driver
 	// word when it was left unnamed — and never its address. A ship target's
 	// address carries a host, a user and a remote path, and this value travels
-	// into a file an operator may attach to a bug report. The same reasoning
-	// applies to every other field here: a report is a document that leaves the
-	// machine, so nothing in it may carry a credential or a host identifier.
+	// into a file an operator may attach to a bug report.
+	//
+	// THE SCOPE OF THAT DECISION IS THIS FIELD AND THE THREE BESIDE IT. This
+	// comment used to close by generalising it to "every other field here", so
+	// that nothing in the type "may carry a credential or a host identifier" —
+	// and Error, twelve lines below, is producer stderr taken verbatim, where a
+	// failed btrbk ssh send prints `user@host:/path`. The generalisation was
+	// therefore false about the one field most likely to carry an address, and
+	// a false safety claim is worse than none: it is the sentence a reader
+	// consults before deciding an export is safe to attach.
+	//
+	// Subvolume, Step and Target are each a name this package controls the shape
+	// of, and each honours it. Error is not, and says so itself (S046-R2.3
+	// applied to the type's own documentation). Narrowed at sub-task 15.7.
 	Target string `json:"target"`
 	// Success reports that the step did what it was asked.
 	//
@@ -140,6 +151,20 @@ type SnapshotStep struct {
 	// which is the only text that says what actually went wrong. It is taken
 	// verbatim and never reworded: a rewritten diagnostic is one the operator
 	// cannot search for.
+	//
+	// VERBATIM CUTS BOTH WAYS, and this field is the exception to Target's
+	// no-address rule rather than a case of it. Whatever the failing command
+	// wrote is what lands here — and a failed `btrbk ssh` send writes
+	// `user@host:/path`, so a remote address CAN reach an export through this
+	// field. Nothing scrubs it, deliberately: a diagnostic edited to be safe is
+	// a diagnostic that no longer matches what the operator can search for or
+	// reproduce.
+	//
+	// The consequence is stated rather than hidden, because the alternative is a
+	// reader who trusts the type's own comment and attaches the export anyway:
+	// an export that includes a FAILED ship step should be read before it is
+	// shared. Redaction, if it is ever wanted, belongs at the producer that
+	// knows which text is an address — not here, where it is an opaque string.
 	//
 	// It carries no subvolume and no step name: both sit beside it in this same
 	// row, and a copy of either in here would print twice on every failure.

@@ -208,10 +208,14 @@ func requireStatesTheRefusal(t *testing.T, notice, source, value string) {
 	}
 	if !strings.Contains(notice, value) {
 		t.Errorf("the run does not name the VALUE it refused (R3.7).\n"+
-			"    Remedy: presentValidateReport (overlay_validate_report.go:253) builds the\n"+
-			"    envelope and renders it without resolving a render mode at all — grep for\n"+
-			"    reportModeOrPlain in that file returns nothing — so there is no error to\n"+
-			"    report and nothing was reported.\n"+
+			"    Remedy: check that `func presentValidateReport` in overlay_validate_report.go\n"+
+			"    still calls reportModeOrPlain before it renders. That call is what states the\n"+
+			"    refusal; this producer keeps no other use for the mode it gets back, so it is\n"+
+			"    easy to delete as dead and lose the sentence with it.\n"+
+			"    (This remedy previously read \"grep for reportModeOrPlain in that file returns\n"+
+			"    nothing\", which was true when 12.1 was written and false from the moment 12.1\n"+
+			"    landed the call — it now returns three hits. Corrected at 15.5, alongside the\n"+
+			"    line-number anchor it also carried.)\n"+
 			"    Observed notice: %q", notice)
 	} else if got := len(linesNaming(notice, value)); got != 1 {
 		t.Errorf("the refusal is stated on %d lines; it is owed exactly once (R3.6).\n"+

@@ -503,6 +503,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Nothing else about either command changed** — same exit statuses, same
   report content, same JSON schema.
 
+- **Source comments stopped pointing at line numbers, and stopped claiming more
+  than the code delivers.** Documentation only — no behaviour, no exit status, no
+  output changes — recorded because the claims were being read as true.
+
+  Eleven `file.go:NN` citations in comments this release wrote had drifted off
+  what they pointed at; a line number is accurate for exactly one commit, and
+  nothing tells a comment when an edit above it moves the target. Each now names
+  the identifier instead, which survives every edit above it, in
+  `cmd/bentoo/overlay_autoupdate_check.go`, `overlay_autoupdate_ui.go`,
+  `overlay_compare.go`, `overlay_prune.go`, `overlay_staged.go`,
+  `overlay_validate_report.go` and `internal/snapshot/runner.go`. A test now
+  fails on any line-number citation in the files this release touched.
+
+  `internal/common/report/snapshot_run.go` documented its `Target` field's
+  no-address rule and then generalised it to "every other field here" — while
+  the `Error` field twelve lines below carries a failing command's stderr
+  verbatim, where a failed `btrbk ssh` send prints `user@host:/path`. The rule
+  is now scoped to the fields that can honour it, and `Error` says plainly what
+  it may contain: **an export that includes a failed ship step should be read
+  before it is shared.**
+
+- **An explicit `--ui` is no longer outranked by a stale `BENTOO_UI` or
+  `ui.mode`.** The three render-mode sources are documented as a precedence
+  chain — `--ui`, then `BENTOO_UI`, then `ui.mode` — but any one of them failing
+  to parse aborted the whole resolution, wherever it sat. So a typo left in a
+  shell profile years ago silently decided the render mode of every
+  report-producing command, beating the flag just typed on the command line:
+
+      before:  BENTOO_UI=bogus bentoo overlay autoupdate --check --ui=fullscreen
+               plain — the flag was parsed, then discarded
+      after:   fullscreen, and on stderr
+               "BENTOO_UI: \"bogus\" is not a UI mode; the accepted values are
+                auto, plain, inline or fullscreen — outranked by --ui, so refused
+                without effect; this run renders in fullscreen"
+
+  The refusal keeps its whole sentence and loses only its reach: an unusable
+  value is still named, with the source it came from and the mode used instead,
+  and it now decides the run only where nothing above it named a mode. Both
+  edges are unchanged. An ambient value refused with nothing above it still
+  falls back to plain and still says so, and `--ui=bogus` still exits 1 before
+  any work whatever sits below it — including `--no-tui`.
+
+  Fixed in `internal/common/report/mode.go`. Exit statuses for every case that
+  already succeeded, report content and the JSON schema are unchanged.
+
+- **`errors.Is` now reaches the filesystem cause behind a missing baseline
+  tree.** `internal/overlay/baseline.go` wrapped its `ErrNoBaselineTree`
+  sentinel with `%w` and rendered the underlying `os.Stat` failure with `%v`, so
+  the sentinel was matchable and the cause was text only — a caller could not
+  tell a permission denial from any other unexaminable root. Both now travel as
+  wrapped errors. Messages are byte-identical; what changes is what a caller can
+  match on.
+
+- **A refused ambient render mode is stated once on `overlay manifest`, not
+  twice.** With an unusable `BENTOO_UI` or `ui.mode`, a real (non-`--dry-run`)
+  `overlay manifest` printed the refusal twice, in two different wordings — once
+  from the shared report path and once from the command's own live-region gate:
+
+      before:  BENTOO_UI=bogus bentoo overlay manifest
+               "...is not a UI mode... — this run renders in plain"
+               "...is not a UI mode... — this report is rendered in plain instead"
+      after:   the second line only, once
+
+  `--dry-run` skips the live region entirely, which is why the duplication
+  survived several passes: the cheap way to check the behaviour is the one flag
+  that hides it. Exit statuses, report content and the JSON schema are unchanged.
+
 - **`overlay manifest --ui` now reaches the live region, not just the report.**
   On a terminal, `bentoo overlay manifest --ui=plain` rendered its report in
   plain and started the bubbletea live region anyway — so the operator who asked
@@ -522,7 +589,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--no-tui` still does **not** reach a manifest run. It is declared on `overlay
   autoupdate` alone, deliberately, and reading it here would be a cross-command
   leak rather than a fix. Exit statuses, report content and the JSON schema are
-  unchanged.
+  unchanged. The fix is one input, in `cmd/bentoo/overlay_autoupdate_ui.go`:
+  the live-region gate now reads the same `--ui` the report does.
 
 - **The design system stopped describing a column width that no longer exists.**
   `misc/design/design-system/component/layout.go` and `catalogue.go` asserted in

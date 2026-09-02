@@ -12,7 +12,8 @@ package main
 // depths are distributed — is printed BEFORE anything is asked and before the
 // first gate runs (R9.3), and one confirmation covers the whole run (R9.4). The
 // confirmation is confirmSweep's shape, gate for gate
-// (overlay_autoupdate_sweep.go:241), so the two commands read alike.
+// (`func confirmSweep` in overlay_autoupdate_sweep.go), so the two commands
+// read alike.
 //
 // THE REACH. `--check` is documented read-only and the overlay it would write
 // to auto-commits and pushes. Nothing here writes to the overlay on any path:
@@ -698,7 +699,8 @@ func runValidationCheck(plan validationPlan, run func(validationPlanEntry) valid
 //
 // The one report this function does NOT draw is the empty one, and the reason
 // is `--quiet` (S045-R5.3, S045-D4). Its entire effect is
-// logger.SetQuiet(true) (cmd/bentoo/main.go:30-32): it reaches the logger and
+// logger.SetQuiet(true), applied in `func main` in cmd/bentoo/main.go: it
+// reaches the logger and
 // reaches neither the output package nor os.Stdout. So today a `--check
 // --quiet` over an empty registry prints nothing at all, while one with
 // packages prints the whole table anyway — an asymmetry that already exists,
