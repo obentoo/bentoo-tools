@@ -5,8 +5,21 @@ package overlay
 // Written from the contract: R5.3 states the rule and the message it owes —
 // "IF a package under internal/overlay or internal/snapshot imports the
 // terminal printer, THEN THE SYSTEM SHALL fail its test suite naming the
-// package and the import." design.md D7 gives the count it is holding the line
-// against: the 46 output.* calls this story moves out of internal/.
+// package and the import." design.md D7 sizes the work behind that rule: 40
+// calls into internal/common/output, made by the five files under
+// internal/overlay that printed directly — compare.go, annotate_baseline.go,
+// baseline.go, realign_reviewer.go and status.go. Two earlier figures for that
+// same set are retracted and should not be re-derived: 46 came from a grep
+// filtered to a fixed list of printer names, which missed three of those files;
+// 61 counted every occurrence of output. across the whole internal/overlay and
+// internal/snapshot trees, which reached four files past them. Both were
+// published as "calls in these five files", which neither was.
+//
+// That count describes the WORK. It is not what this test fails on. The guard
+// fails on an IMPORT — a non-test file in this package importing
+// internal/common/output — and counts nothing at all: a blank import with no
+// call behind it fails it exactly as forty calls would, which is the mutation
+// recorded below.
 //
 // The shape is internal/common/report/boundary_test.go's, reused deliberately:
 // a rule stated in a comment is a rule that gets broken, and that file says so

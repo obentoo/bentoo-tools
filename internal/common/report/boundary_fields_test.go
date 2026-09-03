@@ -74,7 +74,7 @@ import (
 )
 
 // presentationWords is the vocabulary a field name may not be built from: the
-// five things R7.1 enumerates — escape sequence, colour, column width, padding,
+// six things R7.1 enumerates — escape sequence, colour, column width, padding,
 // border character, terminal dimension — plus the words a renderer reaches for
 // when it has already made the decision.
 //
@@ -199,7 +199,11 @@ func TestPresentationFieldRule(t *testing.T) {
 		field  string
 		reject bool
 	}{
-		// The five R7.1 enumerates.
+		// R7.1's six categories, in eight cases. Width and ColumnWidth both
+		// stand for column width — the same forbidden word reached by a
+		// one-word name and by a two-word one — and Style is the eighth,
+		// which that list does not name: it comes from "the words a renderer
+		// reaches for" the doc comment above adds beside them.
 		{"Width", true},
 		{"ColumnWidth", true},
 		{"Color", true},

@@ -105,7 +105,7 @@ const (
 //
 // The asymmetry is deliberate, and it is the line between the two halves. "The
 // run reached the end of its plan" and "this many planned units were never
-// reached" are answerable for any batch, and story 044's R1.4 already depends
+// reached" are answerable for any batch, and S044-R4.3 already depends
 // on both being answerable for an interrupted check. A tally is not: autoupdate
 // counts four validation outcomes, manifest counts ok and failed, and one
 // universal tally would either lose the four or invent columns manifest has no

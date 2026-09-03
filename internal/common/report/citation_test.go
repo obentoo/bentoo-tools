@@ -47,6 +47,47 @@ package report
 // confident falsehoods, and a wrong prefix is worse than a bare number because
 // it looks resolved.
 //
+// # THE SECOND NUMBERING — DESIGN DECISIONS (sub-task 16.5 — S046-R8.3)
+//
+// The amendment above is about requirement numbers, and requirement numbers
+// are half of what a story issues. design.md numbers its decisions too —
+// S046-D1 through S046-D10 — and a comment reading "the mode is resolved once
+// per run (D4)" is a citation in precisely the sense this file means: a token
+// standing in for a sentence written somewhere that is not committed.
+//
+// It collides exactly as the R-class does, and the collision is already in the
+// tree rather than hypothetical. render/fullscreen_sections_test.go opens by
+// naming story 044's seventh decision in prose and writing the token bare;
+// render/inline.go and render/text_test.go each cite a bare fifth decision
+// that means S044-D5, and 046's own fifth is titled "tui.Reporter is
+// unchanged, and D5 of story 044 still holds" — a design document stating in
+// its own heading that the number is shared and the sentences are not.
+//
+// Measured on 2026-09-03 over the swept tree: 101 bare decision citations in
+// 29 files, spanning all ten numbers story 046 issues. Until this sub-task
+// citationPattern matched the R form and nothing else, so every one of the 101
+// was invisible to the guard AND to the ceiling — a debt no artifact published
+// because no artifact could see it.
+//
+// The widening carries them as COUNTED DEBT rather than as a hard failure:
+// the decision sub-task 11.2 took for the R-class, for the reason it gave.
+// Refusing 101 arrivals at once fails the package instead of fixing it, and
+// deciding which story each token meant is reading a comment, not sweeping a
+// tree — done mechanically it writes confident falsehoods, and a wrong prefix
+// is worse than a bare token because it looks resolved.
+// unattributedDecisionDebt at the foot of this file is that ceiling, and it is
+// a SEPARATE number from the requirement one. Separate is the whole point: one
+// summed total would let a fall in either class pay for a rise in the other,
+// which is a debt that grew, published as a debt that did not.
+//
+// A decision citation naming a number 046 does NOT issue is a hard failure,
+// exactly as its R-class equivalent is — the choice this sub-task made where
+// its ToDo left one open, because it is the strictly stronger of the two and
+// costs nothing today: all ten numbers in the tree are inside 046's set, so
+// the branch has no live instance to refuse. That is also what makes it a
+// guard green on the day it is written, and the evidence that it bites is at
+// the foot of this file with the rest.
+//
 // # RED ON ARRIVAL — 79 of them
 //
 // This guard is not green on the day it is written. It finds 79 unresolvable
@@ -167,20 +208,89 @@ var story046Requirements = map[string]bool{
 // thisStoryPrefix is the prefix that claims a citation belongs to story 046.
 const thisStoryPrefix = "S046-"
 
-// citationPattern reads a requirement citation, with its story prefix when it
+// story046Decisions is story 046's design-decision set, transcribed from
+// design.md: every level-two heading of the form "## DN." is one decision and
+// nothing else in that file takes that shape. There are ten.
+//
+// Unlike story046Requirements this set has ONE copy rather than two, and the
+// difference is deliberate. The requirement set is written twice — the table
+// the guard reads and a transcription checked against it — because sub-task
+// 13.1 needed a check that runs for everyone who cloned this repository, and
+// two committed copies can be compared with .epic/ absent. What that pairing
+// cannot catch is the case its own mutation C recorded: two copies agreeing
+// with each other and with nothing else are consistent, and consistency is all
+// a comparison of copies can see. With one copy there is nothing to compare,
+// so the only check worth writing is the one against design.md itself, and
+// TestCitationDecisionTableAgreesWithTheDesignFileWhereItIsPresent is it. It
+// skips where .epic/ is absent — which is exactly where nobody is in a
+// position to add a decision either.
+//
+// The ids are assembled from their numbers rather than written out, for the
+// reason bareDecision gives: this file is swept by its own rule.
+var story046Decisions = decisionSet("1", "2", "3", "4", "5", "6", "7", "8", "9", "10")
+
+// decisionSet spells a set of decision ids out of their numbers.
+func decisionSet(numbers ...string) map[string]bool {
+	set := make(map[string]bool, len(numbers))
+	for _, number := range numbers {
+		set[bareDecision(number)] = true
+	}
+	return set
+}
+
+// citationClass names which of the two things a story numbers a citation
+// points at. It is not a label on a message: the two classes carry SEPARATE
+// ceilings, so the class is what decides which number a new arrival counts
+// against, and mixing them would let one debt's repayment fund the other's
+// growth.
+type citationClass string
+
+const (
+	requirementCitation citationClass = "requirement"
+	decisionCitation    citationClass = "decision"
+)
+
+// classOf reads a citation's class off its id, prefixed or bare.
+func classOf(citation string) citationClass {
+	if _, id := splitCitation(citation); strings.HasPrefix(id, "D") {
+		return decisionCitation
+	}
+	return requirementCitation
+}
+
+// story046Issues answers whether story 046 issued the thing an id names,
+// sending each class to its own set.
+//
+// citationFault asks this rather than reading a table directly, which is what
+// keeps the rule below at three outcomes while the number of numberings grows:
+// a third would add a case here and change nothing about what a fault IS.
+func story046Issues(id string) bool {
+	if strings.HasPrefix(id, "D") {
+		return story046Decisions[id]
+	}
+	return story046Requirements[id]
+}
+
+// citationPattern reads a citation of either numbered thing a story issues — a
+// requirement (R7.2) or a design decision (D4) — with its story prefix when it
 // has one.
 //
 // The leading character class is the boundary, and it is load-bearing in both
 // directions. Without it the pattern would find a citation inside an identifier
-// that merely ends in R followed by digits, and — worse — it would read the
+// that merely ends in R or D followed by digits, and — worse — it would read the
 // tail of a prefixed citation as a bare one, turning every correctly
 // disambiguated reference in the tree into a violation.
 //
-// Both number parts are greedy for the converse reason: a citation is the whole
+// Every number part is greedy for the converse reason: a citation is the whole
 // number it is written as. Reading a prefix of it would collapse two distinct
 // requirements into one and report a violation against a requirement nobody
-// cited.
-var citationPattern = regexp.MustCompile(`(?:^|[^0-9A-Za-z_])((?:S[0-9]{3}-)?R[0-9]+\.[0-9]+)`)
+// cited. On the decision form that is not a hypothetical symmetry — this
+// package cites the first decision and the tenth, and a pattern reading one
+// digit would read all five citations of the tenth as citations of the first.
+//
+// The two alternatives share no leading character, so their order inside the
+// group is documentation rather than mechanism: neither can shadow the other.
+var citationPattern = regexp.MustCompile(`(?:^|[^0-9A-Za-z_])((?:S[0-9]{3}-)?(?:R[0-9]+\.[0-9]+|D[0-9]+))`)
 
 // citationRef is one citation and where it sits inside the text it was read
 // from, counted in lines from the start of that text.
@@ -219,16 +329,18 @@ func splitCitation(citation string) (prefix, id string) {
 //
 // Three outcomes, and the third is the one a reader is most likely to miss:
 //
-//   - Bare, and 046 has the requirement: not a fault here — and not resolved
-//     either. Story 044 issues the same numbers, so the match is on the digits
-//     rather than on the sentence. It stays outside the hard-failure class
-//     because 356 of them are in this package and refusing all 356 at once
-//     would fail the package rather than fix it; sub-task 11.2 gave the class a
-//     counted ceiling instead. citationIsUnattributed at the foot of this file
-//     is that class, and the header section "RESOLVING IS NOT ATTRIBUTING" is
-//     why it exists.
-//   - Bare, and 046 does not: the fault this guard exists for.
-//   - Prefixed S046-, and 046 does not have the requirement: also a fault. The
+//   - Bare, and 046 issues the number: not a fault here — and not resolved
+//     either. Story 044 issues the same numbers, in BOTH numberings, so the
+//     match is on the digits rather than on the sentence. It stays outside the
+//     hard-failure class because 356 requirement citations and 101 decision
+//     citations are in this package and refusing 457 at once would fail the
+//     package rather than fix it; sub-task 11.2 gave the requirement class a
+//     counted ceiling and sub-task 16.5 gave the decision class its own.
+//     citationIsUnattributed at the foot of this file is that class, and the
+//     header sections "RESOLVING IS NOT ATTRIBUTING" and "THE SECOND
+//     NUMBERING" are why it exists.
+//   - Bare, and 046 does not issue it: the fault this guard exists for.
+//   - Prefixed S046-, and 046 does not issue the number: also a fault. The
 //     prefix is the fix's own invention, so nothing in the rule above forbids
 //     spelling it wrong, and the cheapest way to silence a bare-citation guard
 //     is to prefix every offender with the story being worked on rather than
@@ -244,9 +356,9 @@ func citationFault(citation string) string {
 	prefix, id := splitCitation(citation)
 
 	switch {
-	case prefix == "" && !story046Requirements[id]:
+	case prefix == "" && !story046Issues(id):
 		return fmt.Sprintf("story 046 has no %s, and the citation is bare, so it names nothing a reader can resolve", id)
-	case prefix == thisStoryPrefix && !story046Requirements[id]:
+	case prefix == thisStoryPrefix && !story046Issues(id):
 		return fmt.Sprintf("the citation claims story 046 owns %s, and story 046 has no %s", id, id)
 	}
 	return ""
@@ -255,13 +367,25 @@ func citationFault(citation string) string {
 // citationViolation is the sentence a maintainer meets. It names the file, the
 // line, the citation and what to do, because a guard whose message stops at
 // "unresolvable citation" is a guard that gets deleted rather than answered.
+//
+// The noun follows the citation's class. Telling the reader of a bare decision
+// token to "prefix the requirement" sends them looking through story.md for a
+// number that is only ever in design.md, which is a remedy that costs its
+// reader the search the message was written to save. The requirement wording
+// is unchanged to the byte, so the transcripts recorded in this file's header
+// remain what the guard prints.
 func citationViolation(path string, line int, citation, fault string) string {
+	owned := "requirement"
+	if classOf(citation) == decisionCitation {
+		owned = "design decision"
+	}
+
 	return fmt.Sprintf(
 		"%s:%d cites %s — %s.\n"+
-			"    Remedy: prefix the citation with the story that owns the requirement, in the S0NN- form used\n"+
+			"    Remedy: prefix the citation with the story that owns the %s, in the S0NN- form used\n"+
 			"    throughout this repository. The story files under .epic/ are not committed, so this comment is\n"+
 			"    the only record of what the code was answering.",
-		path, line, citation, fault)
+		path, line, citation, fault, owned)
 }
 
 // bareID spells a citation out of parts, so that a fixture in this file is not
@@ -274,6 +398,9 @@ func citationViolation(path string, line int, citation, fault string) string {
 // fixture and the rule in the same file without either one lying about the
 // other.
 func bareID(number string) string { return "R" + number }
+
+// bareDecision does the same for a design-decision id, for the same reason.
+func bareDecision(number string) string { return "D" + number }
 
 // TestCitationRule pins the classifier, hostile cases first.
 //
@@ -323,6 +450,39 @@ func TestCitationRule(t *testing.T) {
 			citation: thisStoryPrefix + bareID("9.3"),
 			fault:    true,
 			why:      "prefixing every offender with the story being worked on is the cheapest wrong fix",
+		},
+		// Hostile, the second numbering: a bare decision token naming a number
+		// 046 does not issue. 046's design stops at its tenth decision and
+		// story 044's does not, so this is the D-class's exact analogue of a
+		// bare citation of S044-R9.3 and must fail for the same reason.
+		{
+			name:     "bare citation of a decision 046 does not have",
+			citation: bareDecision("11"),
+			fault:    true,
+			why:      "046 issues ten decisions; bare, this one names nothing a reader can find",
+		},
+		// Hostile, its converse form: this story's prefix on the same number.
+		{
+			name:     "this story's prefix on a decision this story does not have",
+			citation: thisStoryPrefix + bareDecision("11"),
+			fault:    true,
+			why:      "a confident, checkable falsehood — it looks resolved and names nothing",
+		},
+		// Hostile, the over-firing direction for the second numbering. A fault
+		// here would refuse 101 citations already standing in this package and
+		// fail the whole suite the moment the pattern was widened.
+		{
+			name:     "bare citation of a decision 046 does have",
+			citation: bareDecision("4"),
+			fault:    false,
+			why:      "not refused: 046 issues it, so this class is counted as debt rather than failed",
+		},
+		// Correct disambiguation in the second numbering.
+		{
+			name:     "the owning story's prefix on a decision",
+			citation: "S044-" + bareDecision("7"),
+			fault:    false,
+			why:      "render/fullscreen_sections_test.go means story 044's, and this form says so",
 		},
 		// Correct disambiguation, and the reason the guard exists.
 		{
@@ -412,6 +572,30 @@ func TestCitationScannerReadsWholeCitations(t *testing.T) {
 			text: "R1.1," + bareID("9.3") + " and " + "S044-" + bareID("5.4"),
 			want: []string{"R1.1", bareID("9.3"), "S044-" + bareID("5.4")},
 		},
+		// Hostile, the second numbering: a two-digit decision number must not
+		// collapse onto the one-digit citation it starts with. This package
+		// cites both the first decision and the tenth, so a scanner reading one
+		// digit would report all five citations of the tenth against the first.
+		{
+			name: "a two-digit decision number is not the one-digit one it starts with",
+			text: "precedence is decided once, see " + bareDecision("10"),
+			want: []string{bareDecision("10")},
+		},
+		// Hostile: a decision token inside a word is not a citation, and the D
+		// form is likelier than the R form to appear inside an identifier —
+		// there is no dot to make it look unusual.
+		{
+			name: "a decision citation inside a word is not a citation",
+			text: "the FIELD3 column and the ID7 binding",
+			want: nil,
+		},
+		// Hostile: the two numberings must be read separately rather than one
+		// swallowing the other, because each is counted against its own ceiling.
+		{
+			name: "a requirement and a decision side by side are read separately",
+			text: "as S046-R5.1 and " + bareDecision("4") + " require",
+			want: []string{"S046-R5.1", bareDecision("4")},
+		},
 		{
 			name: "prose without a citation",
 			text: "the report is rendered in four modes",
@@ -468,9 +652,58 @@ func TestCitationViolationNamesFileAndCitation(t *testing.T) {
 	}
 }
 
+// # THE SUBJECT WAS NARROWER THAN THE STORY (sub-task 16.6 — S046-R8.3)
+//
+// Everything above reasons about "this package", and until this sub-task the
+// sweep's subject was exactly that: internal/common/report and render/. Story
+// 046 did not confine itself to those two directories. It CREATED eight
+// non-test Go files outside them — five under cmd/bentoo and three under
+// internal/overlay — and every citation in all eight was outside the guard, so
+// nothing fired on any of them and the ceilings did not count one.
+//
+// internal/overlay/finding.go is what that cost. It is a file this story wrote
+// from nothing, it carries 19 bare requirement citations, and EIGHT of them
+// name numbers story 046 does not issue at all: R-2.5 twice, R-3.8 once, R-5.4
+// once and R-5.8 four times. Those eight are the hard-failure class — the one
+// this file's header opens by defining — standing in the tree, unreported, for
+// as long as the file has existed. The remaining eleven resolved by number into
+// story 046 sentences none of them meant. (Written with hyphens, for the reason
+// the header gives: this file is swept by its own rule.)
+//
+// The widening is by FILE LIST rather than by directory, and the list is what
+// git answers, not what a reader remembers: every path in
+// storyCreatedFilesOutsideThePackage is in
+// `git diff --diff-filter=A --name-only c8e347e HEAD`, filtered to .go, less
+// _test.go, less this package. c8e347e is the commit this branch left main at.
+//
+// WHAT IS DELIBERATELY NOT IN IT: the fifty non-test files this story MODIFIED
+// rather than created. The line is drawn at authorship because a citation in a
+// file this story wrote is a citation this story is answerable for, while a
+// bare number in a file it merely touched was written by whoever wrote the file
+// — attributing those is the same reading job the ceilings already hand to
+// story 047, at fifty files instead of eight. Sub-task 16.6 states the boundary
+// rather than leaving it implied; see the note beside the list.
+var storyCreatedFilesOutsideThePackage = []string{
+	"../../../cmd/bentoo/overlay_manifest_report.go",
+	"../../../cmd/bentoo/overlay_validate_report.go",
+	"../../../cmd/bentoo/report_export.go",
+	"../../../cmd/bentoo/root.go",
+	"../../../cmd/bentoo/snapshot_report.go",
+	"../../../internal/overlay/finding.go",
+	"../../../internal/overlay/manifest_cancel_other.go",
+	"../../../internal/overlay/manifest_cancel_unix.go",
+}
+
 // eachCitationInPackage reads every citation this package writes and hands each
 // one to visit: the file it stands in, the line it stands on, and the citation
-// itself. It returns the number of files it parsed.
+// itself. It returns the number of files it parsed, and — separately — how many
+// of those came from storyCreatedFilesOutsideThePackage.
+//
+// The second count is separate because it is the only one that can go to zero
+// on its own. A widened sweep whose extra half silently matches nothing reads
+// exactly like a narrow sweep that was never widened: the totals barely move,
+// every test passes, and the eight files are back outside the guard. Publishing
+// the number is what lets each caller refuse that state.
 //
 // This is the SUBJECT, written once and shared by both sweeps below. Every .go
 // file under internal/common/report, render/ and the _test.go files included —
@@ -488,23 +721,12 @@ func TestCitationViolationNamesFileAndCitation(t *testing.T) {
 // The returned count is what each caller's vacuity guard is built on: a sweep
 // that read nothing finds no violation and no debt, and both of those look
 // exactly like success.
-func eachCitationInPackage(t *testing.T, skip func(path string) bool, visit func(path string, line int, citation string)) int {
+func eachCitationInPackage(t *testing.T, skip func(path string) bool, visit func(path string, line int, citation string)) (filesScanned, storyFilesScanned int) {
 	t.Helper()
 
 	fileSet := token.NewFileSet()
-	filesScanned := 0
 
-	walkErr := filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() || !strings.HasSuffix(path, ".go") {
-			return nil
-		}
-		if skip != nil && skip(path) {
-			return nil
-		}
-
+	read := func(path string) error {
 		file, parseErr := parser.ParseFile(fileSet, path, nil, parser.ParseComments|parser.SkipObjectResolution)
 		if parseErr != nil {
 			return fmt.Errorf("parsing %s: %w", path, parseErr)
@@ -532,12 +754,39 @@ func eachCitationInPackage(t *testing.T, skip func(path string) bool, visit func
 		})
 
 		return nil
+	}
+
+	walkErr := filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		if skip != nil && skip(path) {
+			return nil
+		}
+		return read(path)
 	})
 	if walkErr != nil {
 		t.Fatalf("sweeping the package: %v", walkErr)
 	}
 
-	return filesScanned
+	// The second half of the subject, read by NAME rather than by walking a
+	// directory: these files sit beside code no story 046 requirement is about,
+	// and a directory rule would either drag that in or need an exception list
+	// longer than this one.
+	for _, path := range storyCreatedFilesOutsideThePackage {
+		if skip != nil && skip(path) {
+			continue
+		}
+		if err := read(path); err != nil {
+			t.Fatalf("sweeping the files this story created outside this package: %v", err)
+		}
+		storyFilesScanned++
+	}
+
+	return filesScanned, storyFilesScanned
 }
 
 // TestCitationsResolve is the guard itself: every citation written in a comment
@@ -550,7 +799,7 @@ func TestCitationsResolve(t *testing.T) {
 	citationsRead := 0
 	violations := 0
 
-	filesScanned := eachCitationInPackage(t, nil, func(path string, line int, citation string) {
+	filesScanned, storyFilesScanned := eachCitationInPackage(t, nil, func(path string, line int, citation string) {
 		citationsRead++
 		if fault := citationFault(citation); fault != "" {
 			violations++
@@ -566,6 +815,15 @@ func TestCitationsResolve(t *testing.T) {
 	if citationsRead == 0 {
 		t.Fatal("read no citation at all — this package cites requirements in almost every file, so the reader is broken, not the package")
 	}
+	// The widened half, guarded on its own. Folded into the count above it
+	// would be eight files inside forty-odd, and losing all eight would still
+	// leave a number that looks like a sweep.
+	if storyFilesScanned == 0 {
+		t.Fatalf("read none of the %d files this story created outside this package — the widened sweep is back to the narrow one, and finding.go's eight unresolvable citations are outside the guard again",
+			len(storyCreatedFilesOutsideThePackage))
+	}
+
+	t.Logf("swept %d files, %d of them created by this story outside this package", filesScanned, storyFilesScanned)
 
 	if violations > 0 {
 		t.Logf("%d of the %d citations read across %d files cannot be resolved", violations, citationsRead, filesScanned)
@@ -598,6 +856,12 @@ func isRequirementTable(path string) bool { return filepath.Base(path) == requir
 // only because story 046 issues that number too — as does story 044, which
 // wrote most of this package.
 //
+// It answers for both numberings, and deliberately does not distinguish them:
+// what makes a citation unattributed is identical in each, so one predicate
+// serves both and classOf decides afterwards which ceiling the hit counts
+// against. Two predicates differing only in a letter is the duplication that
+// lets one class quietly stop being checked.
+//
 // It is written THROUGH citationFault rather than beside it so that the two
 // classes cannot drift into overlapping. Whatever citationFault rejects is a
 // hard failure and is never counted as debt; what this counts is exactly the
@@ -609,9 +873,9 @@ func citationIsUnattributed(citation string) bool {
 	return prefix == "" && citationFault(citation) == ""
 }
 
-// unattributedCitationDebt is the ceiling, and it is a MEASUREMENT rather than
-// a target: 356 bare citations over 36 of the 37 files the sweep reads, taken
-// on 2026-08-29 against the tree exactly as it is committed. Nothing was picked
+// unattributedCitationDebt is the ceiling for the REQUIREMENT class, and it is
+// a MEASUREMENT rather than a target: 356 bare citations over 36 of the 37
+// files the sweep read, taken on 2026-08-29 against the tree exactly as it is committed. Nothing was picked
 // to make the number fit — it is what the sweep printed on the day it landed,
 // and classify_test.go is the single swept file with none.
 //
@@ -628,7 +892,60 @@ func citationIsUnattributed(citation string) bool {
 // write confident falsehoods, and a wrong prefix is worse than a bare number
 // because it looks resolved. Sub-task 11.2 therefore prefixes nothing and hands
 // the reading to story 047.
-const unattributedCitationDebt = 356
+//
+// # RE-PINNED BY SUB-TASK 16.6: 356 -> 410, over 42 files
+//
+// The number rose and NOTHING got worse. It rose because the SUBJECT grew:
+// sub-task 16.6 added the eight non-test files story 046 created outside this
+// package (storyCreatedFilesOutsideThePackage), and every bare citation in all
+// eight arrived at once, having been counted by nothing since the day they were
+// written. Measured 2026-09-03 on the widened, corrected tree.
+//
+// The arithmetic is stated so the next reader can check it rather than believe
+// it. The widening brought 81 requirement citations in — snapshot_report.go 22,
+// overlay_manifest_report.go 19, overlay_validate_report.go 15, finding.go 11,
+// report_export.go 7, root.go 4, manifest_cancel_unix.go 3 — taking the run to
+// 437. This sub-task then REPAID 27 of them: all 11 of finding.go's, which left
+// the list entirely, and 16 inside this package where a citation was found to
+// name the wrong story (the ShowAll rows, the same-content rule, the two
+// meanings of a sixth-group third requirement, the interrupted-run rule).
+// 356 + 81 - 27 = 410.
+//
+// So the pin moved for the one reason a ceiling may move: the measurement it
+// publishes is now taken over a larger subject, and the sub-task that widened
+// it repaid every citation it was in a position to attribute. It still may not
+// rise. A rise from here is a new bare citation, not a new file.
+const unattributedCitationDebt = 410
+
+// unattributedDecisionDebt is the same ceiling for the other numbering: 101
+// bare design-decision citations over 29 of the 40 files the debt sweep reads,
+// measured on 2026-09-03 against the tree exactly as it stands. Nothing was
+// chosen to make the number fit — it is what the sweep printed on the day
+// citationPattern first matched the D form.
+//
+// It is a second constant rather than a larger first one. Summing the two
+// would publish 457 and hide both movements inside it: the classes are repaid
+// by different work — story 047 reads comments against story.md for one and
+// against design.md for the other — so a total that cannot say which half
+// moved is a number nobody can act on. Both may fall; neither may rise.
+//
+// The ten numbers it counts are all inside story 046's own set, which is why
+// none of the 101 is a hard failure. That is also the measurement that makes
+// the class worth counting at all: a bare token whose number BOTH stories
+// issue is the one a reader cannot resolve and a sweep cannot correct.
+//
+// # RE-PINNED BY SUB-TASK 16.6: 101 -> 109, over 33 files
+//
+// Same widening, same arithmetic, and it is reported separately for exactly the
+// reason the paragraph above gives. The eight newly-swept files carried 9 bare
+// decision tokens — overlay_validate_report.go 3, snapshot_report.go 3,
+// overlay_manifest_report.go 1, report_export.go 1, finding.go 1 — taking the
+// run to 110; finding.go's was attributed (it meant this story's own seventh
+// decision, the one that stops internal/ printing) and left the list.
+// 101 + 9 - 1 = 109. The in-package total did not move at all: 101 before this
+// sub-task and 101 after, which is what says the whole rise is arrival rather
+// than growth.
+const unattributedDecisionDebt = 109
 
 // # EVIDENCE THAT THE CEILING BITES, AND THAT IT LEFT THE GUARD ALONE (S046-R8.3)
 //
@@ -702,6 +1019,218 @@ const unattributedCitationDebt = 356
 // all, and that is a property of the ceiling worth noticing: its failure names
 // files and counts, never a requirement number, so it can be quoted anywhere.
 
+// # EVIDENCE FOR THE SECOND CEILING AND THE REPAIRED CROSS-CHECK (sub-task 16.5 — S046-R8.3)
+//
+// Everything sub-task 16.5 added is green on the day it lands, which is the
+// state this file has twice recorded as proving nothing on its own. Five
+// mutations, measured on 2026-09-03 with Go 1.26. Each was applied ALONE, run
+// once, and reverted immediately; every revert was verified by md5sum against
+// the file taken before the mutation rather than by eye — mode.go at
+// 79603c3d49768eba70af7ed7692d6e3f before M1 and after M4, and citation_test.go
+// and citation_debt_test.go each byte-identical after M3 and M5.
+//
+// A number story 046 does NOT issue is written below with a hyphen — D-11 for
+// what the runs printed as one token — because this file is swept by its own
+// rule and quoting it whole would make the evidence violate the thing it
+// records. That device is this file's own, from its header. The hyphen is the
+// only edit; the lines are otherwise as printed, re-wrapped to this comment's
+// width, with the 36- and 29-row breakdowns elided where marked.
+//
+// One further elision, and it is not a stylistic one. Where a run below names a
+// line of THIS file, the line number is written NNN. Pasting a transcript into
+// the file it reports on moves every line beneath the paste, so a number copied
+// here would be wrong the moment it was written and wrong again after the next
+// edit — the failing sites are named by their test instead, which is what a
+// reader needs anyway. Line numbers in OTHER files (mode.go, and
+// citation_debt_test.go, which this sub-task edited before these runs) are left
+// as printed.
+//
+// M1 — one bare requirement citation appended as a comment to mode.go. This is
+// 11.2's own mutation 1, re-run against two ceilings instead of one:
+//
+//	--- FAIL: TestCitationDebtDoesNotGrow (0.01s)
+//	    citation_debt_test.go:170: unattributed citations remaining in this
+//	        package: 357, over 36 files
+//	        [the 36 rows, mode.go at 12]
+//	    citation_debt_test.go:174: unattributed citations rose to 357, above the
+//	        pinned 356.
+//	        [the four-line remedy, then the same 36 rows]
+//	    citation_debt_test.go:170: unattributed design-decision citations
+//	        remaining in this package: 101, over 29 files
+//	        [the 29 rows, unchanged]
+//
+// The last line is what one summed ceiling could not have printed. The other
+// class did not move, and the run SAYS the other class did not move rather than
+// leaving its reader to subtract 356 from a total.
+//
+// M2 — one bare decision citation, the same position in the same file. The
+// classes are pinned apart, so this run is the mirror image of M1 and not a
+// repetition of it: the requirement line holds and the decision line rises.
+//
+//	--- FAIL: TestCitationDebtDoesNotGrow (0.01s)
+//	    citation_debt_test.go:170: unattributed citations remaining in this
+//	        package: 356, over 36 files
+//	        [the 36 rows, mode.go at 11 — unchanged]
+//	    citation_debt_test.go:170: unattributed design-decision citations
+//	        remaining in this package: 102, over 29 files
+//	        [the 29 rows, mode.go at 8]
+//	    citation_debt_test.go:174: unattributed design-decision citations rose to
+//	        102, above the pinned 101.
+//	        A bare decision token resolves by NUMBER exactly as a requirement
+//	        citation does: story 044's design issues the same ten numbers with
+//	        different sentences behind them, and this package cites both —
+//	        render/fullscreen_sections_test.go already means S044-D7 while
+//	        writing the token bare. Prefix it with the story that owns it, in the
+//	        S0NN- form.
+//	        Per file: [the same 29 rows]
+//
+// M3 — the cross-check, and the only one of the five that had to be run twice,
+// because what it establishes is a CONTRAST between two versions of one test
+// rather than a failure of one. Both runs used the same mutation, applied to
+// the independent walk in citation_debt_test.go: count each file at most once
+// per class. It is the exact case that file's own doc comment described and
+// could not detect — every per-file value collapses to 1 and the key set is
+// untouched.
+//
+// First against the code as COMMITTED at 0fd2f2e, unpacked to a pristine tree
+// with `git archive HEAD | tar -x`, where the comparison was
+// `len(got) != len(want)` over two maps keyed by path:
+//
+//	=== RUN   TestCitationDebtSweepAgreesWithTheGuardsSubject
+//	--- PASS: TestCitationDebtSweepAgreesWithTheGuardsSubject (0.02s)
+//	ok  	github.com/obentoo/bentoolkit/internal/common/report	0.030s
+//
+// That PASS is the defect. The independent sweep was reporting 36 unattributed
+// citations where the ceiling reported 356 — a published debt short by three
+// hundred and twenty — and the check written to stop exactly that agreed with
+// it, because 36 files and 36 files are the same number of files. The run in
+// the same command printed "unattributed citations remaining in this package:
+// 356, over 36 files" and passed, so the two halves of one suite disagreed by
+// an order of magnitude without a word.
+//
+// Then the same mutation against the repaired comparison, in the working tree:
+//
+//	--- FAIL: TestCitationDebtSweepAgreesWithTheGuardsSubject (0.02s)
+//	    citation_debt_test.go:310: the ceiling counts 356 unattributed
+//	        requirement citations and this file's independent sweep 36, across
+//	        file lists that agree — the debt one of them publishes is not the
+//	        debt that is there, and comparing the number of files would not have
+//	        noticed
+//	    citation_debt_test.go:310: the ceiling counts 101 unattributed decision
+//	        citations and this file's independent sweep 29, across file lists
+//	        that agree — [the same sentence]
+//
+// Two lines, one per class, and the second is why the comparison is made per
+// class rather than over the pair.
+//
+// M4 — a bare decision token naming a number 046 does not issue, appended to
+// mode.go. This is the branch that has no live instance — all ten numbers in
+// the tree are inside 046's set — so without a mutation it is an assertion
+// nobody has seen fire:
+//
+//	--- FAIL: TestCitationsResolve (0.01s)
+//	    citation_test.go:NNN: mode.go:378 cites D-11 — story 046 has no D-11,
+//	        and the citation is bare, so it names nothing a reader can resolve.
+//	        Remedy: prefix the citation with the story that owns the design
+//	        decision, in the S0NN- form used throughout this repository. The
+//	        story files under .epic/ are not committed, so this comment is the
+//	        only record of what the code was answering.
+//	    citation_test.go:NNN: 1 of the 660 citations read across 41 files cannot
+//	        be resolved
+//
+//	    (both lines from TestCitationsResolve — the first its per-violation
+//	    t.Errorf, the second its closing t.Logf)
+//
+// It carries three things beyond the failure. The remedy says "design decision"
+// where the requirement class says "requirement", so a reader is sent to
+// design.md rather than through story.md for a number that was never in it. The
+// citation total is 660 rather than the 470 recorded before this sub-task,
+// which is the widened pattern reading a numbering that was previously
+// invisible. And TestCitationDebtDoesNotGrow ran in the SAME command and
+// reported no failure — the D-debt was still 101 — so the two classes stayed
+// disjoint under the D form exactly as 11.2's mutation 2 established them for
+// the R form: an unresolvable citation fails the package and is not counted,
+// an unattributed one is counted and does not fail the package.
+//
+// M5 — an eleventh number added to story046Decisions, which story 046's design
+// does not state. The set has one copy and one check; this is that check:
+//
+//	--- FAIL: TestCitationDecisionTableAgreesWithTheDesignFileWhereItIsPresent (0.00s)
+//	    citation_test.go:NNN: the set in this file carries D-11 and story 046's
+//	        design does not state it — a decision was removed or renumbered, and
+//	        the guard would go on accepting bare citations of a decision that no
+//	        longer exists
+//
+// What none of the five shows, because no test here can: that any one of the
+// 457 counted citations means what a reader would guess. A ceiling stops a
+// debt growing. It does not repay a unit of it.
+
+// # EVIDENCE FOR THE WIDENED SUBJECT (sub-task 16.6 — S046-R8.3)
+//
+// This sub-task needed no mutation for its main claim, and that is worth
+// stating before the one it did need. Widening the subject produced a NATURAL
+// Red: eight unresolvable citations, every one of them in
+// internal/overlay/finding.go, a file story 046 created from nothing. They had
+// been standing in the tree since the day it was written. Measured 2026-09-03,
+// Go 1.26, after the widening and before a single citation was prefixed. The
+// four-line Remedy paragraph is identical on all eight and elided after the
+// first; the numbers are hyphenated for the reason the header gives.
+//
+//	=== RUN   TestCitationsResolve
+//	    citation_test.go:NNN: ../../../internal/overlay/finding.go:144 cites
+//	        R-5.8 — story 046 has no R-5.8, and the citation is bare, so it
+//	        names nothing a reader can resolve.
+//	        Remedy: prefix the citation with the story that owns the
+//	        requirement, in the S0NN- form used throughout this repository. The
+//	        story files under .epic/ are not committed, so this comment is the
+//	        only record of what the code was answering.
+//	    [finding.go:147 R-2.5, :181 R-5.8, :185 R-5.4, :236 R-3.8, :294 R-2.5,
+//	     :306 R-5.8, :411 R-5.8 — the same sentence, seven more times]
+//	    citation_test.go:NNN: swept 49 files, 8 of them created by this story
+//	        outside this package
+//	    citation_test.go:NNN: 8 of the 774 citations read across 49 files cannot
+//	        be resolved
+//	--- FAIL: TestCitationsResolve (0.01s)
+//
+// All eight are attributed now — to stories 025, 032 and 034, checked against
+// those stories' own acceptance criteria rather than guessed — and finding.go
+// has left both debt lists entirely: 32 citations, every one prefixed.
+//
+// THE MUTATION, and it is aimed at the one thing the natural Red cannot cover.
+// A widened sweep that silently stops matching reads exactly like a narrow one:
+// the totals fall, every test passes, and the eight files are outside the guard
+// again. storyCreatedFilesOutsideThePackage was emptied — one edit, the exact
+// shape a bad merge or a path change would produce — and all three sweeps
+// refused it rather than passing over nothing:
+//
+//	    citation_test.go:NNN: read none of the 0 files this story created
+//	        outside this package — the widened sweep is back to the narrow one,
+//	        and finding.go's eight unresolvable citations are outside the guard
+//	        again
+//	--- FAIL: TestCitationsResolve (0.01s)
+//	    citation_debt_test.go:127: read none of the 0 files this story created
+//	        outside this package — the ceilings below were measured over a
+//	        subject that includes them, so a sweep without them publishes a debt
+//	        that fell without a fix
+//	--- FAIL: TestCitationDebtDoesNotGrow (0.01s)
+//	    citation_debt_test.go:310: [the same sentence, from the independent walk]
+//	--- FAIL: TestCitationDebtSweepAgreesWithTheGuardsSubject (0.01s)
+//
+// Three failures from one edit is the point rather than noise: the guard, the
+// ceiling and the cross-check each read this list, so each has to refuse an
+// empty one on its own. Without these the ceilings would simply have fallen to
+// 340 and 101 and reported a repayment nobody made. The file was restored from
+// a copy taken first and the restore verified by md5sum —
+// 98eddfb27c3d1743a3b41729b53e115c before the mutation and after it — not by
+// eye.
+//
+// WHAT THIS STILL DOES NOT COVER, stated where the next reader will meet it:
+// the sweep now reads the eight files story 046 CREATED outside this package
+// and none of the fifty it MODIFIED. A bare citation in a file this story
+// merely touched is still counted by nothing. That boundary is argued beside
+// storyCreatedFilesOutsideThePackage; it is a scope line, not a claim that
+// those files are clean.
+
 // unattributedCitations counts, per file, the citations this package resolves
 // on their number alone.
 //
@@ -715,13 +1244,13 @@ const unattributedCitationDebt = 356
 // in citation_test.go is either the definition of 046's set or a fixture for
 // the rule, and neither is a claim this package's code makes about a
 // requirement.
-func unattributedCitations(t *testing.T) map[string]int {
+func unattributedCitations(t *testing.T) citationDebt {
 	t.Helper()
 
-	perFile := map[string]int{}
-	filesScanned := eachCitationInPackage(t, isRequirementTable, func(path string, _ int, citation string) {
+	debt := citationDebt{}
+	filesScanned, storyFilesScanned := eachCitationInPackage(t, isRequirementTable, func(path string, _ int, citation string) {
 		if citationIsUnattributed(citation) {
-			perFile[path]++
+			debt.add(classOf(citation), path)
 		}
 	})
 
@@ -734,8 +1263,54 @@ func unattributedCitations(t *testing.T) map[string]int {
 	if filesScanned == 0 {
 		t.Fatal("scanned no Go file — the debt sweep reported its count without looking at anything")
 	}
+	// Same guard for the widened half, and it counts FILES for the same reason:
+	// zero hits in those eight is a finished repayment, zero FILES is a sweep
+	// that stopped reading them. Sub-task 16.6 widened this subject, and a
+	// widening that quietly reverts takes the published ceilings back down with
+	// it — a debt that fell because the sweep looked away.
+	if storyFilesScanned == 0 {
+		t.Fatalf("read none of the %d files this story created outside this package — the ceilings below were measured over a subject that includes them, so a sweep without them publishes a debt that fell without a fix",
+			len(storyCreatedFilesOutsideThePackage))
+	}
 
-	return perFile
+	return debt
+}
+
+// citationDebt is the unattributed count per class, per file.
+//
+// The two classes are kept apart rather than summed, and that is the point of
+// the type rather than a detail of it. One total would let a fall in either
+// class pay for a rise in the other — thirty requirement citations repaid and
+// thirty decision citations added reads as a debt that did not move — so
+// TestCitationDebtDoesNotGrow pins each against its own ceiling.
+//
+// There is still exactly ONE sweep and ONE pattern behind both numbers.
+// classOf sorts each hit as it arrives; nothing walks the tree twice. A second
+// walk differing only in a letter is how one of two classes silently stops
+// being read.
+type citationDebt map[citationClass]map[string]int
+
+// add records one unattributed citation against its class and its file.
+func (debt citationDebt) add(class citationClass, path string) {
+	if debt[class] == nil {
+		debt[class] = map[string]int{}
+	}
+	debt[class][path]++
+}
+
+// total sums one class's per-file counts.
+//
+// It exists because len() of the same map is a FILE count and the two are not
+// interchangeable, which is the defect sub-task 16.5 closed in
+// TestCitationDebtSweepAgreesWithTheGuardsSubject: that check compared len()
+// and called it the debt, so every count in a file could fall to one while it
+// went on passing.
+func (debt citationDebt) total(class citationClass) int {
+	sum := 0
+	for _, count := range debt[class] {
+		sum += count
+	}
+	return sum
 }
 
 // # THE TABLE AND THE STORY IT COPIES (sub-task 13.1 — S046-R8.3)
@@ -1121,6 +1696,73 @@ func TestCitationTableAgreesWithTheStoryFileWhereItIsPresent(t *testing.T) {
 			t.Errorf("the transcription in this file carries %s and story 046 does not state it — a "+
 				"requirement was removed or renumbered, and the guard would go on accepting citations "+
 				"of a criterion that no longer exists", id)
+		}
+	}
+}
+
+// story046DesignFile is story 046's design decisions as the design itself
+// states them. The path is relative to this package, which is where a test runs.
+const story046DesignFile = "../../../.epic/stories/046-report-across-the-cli/design.md"
+
+// designDecisionHeading reads one decision's id off a heading of the design
+// file. Every decision there opens a level-two heading with its id and a
+// period, and nothing else in the file takes that shape — a decision quoted
+// mid-sentence is not at the start of a line, and no other heading is a bare
+// letter and number.
+var designDecisionHeading = regexp.MustCompile(`(?m)^## (D[0-9]+)\.`)
+
+// TestCitationDecisionTableAgreesWithTheDesignFileWhereItIsPresent checks the
+// decision set against the design it is copied from, in both directions.
+//
+// It is the ONLY check the decision set can have, and that is a consequence of
+// the set having one copy rather than two — see story046Decisions for why one
+// is the right number. So this test carries alone what four tests carry for the
+// requirement table, and the two directions are the two different lies a stale
+// copy tells: a missing entry reports a decision 046 genuinely made as a number
+// it never issued, and a spurious one waves through a citation that resolves to
+// nothing.
+//
+// It SKIPS where .epic/ is absent, and the skip is honest rather than
+// convenient: `git ls-files .epic/` returns nothing, so for anyone who cloned
+// this repository the design file is not there — and neither is any way to add
+// a decision to it. The check runs wherever the drift it catches can be caused.
+func TestCitationDecisionTableAgreesWithTheDesignFileWhereItIsPresent(t *testing.T) {
+	source, err := os.ReadFile(story046DesignFile)
+	if err != nil {
+		t.Skipf("story 046's design file is not on disk (%v).\n"+
+			"    .epic/ is not committed, so this cross-check runs only where the design is present. "+
+			"The set it checks has one copy, so there is no second committed copy for a check that "+
+			"runs everywhere to compare it against — and where the design is absent, so is any way "+
+			"to add a decision to it.", err)
+	}
+
+	stated := map[string]bool{}
+	for _, match := range designDecisionHeading.FindAllStringSubmatch(string(source), -1) {
+		stated[match[1]] = true
+	}
+
+	// The design was found and read as having almost no decisions: the reader
+	// is broken, not the design. Without this, a changed heading style would
+	// turn both directions below into comparisons against an empty set — and
+	// the second direction would then report all ten as removed.
+	if len(stated) < 5 {
+		t.Fatalf("read %d design decisions from %s — story 046's design states ten, so this reader has "+
+			"stopped matching the file's shape rather than found a shrunken design", len(stated), story046DesignFile)
+	}
+
+	for id := range stated {
+		if !story046Decisions[id] {
+			t.Errorf("story 046's design states %s and the set in this file does not carry it — a bare "+
+				"citation of it under this package would be reported as a number 046 never issued, and "+
+				"the remedy the guard prints (%s%s) would be refused for the same reason, so the citation "+
+				"could not be written in any form this guard accepts", id, thisStoryPrefix, id)
+		}
+	}
+	for id := range story046Decisions {
+		if !stated[id] {
+			t.Errorf("the set in this file carries %s and story 046's design does not state it — a "+
+				"decision was removed or renumbered, and the guard would go on accepting bare citations "+
+				"of a decision that no longer exists", id)
 		}
 	}
 }

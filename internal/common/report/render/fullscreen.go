@@ -240,7 +240,7 @@ func newInterruptibleModel(blocks []report.Section, opts Options, interrupted *a
 type fullscreenModel struct {
 	// blocks is the report as structure: the identical []report.Section plain,
 	// Markdown and inline are written from — the same slice value, handed to
-	// every mode by one caller — which is what makes R2.4 ("the same content in
+	// every mode by one caller — which is what makes S044-R2.4 ("the same content in
 	// every mode") hold by construction here too.
 	blocks []report.Section
 	// askedWidth is opts.Width, kept alone rather than the whole Options.

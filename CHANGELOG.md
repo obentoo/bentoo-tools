@@ -251,12 +251,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recorded beside the early return in the code, not only here.
 
 - **BREAKING for anyone reading `overlay compare`, `overlay status` or
-  `overlay add` by eye: their output is no longer coloured.** Every one of the
-  61 places where a library under `internal/overlay` picked a colour, padded a
-  column or composed a sentence has been replaced by a value returned to the
-  caller. The information is unchanged and the layout is unchanged; the escape
-  sequences are gone. Piped or redirected output is byte-identical to before,
-  because it never carried them.
+  `overlay add` by eye: their output is no longer coloured.** Five files under
+  `internal/overlay` printed directly through `internal/common/output` —
+  `compare.go`, `annotate_baseline.go`, `baseline.go`, `realign_reviewer.go`
+  and `status.go` — and all 40 of the calls they made into it, every one a
+  library picking a colour, padding a column or composing a sentence, have been
+  replaced by a value returned to the caller. The information is unchanged and
+  the layout is unchanged; the escape sequences are gone. Piped or redirected
+  output is byte-identical to before, because it never carried them.
 
   Three commands are affected, and each for the same reason: the package that
   read git or compared two trees was the package deciding what a terminal would
@@ -421,6 +423,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Fixed
+
+- **Every requirement number in this story's comments now names the story that
+  issues it, and four that pointed at the wrong rule were re-pointed.** Story
+  046 issues R1.1-R8.4 and story 044 issues R1.1-R10.5, so every number 046 has,
+  044 also has with a different meaning: a bare `R2.4` resolves in both stories
+  and means neither on its own. What made these invisible was the guard's reach,
+  not its rule — `TestCitationsResolve` (`internal/common/report/citation_test.go`)
+  swept only the report package, so the non-test files this story created outside
+  it were never looked at. The swept tree now includes them, and the sites it
+  found are prefixed.
+
+  Four citations were not merely bare but wrong, where prefixing alone would have
+  turned a vague claim into a confident falsehood:
+
+  - `internal/common/report/run.go` attributed the interrupted-run obligation to
+    story 044's R1.4, a build-ORDER rule. The rule that carries it is `S044-R4.3`.
+  - `internal/common/report/manifest_run.go` and
+    `internal/common/report/snapshot_run.go` cited `S044-R2.5`, a SPACE
+    constraint, for the `ShowAll` decision, which `S044-R8.3` governs.
+  - `cmd/bentoo/overlay_autoupdate.go` cited `S044-R3.8` for the `--apply`
+    live-region gate. `S044-R3.8` is about `overlay manifest`; what the gate
+    obeys is `S046-R3.3`.
+  - `cmd/bentoo/overlay_autoupdate_ui.go` said the `--ui` refusal "is stated
+    there" from inside a function that is not the root. The sentence now names
+    where it actually comes from — `newRootCmd`'s `PersistentPreRunE` in
+    `cmd/bentoo/root.go` — and cites `S046-R3.2, S046-R3.6` rather than a bare
+    pair.
+
+  `internal/overlay/finding.go` was the worst site, and is a file this story
+  created. Twenty-two citations now carry a prefix, across four stories: 4
+  `S025-`, 8 `S032-`, 7 `S034-` and 3 `S046-`, and none carry `S044-` — the file
+  answers `overlay compare` and the baseline review, not the report envelope.
+  Eight of its bare numbers named requirements story 046 does not issue at all,
+  so they resolved in no story rather than in the wrong one.
+
+  `internal/common/report/render/inline.go` carried a comment that taught the
+  opposite of what its sibling warns about: it credited `ResolveMode` with
+  folding `NO_COLOR`, where `mode.go` says in capitals that the CALLER must fold
+  it into `ModeInputs.NoTUI`. The comment now says who does it, because a caller
+  that drops the variable from that expression silently gives a user who set
+  `NO_COLOR` inline output where they get plain output today.
+
+  `internal/common/report/render/text.go`,
+  `internal/common/report/render/width.go` and
+  `internal/common/report/render/fullscreen.go` carried the same ambiguity
+  around `R6.3` — 044's is the hard-coded field-width rule, 046's is the line
+  budget — and around `R2.4`.
+
+  All changes in these ten files are comment-only; no behaviour moved, and the
+  full suite is unchanged at 24 packages ok.
+
+- **Two repository-wide test sweeps no longer walk into the agent worktrees
+  under `.claude/`, where they were counting a second copy of the tree as
+  project source.** `measuredWidthDebtRemainder`
+  (`cmd/bentoo/width_debt_subject_test.go`) and `goFileIndex`
+  (`cmd/bentoo/anchor_test.go`) skipped `.git`, `.epic` and `vendor` but not
+  `.claude`, which holds the git worktrees this project's own tooling creates —
+  each one a full second checkout of the repository.
+
+  The width-debt guard therefore reported 33 typed widths against a published
+  ceiling of 7: two worktrees contributed 26 more, from a commit predating the
+  story that measured them away. The anchor guard failed worse. With three
+  candidates per basename, `resolveAnchoredFile` returned `""` for every name,
+  so `TestAnchorCanFail` failed on its own premise and
+  `TestAnchorCitationsResolve` **passed having swept 8 anchors and checked none
+  of them** — the same sweep resolves 18 on a clean checkout. A guard that
+  fires on the developer rather than on the change is bad; one that goes quiet
+  while appearing to work is worse.
+
+  The visible symptom was `go test ./...` exiting 1 on any machine that had run
+  the tooling and 0 on CI, which checks out clean.
+
 - **A render mode inherited from the environment or the config no longer
   disappears in silence — or takes the run with it.** `BENTOO_UI` and the
   `ui.mode` config key are *ambient*: inherited from a shell profile or a config

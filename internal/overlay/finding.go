@@ -4,7 +4,7 @@ import "strings"
 
 // Finding is one thing a pass under internal/overlay established for the
 // operator, held as a VALUE instead of as a line this package composed and
-// coloured (S046-R5.1, R5.2).
+// coloured (S046-R5.1, S046-R5.2).
 //
 // # Why the values exist at all
 //
@@ -14,7 +14,7 @@ import "strings"
 // can be printed and nothing else. It cannot be exported to JSON, it cannot be
 // re-laid-out for a Markdown file or a log, it cannot be counted or filtered by
 // the command that received it, and it cannot be tested without capturing
-// stdout — which is the whole of design.md D7. Returning the facts is what makes
+// stdout — which is the whole of design decision S046-D7. Returning the facts is what makes
 // `overlay compare`'s migration into the report envelope possible in story 047;
 // the migration is not possible while the facts only exist as printed lines.
 //
@@ -115,7 +115,7 @@ type Finding struct {
 	// ::gentoo's, ours against upstream's, and are zero on every finding that has
 	// no difference to measure.
 	//
-	// They DESCRIBE and never decide (R1.3): a large diff authorises nothing and
+	// They DESCRIBE and never decide (S032-R1.3): a large diff authorises nothing and
 	// a small one forbids nothing. compare_diff_counts_fence_test.go holds that
 	// mechanically over CompareResult's own DiffAdded/DiffRemoved, and these two
 	// are named differently precisely so the fence keeps watching the source of
@@ -130,7 +130,7 @@ type Finding struct {
 	// every run that asked for no baseline review, and is the same predicate
 	// (`== (Classified{})`) that keeps those runs' rendering unchanged.
 	//
-	// It is the STRUCT and not a sentence, which is R5.1's own argument applied
+	// It is the STRUCT and not a sentence, which is S046-R5.1's own argument applied
 	// to numbers instead of to an identifier. "17 differences against the
 	// baseline, 4 of them attributed to nobody" can be printed and nothing else:
 	// it cannot be summed across a run, it cannot key a threshold a consumer
@@ -140,16 +140,16 @@ type Finding struct {
 	// Detail is a sentence over Version and Upstream above.
 	//
 	// It DESCRIBES and never decides, on the same terms as Added and Removed: a
-	// large unclassified count authorises no realignment and forbids none (R2.3,
-	// R5.8). Reduced and Span are carried with the three counts rather than
+	// large unclassified count authorises no realignment and forbids none (S034-R2.3,
+	// S032-R5.8). Reduced and Span are carried with the three counts rather than
 	// dropped because they are read TOGETHER — a third point that was refused
 	// for being too wide and one that was never offered both attribute nothing,
-	// and only the span tells them apart (R2.5).
+	// and only the span tells them apart (S034-R2.5).
 	Classified Classified
 
 	// Authorship is what the overlay's own CONTENT proved about where a
 	// difference came from. Its zero, AuthorshipUnproved, means THE REPORT CANNOT
-	// TELL and is never "the change is upstream's" (R2.3) — which is exactly the
+	// TELL and is never "the change is upstream's" (S032-R2.3) — which is exactly the
 	// "nothing was established" zero every optional field here needs.
 	Authorship Authorship
 
@@ -178,11 +178,11 @@ type Finding struct {
 	// claim: Effect.Text is what the difference does, Origin is where it came
 	// from, and a model can be useful about one while saying nothing about the
 	// other. It is COMMENTARY in both cases — nothing that decides a verdict or
-	// an exit code may read it (R5.8).
+	// an exit code may read it (S032-R5.8).
 	Origin ReviewOrigin
 
 	// Proposal is the `patched` declaration a model offered for a divergence it
-	// read as ours (R5.4), empty otherwise.
+	// read as ours (S032-R5.4), empty otherwise.
 	//
 	// It is carried AT FULL LENGTH. The rendered line caps it at
 	// patchedReasonCap so one model's essay cannot decide the width of the
@@ -224,16 +224,16 @@ const (
 	FindingCompared FindingKind = iota
 	// FindingStaleDeclaration is a registry entry describing a divergence that no
 	// longer exists — the two ebuilds are byte-identical — so it is suppressing a
-	// removal recommendation for nothing (R4.2).
+	// removal recommendation for nothing (S025-R4.2).
 	FindingStaleDeclaration
 	// FindingUndeclaredDivergence is the loud one: our ebuild is not the one
 	// ::gentoo ships and no entry says why, on a package the report is about to
-	// list as a removal candidate (R4.3). Authorship and ProvedBy say whether the
+	// list as a removal candidate (S025-R4.3). Authorship and ProvedBy say whether the
 	// content settled who wrote the difference; unproved is NOT a finding that it
-	// is ::gentoo's (R2.3).
+	// is ::gentoo's (S032-R2.3).
 	FindingUndeclaredDivergence
 	// FindingDeclaredDivergence is the declaration itself, stated wherever it has
-	// not already been contradicted (R3.8). It is what makes a patched package
+	// not already been contradicted (S025-R3.8). It is what makes a patched package
 	// visible at all on an API-only run, where no content check can run and a
 	// patched package would otherwise print exactly like an unpatched one.
 	FindingDeclaredDivergence
@@ -288,14 +288,14 @@ const (
 	// divergence it was protecting is back in front of the review. It is the
 	// loud one and is its own kind so a renderer can keep it loud — read as an
 	// ordinary declaration it would stay quiet forever, which is the failure
-	// R3.3 exists to prevent.
+	// S034-R3.3 exists to prevent.
 	FindingExpiredDeclaration
 	// FindingClassification is what the three-way reduction made of one
-	// package's differences (S034-R2.4, R2.5). Classified carries the counts and
+	// package's differences (S034-R2.4, S034-R2.5). Classified carries the counts and
 	// the reach as numbers; Detail is the sentence over them.
 	FindingClassification
 	// FindingOtherRepo is a repository other than ::gentoo that was consulted
-	// about this package (S034-R6.1). It is INFORMATIVE ONLY (R6.2) — a
+	// about this package (S034-R6.1). It is INFORMATIVE ONLY (S034-R6.2) — a
 	// repository outside ::gentoo has not been through the same review, and
 	// nothing proposes a realignment from one.
 	FindingOtherRepo
@@ -303,7 +303,7 @@ const (
 	// earns its place (S034-R4.1). Its Effect carries the model's own sentence
 	// with EffectReviewed on it, so a renderer can say whose words these are; it
 	// is commentary and nothing that decides a verdict or an exit code may read
-	// it (R5.8).
+	// it (S032-R5.8).
 	FindingRealignVerdict
 )
 
@@ -408,7 +408,7 @@ const (
 	// is, because somebody committed it on purpose.
 	EffectDeclared
 	// EffectReviewed is a MODEL's reading of the two ebuilds — a reading, never a
-	// proof, and never an input to anything this report decides (R5.8). A
+	// proof, and never an input to anything this report decides (S032-R5.8). A
 	// renderer that drops the distinction invites the operator to act on a guess.
 	EffectReviewed
 )
@@ -417,7 +417,7 @@ const (
 //
 // Whitespace-only text yields the ZERO Effect rather than an EffectDeclared with
 // nothing in it: a source label over an empty sentence claims the maintainer
-// said something, and they did not. R1.3 rejects such a reason at validation
+// said something, and they did not. S025-R1.3 rejects such a reason at validation
 // time, but LoadPackagesConfig never calls ValidatePackageConfig, so the compare
 // path sees entries validation never judged — this is a production case, not
 // defensive padding.

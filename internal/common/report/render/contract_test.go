@@ -19,7 +19,7 @@ package render
 //
 // The sweep skips _test.go files. A test may name a payload — the golden files
 // for the manifest and snapshot reports have to build one — and this file names
-// all four itself, in the list below.
+// every one of them itself, in the list below.
 //
 // # Evidence that it still fails, taken after task 2 turned it green (R8.3)
 //
@@ -50,6 +50,78 @@ package render
 //
 // The message names the file, the line and the remedy, which is what makes the
 // failure actionable by someone who did not write this file.
+//
+// # The fourth payload's entry, and evidence that it fires (sub-task 16.3)
+//
+// payloadTypes listed four names and none of them was `overlay validate`'s. The
+// list read as though it covered every payload and covered three, which is the
+// hole 16.3 closes; the type doc below says why the entry names validate.Report
+// rather than validatePayload, and why the qualifier had to become part of the
+// match.
+//
+// An added entry is a new hand-written line in a guard, so it owes the same
+// evidence the guard itself owes. Measured on 2026-09-02 against HEAD 0fd2f2e.
+// Three mutations, each applied ALONE to text.go, run, and reverted immediately
+// with `git checkout --` — every restore verified by md5sum
+// (b9a53d3e29b634d49989a1f5c8619d0b, unchanged after all three) and by
+// `git diff --stat` producing no output.
+//
+// M1 — the fourth payload's domain half named by a renderer. The import and a
+// function taking it were added above Plain, the same shape 6.3's mutation used:
+//
+//	func mutationProbe(_ validate.Report) {}
+//
+//	--- FAIL: TestNoPayloadReference (0.00s)
+//	    contract_test.go: text.go:126 names the payload type validate.Report
+//	    — a renderer that knows a payload is a renderer every new command has
+//	    to edit …
+//	--- FAIL: TestRenderImportsNoProducer (0.00s)
+//	    contract_test.go: text.go imports the producer
+//	    ".../internal/autoupdate/validate" — render turns sections into text
+//	    and knows nothing about what made them …
+//
+// Both fail, and that is not redundancy: the import guard names the IMPORT and
+// its rule, this one names the REFERENCE and the payload's remedy. Before this
+// entry existed only the first fired, so the one diagnostic an implementer got
+// pointed at the dependency rather than at the payload they were reaching for.
+//
+// M2 — a renderer SWITCHING on it rather than naming it, which is the failure
+// the case-clause sweep exists for:
+//
+//	switch p.(type) {
+//	case validate.Report:
+//
+//	--- FAIL: TestNoRendererSwitchesOnAPayloadType (0.00s)
+//	    contract_payload_matrix_test.go: text.go:128 switches on
+//	    validate.Report — a renderer deciding by payload type is edited by
+//	    every command added after it …
+//
+// M3 — the regression half, because 16.3 restructured this list from bare names
+// to qualified ones and a restructure that quietly stopped matching would be
+// the same hole one layer down. Case clauses on report.ManifestRun and on
+// report.Payload:
+//
+//	--- FAIL: TestNoRendererSwitchesOnAPayloadType (0.00s)
+//	    text.go:127 switches on report.ManifestRun …
+//	    text.go:129 switches on report.Payload …
+//	--- FAIL: TestNoPayloadReference (0.00s)
+//	    text.go:127 names the payload type report.ManifestRun …
+//
+// TestNoPayloadReference reports the ManifestRun case and NOT the Payload one,
+// which is the scoping working: report.Payload is forbidden only where a
+// renderer SWITCHES on it, because naming the interface is what passing a
+// payload looks like.
+//
+// The GUARD files' own line numbers are omitted from all three transcripts, for
+// the reason contract_payload_matrix_test.go's header sets out at length: a
+// header that records a coordinate into a guard file is inside the file it
+// points at, so writing the number down moves the line it names. The 6.3
+// transcript higher up still says contract_test.go:105, which has not been that
+// assertion for many edits, and that is the measurement rather than an
+// anecdote. text.go's numbers ARE kept: they name the probe each mutation
+// inserted, which exists only in the mutated file anyway. The verbatim numbers
+// the runs printed are in .draft/red-evidence.yaml, a file that does not move
+// what it describes.
 
 import (
 	"go/ast"
@@ -61,17 +133,80 @@ import (
 	"testing"
 )
 
-// payloadTypes are the domain halves a renderer must not know.
+// payloadTypes are the domain halves a renderer must not know, written as the
+// SELECTOR a renderer would have to spell to name one — package AND type, not a
+// bare type name.
 //
-// report.Report is on the list under its own name because it is the same type:
-// D1 renames it to AutoupdateCheck and moves it into the payload position, so a
-// renderer still holding a Report is holding a payload the rename has not
-// caught up with yet.
+// The four payloads this CLI ships, and the entry each contributes:
+//
+//	autoupdate.check   report.AutoupdateCheck
+//	overlay.manifest   report.ManifestRun
+//	snapshot.run       report.SnapshotRun
+//	overlay.validate   validate.Report
+//
+// report.Report is the fifth entry and not a fifth payload: it is the first one
+// under its previous name. D1 renames it to AutoupdateCheck and moves it into
+// the payload position, so a renderer still holding a Report is holding a
+// payload the rename has not caught up with yet.
+//
+// # Why these are qualified, as of sub-task 16.3
+//
+// This was a list of bare names, matched against a `report.` qualifier
+// hardcoded in the sweep below, and that shape could not spell the fourth
+// payload at all: `overlay validate`'s domain half is `validate.Report`, which
+// is not in the report package. The list therefore covered three payloads while
+// reading as though it covered four — the defect 16.3 closes, and the reason
+// the count is now asserted (TestNoRendererSwitchesOnAPayloadType) rather than
+// left to be read off the literal.
+//
+// # Why the fourth entry names the PRODUCER type and not the payload
+//
+// The payload is `validatePayload`, and it lives in `package main` under
+// cmd/bentoo — it embeds validate.Report, and internal/common/report may not
+// import internal/autoupdate (boundary_test.go's forbiddenImports), so the type
+// that puts a validation run in the payload position has to sit at the adapter.
+// No Go file can import main, so no renderer can spell `validatePayload`, and
+// an entry for it could never fire. A guard that cannot fail is precisely what
+// S046-R8.3 refuses, so it is not listed.
+//
+// What a renderer CAN reach is the type `validatePayload` embeds, and that is
+// the same payload's reachable half: a renderer holding a validate.Report is a
+// renderer that knows what a validation run found, and every field of one is a
+// selector away from it. TestRenderImportsNoProducer catches the import that
+// would be needed; this catches the reference, with the payload's own remedy
+// attached rather than the import rule's.
+//
+// When story 047 gives the validate run a model of its own in the report
+// package, the entry to ADD here is `report.ValidateRun` — named now so the
+// move does not leave this list short again, which is exactly how it reached
+// four audits covering three payloads.
+// It is not derivable from everyKind and everyKind is not derivable from it —
+// payloadKindCount's doc, in contract_payload_matrix_test.go, says why, and the
+// count both lists are censused against is declared there.
 var payloadTypes = []string{
-	"Report",
-	"AutoupdateCheck",
-	"ManifestRun",
-	"SnapshotRun",
+	"report.Report",
+	"report.AutoupdateCheck",
+	"report.ManifestRun",
+	"report.SnapshotRun",
+	"validate.Report",
+}
+
+// forbiddenPayloadSelectors is the set the two sweeps match against: every
+// entry in payloadTypes, plus whatever the caller adds for its own rule.
+//
+// It exists because the two guards kept two literals of the same list, and the
+// two drifted — the case-clause sweep held four names while the matrix held
+// three kinds, "and they are not the same four". One list, read twice, cannot
+// do that.
+func forbiddenPayloadSelectors(extra ...string) map[string]bool {
+	set := make(map[string]bool, len(payloadTypes)+len(extra))
+	for _, name := range payloadTypes {
+		set[name] = true
+	}
+	for _, name := range extra {
+		set[name] = true
+	}
+	return set
 }
 
 // renderSourceFiles lists this package's non-test Go files, so a sweep that
@@ -108,10 +243,7 @@ func renderSourceFiles(t *testing.T) []string {
 // "Reporter" all over this repository, and a substring sweep would report
 // violations that are sentences.
 func TestNoPayloadReference(t *testing.T) {
-	forbidden := make(map[string]bool, len(payloadTypes))
-	for _, name := range payloadTypes {
-		forbidden[name] = true
-	}
+	forbidden := forbiddenPayloadSelectors()
 
 	fset := token.NewFileSet()
 
@@ -127,14 +259,19 @@ func TestNoPayloadReference(t *testing.T) {
 				return true
 			}
 			pkg, ok := selector.X.(*ast.Ident)
-			if !ok || pkg.Name != "report" {
+			if !ok {
 				return true
 			}
-			if forbidden[selector.Sel.Name] {
+			// The qualifier is part of the match rather than hardcoded to
+			// `report`: the fourth payload's reachable half is
+			// validate.Report, and a sweep that only looked at one package
+			// could not see it (16.3).
+			qualified := pkg.Name + "." + selector.Sel.Name
+			if forbidden[qualified] {
 				position := fset.Position(selector.Pos())
-				t.Errorf("%s:%d names the payload type report.%s — a renderer that knows a payload is a renderer every new command has to edit (R7.4).\n"+
+				t.Errorf("%s:%d names the payload type %s — a renderer that knows a payload is a renderer every new command has to edit (R7.4).\n"+
 					"    Remedy: take []report.Section (or report.Run, for the export) and let the payload say how it describes itself.",
-					path, position.Line, selector.Sel.Name)
+					path, position.Line, qualified)
 			}
 			return true
 		})

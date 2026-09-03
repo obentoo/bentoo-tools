@@ -400,7 +400,7 @@ func sanitizeConfiguredDir(key, path string) string {
 }
 
 // tuiEnabledForApply is the apply-path gate: the live region is on iff the mode
-// this run resolved to draws one (autoupdateUsesTUI, S044-R3.8).
+// this run resolved to draws one (autoupdateUsesTUI, S046-R3.3).
 //
 // It no longer calls tui.Enabled. The decision moved to report.ResolveMode so
 // that one ui.mode governs this command AND `overlay manifest` instead of each

@@ -97,7 +97,17 @@ func goFileIndex(t *testing.T) map[string][]string {
 			return err
 		}
 		if entry.IsDir() {
-			if name := entry.Name(); name == ".git" || name == ".epic" || name == "vendor" {
+			// .claude holds the agent worktrees this project's own tooling
+			// creates, each a full second copy of the repository. Indexing one
+			// gives every basename three candidates, and resolveAnchoredFile
+			// returns "" for any name that is not unique — so EVERY anchor was
+			// silently reclassified as naming no file in this tree.
+			// TestAnchorCanFail failed on its own premise, and worse,
+			// TestAnchorCitationsResolve PASSED having swept 8 anchors and
+			// checked none of them. The vacuous pass is why this term is here:
+			// the noisy half of the bug announced itself, the quiet half did
+			// not.
+			if name := entry.Name(); name == ".git" || name == ".epic" || name == ".claude" || name == "vendor" {
 				return filepath.SkipDir
 			}
 			return nil

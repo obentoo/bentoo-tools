@@ -14,7 +14,7 @@ const (
 	// indent is how far a section's body sits from the left margin; gap is the
 	// space between two columns.
 	//
-	// Neither is a field width, and the difference is the whole of R6.3. A field
+	// Neither is a field width, and the difference is the whole of S044-R6.3. A field
 	// width decides how much room a VALUE gets, so it depends on the values this
 	// run produced and can therefore be measured — that is what columnWidth
 	// does. These two are the air BETWEEN fields: nothing in a run's data can
@@ -59,7 +59,7 @@ const (
 // giving it questions an export must never ask.
 type Options struct {
 	// Width is the line budget in display cells: no rendered line exceeds it
-	// (R6.3). Zero means "ask the device", which is terminalWidth's job, so a
+	// (S046-R6.3). Zero means "ask the device", which is terminalWidth's job, so a
 	// caller that has no opinion does not have to invent one.
 	//
 	// Read it through cells() rather than directly: the zero is a question, not
@@ -205,7 +205,7 @@ type style struct {
 // the lot — and may only return it wrapped. It never sees a cell, so it cannot
 // change a width, a shortening, an order or a word, and the visible characters
 // of a decorated render are produced by exactly the same code as an undecorated
-// one. That is what makes R2.4 — same content in every mode, presentation apart
+// one. That is what makes S044-R2.4 — same content in every mode, presentation apart
 // — hold by construction rather than by two writers being kept in agreement.
 //
 // The consequence is a real constraint on what may be put in one of these

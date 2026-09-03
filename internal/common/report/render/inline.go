@@ -28,7 +28,7 @@ const dimColor = "8"
 // The same sections, in the same order, with the same wording, the same
 // shortening and the same column widths — the identical code produces every
 // visible character, because inline differs from plain by a paint and a paint
-// only decorates a line that is already laid out. R2.4 says the modes may
+// only decorates a line that is already laid out. S044-R2.4 says the modes may
 // differ in presentation and not in content; here that is not a rule to keep
 // but a thing that cannot be broken without deleting the seam.
 //
@@ -82,7 +82,7 @@ func Inline(blocks []report.Section, opts Options) error {
 // Bold, faint and a foreground colour emit an escape sequence and not one extra
 // cell. lipgloss's Width, Padding, Margin and Border emit cells, and a paint
 // that used one would put characters in the inline render that the plain render
-// does not have — R2.4's failure, arriving as decoration. The paint seam is the
+// does not have — S044-R2.4's failure, arriving as decoration. The paint seam is the
 // place that constraint is stated; this is the place it is obeyed.
 //
 // # Tab conversion is switched off
@@ -138,10 +138,15 @@ func painter(s lipgloss.Style) func(string) string {
 // carries the same pin for the same reason.
 //
 // Detecting here would also be a SECOND answer to a question already settled.
-// ResolveMode picks inline only for an interactive terminal, and folds NO_COLOR
-// and the other opt-outs into a downgrade to plain (R3.4, S044-R3.7) — so by the
-// time this runs, "this end wants styling" is decided. A probe here could only
-// contradict it.
+// ResolveMode picks inline only for an interactive terminal, and it reads the
+// opt-outs through ModeInputs.NoTUI — which the CALLER fills, folding
+// --no-tui, BENTOO_NO_TUI and NO_COLOR into it (S044-R3.4). ResolveMode itself
+// never reads NO_COLOR: mode.go says so in capitals beside that field, because
+// a caller that drops the variable from the expression silently gives a user
+// who set it inline output where they get plain today (S044-R3.7). Either way,
+// by the time this runs "this end wants styling" is decided, and a probe here
+// could only contradict it — but the decision is the caller's and ResolveMode's
+// together, not ResolveMode's alone.
 //
 // ANSI (16 colours) rather than a richer profile because it is exactly what the
 // paint above needs: bold, and one basic colour number. Claiming more would

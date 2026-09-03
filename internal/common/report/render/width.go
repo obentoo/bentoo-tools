@@ -14,7 +14,7 @@
 // Every width in this package is either measured from the values a run actually
 // produced, or read from the device the report is being printed to. The one
 // number that is written down is the width assumed when the device cannot be
-// reached at all, and it is documented as such (R6.3, S044-R6.5).
+// reached at all, and it is documented as such (S044-R6.3, S044-R6.5).
 package render
 
 import (
@@ -31,7 +31,7 @@ const (
 	// real one is (S044-R6.5): 80 cells.
 	//
 	// This is an assumption about a device that could not be reached, not a
-	// field width — the distinction is the whole of R6.3. A field width decides
+	// field width — the distinction is the whole of S044-R6.3. A field width decides
 	// how a value is laid out and can be measured instead; there is nothing to
 	// measure when the far end is a log file, a pipe or a CI job with no
 	// terminal at all, and a renderer that refused to print without an answer

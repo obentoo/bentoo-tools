@@ -237,8 +237,18 @@ func measuredWidthDebtRemainder(t *testing.T) (int, map[string]int) {
 			return err
 		}
 		if entry.IsDir() {
+			// .claude is on this list for the reason .git and .epic are on it:
+			// it is not project source. It holds the agent worktrees this
+			// project's own tooling creates, and a worktree is a FULL SECOND
+			// COPY of the repository — including, in a worktree left at
+			// c8e347e, every width this story measured away. Walking into two
+			// of them counted 26 more and put the debt at 33 against a ceiling
+			// of 7. The guard then failed on any machine that had run the
+			// tooling and passed on CI, which checks out clean: a guard that
+			// fires on the developer rather than on the change teaches people
+			// to ignore it.
 			switch entry.Name() {
-			case ".git", ".epic", "testdata", "vendor", "node_modules":
+			case ".git", ".epic", ".claude", "testdata", "vendor", "node_modules":
 				return fs.SkipDir
 			}
 			return nil

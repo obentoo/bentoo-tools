@@ -15,7 +15,7 @@ package render
 // What it cannot pin is the table, and the table is most of what a manifest
 // report renders: the column sizing (R6.1), the STATE wording, a failure's
 // detail line, and the note that says how many successes were held back and why
-// (R2.3, S044-R2.5). The fixture below is a populated run, so the diff a future
+// (S046-R2.3, S044-R8.3). The fixture below is a populated run, so the diff a future
 // change produces is a diff over the thing an operator actually reads.
 //
 // The pre-authored file is untouched. This one is ADDED beside it, which is the

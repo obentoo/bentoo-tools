@@ -143,9 +143,9 @@ var uiIsTerminal = output.IsTerminal
 // without first deciding how to render it.
 //
 // It is one function rather than the same three lines in each caller so that
-// the nil reading cannot come to differ between the two commands R3.8 joins:
+// the nil reading cannot come to differ between the two commands S044-R3.8 joins:
 // "no config" and "no ui.mode" must reach ResolveMode as the same empty string
-// from both, or R3.7 would hold for one command and not the other.
+// from both, or S044-R3.7 would hold for one command and not the other.
 func configuredUIMode(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
@@ -164,7 +164,7 @@ func configuredUIMode(cfg *config.Config) string {
 // and a switch. A package variable holding the first answer would be a cache
 // keyed on nothing: it would hand the second caller the FIRST caller's config,
 // which is a defect that only shows up once two commands share this path — and
-// sharing it is the whole point (R3.8). What genuinely must happen once is the
+// sharing it is the whole point (S044-R3.8). What genuinely must happen once is the
 // downgrade sentence, and warnUIDowngrade is what holds that line.
 //
 // A nil config is read as "nothing configured" rather than as a failure; see
@@ -207,7 +207,10 @@ func resolveAutoupdateUIMode(cfg *config.Config) (report.Mode, error) {
 // The SOURCE is what decides the answer, and the split is the design:
 //
 //   - --ui is explicit — the operator typed it for this run — so it stops the
-//     run before any work, once, at the root, and is stated there (R3.2, R3.6).
+//     run before any work, once, and the sentence comes from the ROOT rather
+//     than from here: newRootCmd's PersistentPreRunE in root.go, at the
+//     ResolveMode call whose comment opens "an unusable --ui stops ANY command
+//     before it does work" (S046-R3.2, S046-R3.6).
 //   - BENTOO_UI and ui.mode are ambient, inherited from a shell profile or a
 //     config file rather than typed for this run, so failing every invocation on
 //     one would break the commands that render nothing. They are refused HERE
@@ -321,11 +324,17 @@ func modeUsesLiveRegion(mode report.Mode) bool {
 //
 // nil is a legal value and reads as "nothing configured". That is what makes a
 // binary that never ran runAutoupdate — every test binary, for one — behave
-// exactly as it did before this key existed (R3.7).
+// exactly as it did before this key existed (S044-R3.7).
 var autoupdateUIConfig *config.Config
 
 // autoupdateUsesTUI is the `--apply` path's live-region gate, read as a boolean
-// from the mode this run resolved to (R3.8).
+// from the mode this run resolved to (S046-R3.3).
+//
+// The citation is deliberately NOT S044-R3.8: that requirement is about
+// `overlay manifest` resolving its presentation from the shared mode, and this
+// gate is neither `overlay manifest` nor a report. What it obeys is the rule
+// that the mode is resolved ONCE per run and every consumer reads that one
+// answer.
 //
 // It shares resolveAutoupdateUIMode with everything else this command renders,
 // which is the point: one resolution, so the report and the apply progress
@@ -358,7 +367,7 @@ func autoupdateUsesTUI(cfg *config.Config) bool {
 	return modeUsesLiveRegion(mode)
 }
 
-// manifestUsesTUI is `overlay manifest`'s live-region gate, and R3.8 itself:
+// manifestUsesTUI is `overlay manifest`'s live-region gate, and S044-R3.8 itself:
 // the command stops deciding on its own and reads the answer the same
 // resolution hands autoupdate, so ONE setting governs both rather than an
 // operator having to learn a different switch per command.
