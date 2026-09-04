@@ -391,6 +391,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   becomes dead code, and the seam the next release wires would have to be rebuilt
   before it could be used.
 
+- **The manifest run's closing sentence is composed by its caller.** Internal,
+  and deliberately invisible: `overlay manifest` still ends its live region on
+  exactly the same words, `"N ok, M failed"`. What moved is who chooses them.
+  `internal/overlay/manifest.go` held the format string, which made the end of a
+  run a report squeezed out through a progress channel — text, composed inside a
+  package that has no business composing any, that nothing downstream could
+  count, export, shorten or draw again in another mode. `ManifestOptions` gains
+  an optional `Summary func(ManifestResult) string`; the run hands over its
+  facts and the caller turns them into a sentence, which
+  `cmd/bentoo/overlay_manifest.go` now does. A caller that supplies none closes
+  its batch with the empty string.
+
+  The producer still makes the `BatchDone` call, and that is a refinement rather
+  than a half-measure: `BatchStart` is emitted inside the run, so a bracket
+  opened there and closed by the caller would stay open on every path a caller
+  forgets. What crosses the boundary is the wording, not the lifecycle.
 
 ### Added
 - **A report envelope every command can produce, and a section vocabulary every

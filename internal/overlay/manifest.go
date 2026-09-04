@@ -87,10 +87,53 @@ type ManifestOptions struct {
 	// Nil means silent (no progress output) — it is normalized to tui.Noop().
 	// The CLI typically wires a live TUI or plain reporter here.
 	Reporter tui.Reporter
+	// Summary composes the sentence the run's batch closes on, from the result
+	// the caller is about to receive. Nil closes the batch with no wording at
+	// all, which is what `overlay autoupdate` already passes today.
+	//
+	// # It is a function because the words are the CALLER's and the numbers
+	// are the run's
+	//
+	// A plain string field could not carry a summary: nothing is known to
+	// summarize until the last worker has finished, which is inside this
+	// package. A function lets the run supply the facts at the moment it has
+	// them and the caller supply the wording it chose, without either one
+	// holding the other's half (S046-R5.1, S046-R5.2; design.md D5).
+	//
+	// # Why a library that must not choose wording still relays some
+	//
+	// The alternative — this package stops calling BatchDone and the caller
+	// makes the call itself — splits a bracket: BatchStart is emitted inside
+	// the run, so a batch opened here and closed out there stays open on every
+	// path a caller forgets, and the Reporter's consumers would have to grow a
+	// case for a run that never ends. Unchanged Behavior 3 of story 046 is
+	// exactly that those consumers do not move. R5.2 governs who chose the
+	// WORDS, not who ended the run.
+	//
+	// The four paths that return before the worker loop — an empty selection, a
+	// preview, and the two pre-flight refusals — open no batch, so they never
+	// reach this at all. A --dry-run in particular emits no lifecycle event of
+	// any kind, which is why a summary composer never has to answer for one.
+	Summary func(ManifestResult) string
 	// Ctx, when non-nil, is propagated to the pkgdev sub-processes via
 	// exec.CommandContext so callers can cancel an in-flight run (e.g.
 	// on SIGINT). Nil is treated as context.Background().
 	Ctx context.Context
+}
+
+// summarize is the sentence the run's batch closes on: the caller's, or the
+// empty string when the caller supplied none.
+//
+// The nil check lives here rather than at the call site so the run reads as one
+// statement — close the batch on the caller's sentence — and so "no composer"
+// has exactly one meaning for every future caller. The empty string is a close
+// with no wording, not a missing event: the batch still ends, which is what the
+// Reporter's consumers are built to expect.
+func (o *ManifestOptions) summarize(result ManifestResult) string {
+	if o.Summary == nil {
+		return ""
+	}
+	return o.Summary(result)
 }
 
 // ManifestResult collects per-package results of a regeneration run, and is the
@@ -483,19 +526,35 @@ func RegenerateManifests(overlayPath string, targets []ManifestUpdate, opts *Man
 		result.Updates, result.NotEvaluated = evaluatedOnly(updates, evaluated)
 	}
 
-	// The summary is composed FROM the values the caller is about to receive,
-	// not from a pair of counters kept for the sentence alone. That is the whole
-	// of D5: the counts exist as data first, so the report, the export and this
-	// line cannot disagree about how the run went — the sentence is one more
-	// reader of the numbers rather than the only place they exist.
+	// The batch closes on a sentence this package did not write. The facts are
+	// the run's and go out whole; the wording is whatever the caller chose, and
+	// a caller that chose none gets an empty close rather than one invented here
+	// (design.md D5, S046-R5.2).
 	//
-	// It is still sent, and sent unchanged: the live region keeps the summary it
-	// has always ended on (Unchanged Behavior 3 — the Reporter's interface and
-	// its consumers do not move). On an interrupted run it now counts what the
-	// run established rather than what it was handed, which is the same change
-	// the report states above it — one set of numbers, said twice, rather than
-	// two sets that could disagree.
-	rep.BatchDone(fmt.Sprintf("%d ok, %d failed", result.Ok(), result.Failed()))
+	// # What moved is the WORDING, and it is not what sub-task 5.1 moved
+	//
+	// 5.1 moved where the numbers come from: Ok and Failed are methods over the
+	// rows now, not a pair of counters kept for one sentence. The format string
+	// stayed, which left this package still deciding how a run LOOKS — and a
+	// sentence composed inside a library is a finding that left as text, so
+	// nothing downstream can count it, export it, or draw it a second time in
+	// another mode. That is the defect D5 names, and moving the numbers did not
+	// touch it.
+	//
+	// # The argument for keeping it here survives the move, on the other side
+	//
+	// What stood here said the sentence is one more reader of the numbers rather
+	// than the only place they exist, so the live region and the report cannot
+	// disagree about how the run went. That is true and it is preserved: the
+	// composer is handed the very value the caller builds its report from, so
+	// both readings still come off one set of rows. What it did not answer is
+	// who chooses the words — which is the question R5.2 asks, and the reason
+	// the composer is now the caller's.
+	//
+	// On an interrupted run the value carries what the run established rather
+	// than what it was handed, so a summary composed from it counts the same
+	// targets the report lists.
+	rep.BatchDone(opts.summarize(result))
 
 	return result
 }

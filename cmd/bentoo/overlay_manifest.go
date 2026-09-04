@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -137,6 +138,7 @@ func runManifest(cmd *cobra.Command, args []string) {
 		Jobs:           manifestFlags.Jobs,
 		DistfilesCache: manifestFlags.DistfilesCache,
 		Reporter:       reporter,
+		Summary:        manifestLiveSummary,
 		Ctx:            runCtx,
 	}
 
@@ -216,4 +218,39 @@ func chooseManifestReporter(cfg *config.Config, dryRun bool, ctx context.Context
 		return r, func() { prog.Stop(); _ = prog.Wait() }
 	}
 	return tui.NewPlainReporter(os.Stderr, time.Second), func() {}
+}
+
+// manifestLiveSummary is the sentence the live region ends on: the two counts a
+// regeneration run established, in the words THIS layer chose (S046-R5.2,
+// design.md D5).
+//
+// # It is here because choosing words is the command's job
+//
+// overlay.RegenerateManifests used to hold this format string, which made the
+// end of a run a report squeezed through a progress channel: text, composed
+// inside a package that has no business composing any, that nothing downstream
+// could count, export, shorten or draw a second time in another mode. The
+// producer returns its facts now and this function turns them into a sentence,
+// so a run's numbers exist as values first and as wording second.
+//
+// # It reads the SAME value the report is built from
+//
+// Its argument is the ManifestResult that reaches buildManifestReport a few
+// lines later, and Ok and Failed are derived from that value's own rows. The
+// live region's last line and the report drawn under it therefore cannot
+// disagree about how the run went — which was the whole of the argument the
+// library made for keeping the sentence, kept intact and carried across the
+// boundary rather than lost with it.
+//
+// # From the result, not from the built payload
+//
+// D5 words the destination as the payload, and the counts are identical either
+// way: report.ManifestRun's Ok and Failed are set from these very two calls.
+// Building a payload to read them would copy one row per target, which is a
+// whole-overlay target list allocated to produce two integers and then thrown
+// away. The preview case settles it — a --dry-run returns before the run opens
+// a batch, so this is never called for one, and the DryRun flag that only the
+// payload carries has nothing to answer for here.
+func manifestLiveSummary(result overlay.ManifestResult) string {
+	return fmt.Sprintf("%d ok, %d failed", result.Ok(), result.Failed())
 }
