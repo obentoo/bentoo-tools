@@ -408,6 +408,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   opened there and closed by the caller would stay open on every path a caller
   forgets. What crosses the boundary is the wording, not the lifecycle.
 
+- **`overlay compare` produces a report instead of printing one.** It gains
+  `--ui`, `--all` and `--export`, inherited from the root rather than declared
+  here, so the accepted values and the precedence chain are the ones every other
+  command already documents. `cmd/bentoo/overlay_compare.go` no longer writes
+  the comparison to stdout itself — its three report-printing functions are
+  gone — and `cmd/bentoo/overlay_compare_report.go` adapts the run into the
+  envelope, which is then rendered in whichever mode resolved and exported if
+  one was asked for.
+
+  **Three things an operator sees differently.**
+
+  Packages that share a version pair collapse into a single group row carrying a
+  member count and a per-category breakdown, where each was its own row before.
+  A pair with one member stays an ordinary row: a group of one is a second name
+  for a package rather than a compression (S047-R2.5). A package carrying a
+  finding is never absorbed into a group, because a finding is precisely the
+  thing a group would hide. `--all` lists every member as its own row, and the
+  flat list underneath is unchanged — every member is still in it, so a group is
+  a view over the comparison rather than a replacement for it.
+
+  Every row states which of four reading states it is in. "We checked and it
+  matches" used to be indistinguishable from "nobody looked": a review nobody
+  requested, a review that was attempted and failed, and a version pair the
+  content check refused all reached the operator as the same silence. A row
+  whose review failed is now marked `[reading failed]`, and the header counts
+  the comparisons that were never read. Nothing is downgraded to hide a missing
+  explanation — the difference is real, and what is absent is the reading of it.
+
+  Long explanations moved out of row details and into section notes, which wrap.
+  A detail cell is truncated to the column it sits in, so the sentence saying
+  WHY a package was classified as it was arrived with its end cut off; a note is
+  attached to the section and printed in full.
+
+  **`--export` JSON is new for this command at schema 2, and there is no
+  migration, because no consumer existed.** `overlay compare` emitted no
+  machine-readable output at all before this release, so there is no shape
+  anything could have been reading and nothing to rewrite. That is why this
+  entry is additive where story 046's, directly above, is breaking: 046 moved
+  documents that consumers already had, and this one adds a document that had
+  none. The envelope is the same every other command writes —
+  `{"schema": 2, "kind": "overlay.compare", "complete": ..., "payload": {...}}`
+  — so `jq '.kind'` identifies which command wrote the file, and the comparison
+  sits under `.payload` from its first release instead of being moved there by a
+  later one.
+
+  **Where the work landed.** The payload and its sections are
+  `internal/common/report/compare_run.go`, and `internal/common/report/run.go`
+  gains `KindOverlayCompare`. The reading state is recorded where the reading
+  actually happens — `internal/overlay/compare.go` and
+  `internal/overlay/review.go` — rather than guessed at render time, and four
+  review warnings that said what a row now says were removed along with it. The
+  classification builders the move left dead are gone from
+  `internal/overlay/annotate_baseline.go`, `internal/overlay/baseline.go` and
+  `internal/overlay/realign_reviewer.go`.
+
 ### Added
 - **A report envelope every command can produce, and a section vocabulary every
   renderer can consume.** `overlay autoupdate --check` has been the only command
