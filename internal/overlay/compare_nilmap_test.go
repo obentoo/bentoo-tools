@@ -134,56 +134,24 @@ func TestNilDivergenceMapIsAdditive(t *testing.T) {
 		}
 	})
 
-	t.Run("the rendered table keeps its existing columns and rows", func(t *testing.T) {
-		pkgs, prov := nilMapPackages()
+	// Story 047, sub-task 5.5 (S047-R8.2): "the rendered table keeps its existing
+	// columns and rows" stood here and was RETIRED. It asserted the five headers
+	// "Package", "Category", "Bentoo Version", "Gentoo Version", "Status" and one
+	// row per package carrying its status word, all over FormatReport's text.
+	//
+	// The table is now internal/common/report's, and it is a different table on
+	// purpose: PACKAGE (the whole atom, so CATEGORY is no longer a column of its
+	// own), BENTOO, GENTOO, STATE, DIFF, REASON. Every header is pinned by
+	// TestCompareRunTablesNameTheirColumns and by every plain and markdown
+	// golden; the per-package row and its status word by
+	// testdata/TestCompareGoldenPlain.golden and TestCompareJSONGolden; and the
+	// routing of a package to its row by TestBuildCompareReport/"each verdict
+	// lands in its own list" in cmd/bentoo.
+	//
+	// What this file is actually about survives untouched above and below: a nil
+	// Divergence map must change no count, no status and no verdict. That claim
+	// never needed a renderer.
 
-		report, err := CompareWithProvider(pkgs, prov, CompareOptions{
-			IncludeSynced:      true,
-			IncludeNotInRemote: true,
-			Divergence:         nil,
-		})
-		if err != nil {
-			t.Fatalf("CompareWithProvider returned %v, want nil", err)
-		}
-		out := FormatReport(report)
-
-		for _, header := range []string{"Package", "Category", "Bentoo Version", "Gentoo Version", "Status"} {
-			if !strings.Contains(out, header) {
-				t.Errorf("column header %q disappeared from the report.\n--- report ---\n%s", header, out)
-			}
-		}
-
-		// Each package still reads its own Status on its own row.
-		wantRow := map[string]string{
-			"behind": "outdated",
-			"ahead":  "newer",
-			"level":  "up-to-date",
-			"only":   "not-in-remote",
-		}
-		for pkg, status := range wantRow {
-			line := nilMapLineContaining(out, pkg)
-			if line == "" {
-				t.Errorf("no row for %s.\n--- report ---\n%s", pkg, out)
-				continue
-			}
-			if !strings.Contains(line, status) {
-				t.Errorf("row for %s reads %q, want it to state Status %q", pkg, strings.TrimSpace(line), status)
-			}
-		}
-
-		// The pre-existing summary line, verbatim.
-		if !strings.Contains(out, "Total: 4") {
-			t.Errorf("summary line \"Total: 4\" missing.\n--- report ---\n%s", out)
-		}
-
-		// FormatSummary is the other pre-existing output surface (UB3).
-		summary := FormatSummary(report)
-		for _, want := range []string{"Scanned: 4 packages", "Compared: 3 packages"} {
-			if !strings.Contains(summary, want) {
-				t.Errorf("summary line %q missing.\n--- summary ---\n%s", want, summary)
-			}
-		}
-	})
 }
 
 // nilMapLineContaining returns the first line of s containing sub, or "".

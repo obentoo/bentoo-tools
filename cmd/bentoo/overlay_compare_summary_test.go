@@ -41,26 +41,27 @@ func summaryReport() *overlay.CompareReport {
 
 // _Requirements: R3.9, UB3_
 func TestPrintComparisonSummary(t *testing.T) {
-	t.Run("the three pre-existing lines are unchanged", func(t *testing.T) {
-		got := comparisonSummaryLines(summaryReport())
-
-		// Verbatim, including the leading blank line and the two-space indent.
-		// These are the bytes UB3 promises an operator's habits can rely on.
-		want := []string{
-			"\nSummary:",
-			"  Total packages scanned: 10",
-			"  Found in both repos: 5",
-			"  Only in Bentoo: 2",
-		}
-		if len(got) != len(want) {
-			t.Fatalf("summary has %d lines, want %d:\ngot  %q\nwant %q", len(got), len(want), got, want)
-		}
-		for i := range want {
-			if got[i] != want[i] {
-				t.Errorf("summary line %d is %q, want %q — UB3 promises these are untouched", i, got[i], want[i])
-			}
-		}
-	})
+	// Story 047, sub-task 5.5 (S047-R8.2): the subtest "the three pre-existing
+	// lines are unchanged" stood here and was RETIRED with
+	// comparisonSummaryLines, which sub-task 4.2 deletes.
+	//
+	// It pinned four literal bytes-for-bytes lines — "\nSummary:", "  Total
+	// packages scanned: 10", "  Found in both repos: 5", "  Only in Bentoo: 2" —
+	// as UB3's promise that an operator's habits could rely on them. Story 047
+	// retires that promise deliberately: the same three facts open the report as
+	// its scope lead ("N package(s) scanned in the Bentoo overlay. M also exist
+	// in ::gentoo and are compared below; K exist only here..."), pinned in every
+	// plain and markdown golden, and close it as the summary block.
+	//
+	// The FACTS are asserted on the payload, and one of them is now derived
+	// DIFFERENTLY on purpose: "Found in both repos" was ComparedPackages minus
+	// the errored and the not-in-remote, and CompareRun.InBoth is the three
+	// statuses that required a remote version to be read, summed. That is not a
+	// rename — a package whose lookup errored used to be subtracted and is now
+	// simply not counted as in-both, on the argument that a subtraction files it
+	// under "in both" on no evidence. TestBuildCompareReport/"the counts come
+	// from the producer's own counters" in overlay_compare_report_test.go asserts
+	// all three and states that reasoning.
 
 	t.Run("each non-zero verdict count is printed", func(t *testing.T) {
 		lines := verdictSummaryLines(summaryReport())
@@ -126,9 +127,13 @@ func TestPrintComparisonSummary(t *testing.T) {
 		if !strings.Contains(line, "keep 4") {
 			t.Errorf("verdict summary %q lost its counts when Results was emptied — it is counting the filtered view instead of the scan", line)
 		}
-		if got := comparisonSummaryLines(report); !strings.Contains(strings.Join(got, "\n"), "Total packages scanned: 10") {
-			t.Errorf("the scanned total followed the filtered Results: %q", got)
-		}
+		// The same claim for the SCANNED total is now made about the payload, by
+		// TestBuildCompareReportCountsTheWholeRunNotTheView in
+		// overlay_compare_present_test.go: `func buildCompareReport` takes the
+		// unfiltered results as a required third parameter precisely so a
+		// narrowed view cannot narrow a count (story 047, sub-task 5.5,
+		// S047-R8.2). Asserting it here as well would be a second answer to one
+		// question, taken over a builder that is being deleted.
 	})
 }
 
@@ -277,37 +282,18 @@ func TestComparisonSummaryScope(t *testing.T) {
 		}
 	})
 
-	t.Run("the three pre-existing lines are unchanged and hold no new line", func(t *testing.T) {
-		// R4.3. The same bytes TestPrintComparisonSummary pins, re-asserted on a
-		// report whose scope line is NOT empty — the way to break UB3 here is to
-		// grow the new line out of comparisonSummaryLines, and a fixture with
-		// nothing to report could not catch it.
-		report := liveSummaryReport(234)
+	// Story 047, sub-task 5.5 (S047-R8.2): "the three pre-existing lines are
+	// unchanged and hold no new line" stood here and was RETIRED with
+	// comparisonSummaryLines.
+	//
+	// Its point was NOT the bytes — the subtest above already pinned those — but
+	// the SEPARATION: the scope line R4 adds must not grow out of
+	// comparisonSummaryLines, so it was re-asserted over a report whose scope
+	// line is non-empty. That separation survives in a stronger form. The scope
+	// sentence is now a SECTION of the report's own summary, built by
+	// internal/common/report from the payload, and `func verdictScopeLines` below
+	// is asserted on its own; two builders cannot leak into each other when one
+	// of them no longer exists. TestCompareRunSummaryCountsTheRunAndNotTheLists
+	// in internal/common/report is where the summary's own counts are pinned.
 
-		got := comparisonSummaryLines(report)
-		want := []string{
-			"\nSummary:",
-			"  Total packages scanned: 318",
-			"  Found in both repos: 234",
-			"  Only in Bentoo: 84",
-		}
-		if len(got) != len(want) {
-			t.Fatalf("summary has %d lines, want %d — R4 adds a line, it does not add one HERE:\ngot  %q\nwant %q", len(got), len(want), got, want)
-		}
-		for i := range want {
-			if got[i] != want[i] {
-				t.Errorf("summary line %d is %q, want %q — UB3 promises these are untouched", i, got[i], want[i])
-			}
-		}
-
-		// The verdict line does not grow it either: it stays the one line R3.9
-		// pinned, and the scope line is emitted beside it.
-		verdict := verdictSummaryLines(report)
-		if len(verdict) != 1 {
-			t.Fatalf("verdict summary has %d lines, want exactly 1: %q", len(verdict), verdict)
-		}
-		if strings.Contains(verdict[0], "84 of 318") {
-			t.Errorf("the scope line was folded into the verdict line %q instead of standing beside it", verdict[0])
-		}
-	})
 }

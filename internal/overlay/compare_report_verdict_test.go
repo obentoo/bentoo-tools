@@ -6,190 +6,60 @@ import (
 	"testing"
 )
 
-// verdictReportFixture is one report holding every verdict at once, with two
-// packages that share a verdict but NOT a status (app-misc/ours is
-// not-in-remote, dev-lang/rust is up-to-date, both Keep). That pair is what
-// makes the grouping assertion meaningful: under the old status grouping they
-// land in different sections, under verdict grouping they land together.
-func verdictReportFixture() *CompareReport {
-	return &CompareReport{
-		TotalPackages:    6,
-		ComparedPackages: 6,
-		OutdatedCount:    1,
-		NewerCount:       1,
-		UpToDateCount:    3,
-		NotInRemoteCount: 1,
-		Results: []CompareResult{
-			{
-				Category: "app-editors", Package: "zed",
-				LocalVersion: "1.0", RemoteVersion: "2.0", Status: StatusOutdated,
-				Verdict: VerdictNeedsRebase, Patched: true,
-				PatchedBy: "app-editors/zed@stable", PatchedReason: "keeps our wayland patch",
-			},
-			{
-				Category: "www-client", Package: "firefox",
-				LocalVersion: "129.0", RemoteVersion: "129.0", Status: StatusUpToDate,
-				Verdict: VerdictRedundant,
-			},
-			{
-				Category: "sys-devel", Package: "gcc",
-				LocalVersion: "14.2", RemoteVersion: "14.2", Status: StatusUpToDate,
-				Verdict: VerdictRedundant,
-			},
-			{
-				Category: "app-misc", Package: "ours",
-				LocalVersion: "0.3", RemoteVersion: "", Status: StatusNotInRemote,
-				Verdict: VerdictKeep,
-			},
-			{
-				Category: "dev-lang", Package: "rust",
-				LocalVersion: "1.90", RemoteVersion: "1.90", Status: StatusUpToDate,
-				Verdict: VerdictKeep, Patched: true,
-				PatchedBy: "dev-lang/rust", PatchedReason: "extra USE flag we depend on",
-			},
-			{
-				Category: "sys-devel", Package: "binutils",
-				LocalVersion: "2.47", RemoteVersion: "2.46.1", Status: StatusNewer,
-				Verdict: VerdictUnknown,
-			},
-		},
-	}
-}
-
-// TestFormatReportVerdict pins what the operator actually reads (R3.1, R3.7):
-// a Verdict per package next to the Status it does not replace, packages grouped
-// by Verdict, an explicit removal recommendation for the redundant ones — and
-// every existing summary line still there, still counting by Status.
+// Story 047, sub-task 5.5 — S047-R8.2: TestFormatReportVerdict stood here and
+// was RETIRED, subtest by subtest, because sub-task 4.2 deletes FormatReport.
 //
-// The two axes answer the two different questions the operator has: *how do the
-// versions compare* and *what should I do about it*. Renaming `up-to-date` to
-// `redundant` would have been the smaller diff and the larger break, so the
-// summary counts below are asserted verbatim as they read today.
+// It was a BOTH test — real facts asserted through printed text — so each of its
+// six subtests is accounted for individually rather than the whole being waved
+// through as "the output changed".
 //
-// _Requirements: R3.1, R3.7_
-func TestFormatReportVerdict(t *testing.T) {
-	report := verdictReportFixture()
-	out := FormatReport(report)
-	low := strings.ToLower(out)
-
-	t.Run("the table carries a Verdict column", func(t *testing.T) {
-		if !strings.Contains(out, "Verdict") {
-			t.Errorf("no Verdict column header in the report.\n--- report ---\n%s", out)
-		}
-		// The Status column and its four values keep their meaning: the new
-		// column is additive.
-		if !strings.Contains(out, "Status") {
-			t.Errorf("the Status column header disappeared.\n--- report ---\n%s", out)
-		}
-	})
-
-	t.Run("every package's row states its verdict", func(t *testing.T) {
-		wantVerdictWord := map[string]string{
-			"zed":      "needs-rebase",
-			"firefox":  "redundant",
-			"gcc":      "redundant",
-			"ours":     "keep",
-			"rust":     "keep",
-			"binutils": "unknown",
-		}
-		for pkg, word := range wantVerdictWord {
-			// The package's TABLE ROW, not the first line mentioning its name.
-			// The two were the same thing until the report's prose grew: a note
-			// saying a copy holds "work of ours" is the first line containing
-			// "ours", and this assertion then read a sentence and demanded a
-			// verdict of it. tableRows matches the first column of a row, so it
-			// cannot pick up prose, a finding, or a longer package name.
-			rows := tableRows(low, pkg)
-			if len(rows) != 1 {
-				t.Errorf("the report holds %d table rows for %s, want exactly 1.\n--- report ---\n%s", len(rows), pkg, out)
-				continue
-			}
-			if !strings.Contains(rows[0], word) {
-				t.Errorf("row for %s reads %q; it must state the verdict %q", pkg, strings.TrimSpace(rows[0]), word)
-			}
-		}
-	})
-
-	t.Run("packages are grouped by verdict", func(t *testing.T) {
-		// The order packages appear in, mapped to their verdict. Equal verdicts
-		// must be contiguous — that is what "grouped" means, and it is checked
-		// without pinning which group comes first.
-		order := []struct {
-			pkg     string
-			verdict Verdict
-		}{
-			{"zed", VerdictNeedsRebase},
-			{"firefox", VerdictRedundant},
-			{"gcc", VerdictRedundant},
-			{"ours", VerdictKeep},
-			{"rust", VerdictKeep},
-			{"binutils", VerdictUnknown},
-		}
-		positions := make(map[Verdict][]int)
-		for _, o := range order {
-			// Positioned by the package's ROW, for the reason given above: the
-			// first occurrence of a package's NAME can now be a sentence in
-			// another section's note, and a span measured from that would report
-			// a grouping failure that the table does not have.
-			rows := tableRows(low, o.pkg)
-			if len(rows) != 1 {
-				t.Fatalf("the report holds %d table rows for %s, want exactly 1.\n--- report ---\n%s", len(rows), o.pkg, out)
-			}
-			positions[o.verdict] = append(positions[o.verdict], strings.Index(low, rows[0]))
-		}
-		// A group is contiguous when no OTHER verdict's row sits between its
-		// first and last row.
-		for v, idxs := range positions {
-			lo, hi := idxs[0], idxs[0]
-			for _, i := range idxs {
-				lo, hi = min(lo, i), max(hi, i)
-			}
-			for other, otherIdxs := range positions {
-				if other == v {
-					continue
-				}
-				for _, i := range otherIdxs {
-					if i > lo && i < hi {
-						t.Errorf("verdict %v is not grouped: a %v row sits inside its span.\n--- report ---\n%s", v, other, out)
-					}
-				}
-			}
-		}
-	})
-
-	t.Run("a redundant package is named a removal candidate", func(t *testing.T) {
-		if !strings.Contains(low, "remov") {
-			t.Errorf("the report never says a redundant package can be removed from the overlay.\n--- report ---\n%s", out)
-		}
-	})
-
-	t.Run("no removal is suggested when nothing is redundant", func(t *testing.T) {
-		clean := verdictReportFixture()
-		kept := clean.Results[:0]
-		for _, r := range clean.Results {
-			if r.Verdict != VerdictRedundant {
-				kept = append(kept, r)
-			}
-		}
-		clean.Results = kept
-		clean.UpToDateCount = 1
-
-		cleanOut := strings.ToLower(FormatReport(clean))
-		if strings.Contains(cleanOut, "remov") {
-			t.Errorf("the report recommends a removal with no redundant package in it.\n--- report ---\n%s", FormatReport(clean))
-		}
-	})
-
-	t.Run("every existing summary line survives", func(t *testing.T) {
-		// Counted by Status, exactly as today: 1 outdated, 3 up-to-date, 2 other,
-		// 6 in total. The verdict grouping must not recompute them.
-		for _, want := range []string{"Outdated: 1", "Up-to-date: 3", "Other: 2", "Total: 6"} {
-			if !strings.Contains(out, want) {
-				t.Errorf("summary line %q missing; the existing counts must be untouched.\n--- report ---\n%s", want, out)
-			}
-		}
-	})
-}
+//  1. "the table carries a Verdict column". FORMATTING. The verdict is no longer
+//     a COLUMN: it is the SECTION. testdata/TestCompareGoldenPlain.golden pins
+//     all four verdict sections by name, in order, which is a stronger claim
+//     than a header substring. The Status column survives it as STATE, pinned in
+//     the same golden's every table, and by TestCompareRunTablesNameTheirColumns
+//     in internal/common/report.
+//  2. "every package's row states its verdict". FORMATTING, in its new shape:
+//     membership of a section IS the statement. Covered by
+//     TestBuildCompareReport/"each verdict lands in its own list" in cmd/bentoo,
+//     which asserts the routing on the payload rather than on a row's substring,
+//     and by TestCompareGoldenPlain, which shows the rows under their sections.
+//  3. "packages are grouped by verdict". Same coverage, and the golden is the
+//     stricter form: contiguity was inferred from string offsets here, and there
+//     it is structural — a row is in a section or it is not.
+//  4. "a redundant package is named a removal candidate". Covered positively by
+//     testdata/TestCompareGoldenPlain.golden ("The recommendation to remove
+//     covers the 1 somebody read, and none of the rest") and by all three arms
+//     of TestCompareRunRedundantLeadNamesTheRefusedVersionPair.
+//  5. "no removal is suggested when nothing is redundant". This one had NO
+//     cover, and it is not a formatting claim — it is the negative half of the
+//     recommendation, which is the sentence an operator deletes packages on. It
+//     was REWRITTEN into internal/common/report, where the renderer that now
+//     owns the sentence lives, as
+//     TestCompareRunEmptyRedundantRecommendsNothing. Note that the old
+//     assertion could not have survived a move unchanged even in principle: it
+//     was `!strings.Contains(out, "remov")`, and the empty section's own lead
+//     now reads "...so nothing here is recommended for removal", which contains
+//     it. Deleting it as a prose collision would have retired a real guard on
+//     the strength of a substring.
+//  6. "every existing summary line survives" — "Outdated: 1", "Up-to-date: 3",
+//     "Other: 2", "Total: 6". The per-STATUS run counters do not reach the new
+//     payload at all: `func buildCompareReport` sums outdated + newer +
+//     up-to-date into CompareRun.InBoth by decision, so the report states how
+//     many packages exist in both repositories and no longer how the versions
+//     divided. That is a deliberate narrowing of the RENDERED summary and not a
+//     lost fact: the four counters are still computed and still asserted
+//     directly on CompareReport by TestCompare, TestCompareNewerInLocal and
+//     TestCompareWithAllResults in compare_test.go, by
+//     TestCompareInterrupted..., by compare_nilmap_test.go, and by
+//     TestSplitLeavesVerdicts' survival table in
+//     compare_redundant_split_test.go. What no test now covers is that they
+//     reach an operator — see the note in /tmp/047-triage.md, Group A.
+//
+// verdictReportFixture went with it. It was that test's fixture and nothing
+// else read it, so keeping it would leave an unused builder for a report shape
+// no assertion is taken over — which is how a fixture comes to be trusted as
+// coverage it is not. compare_redundant_split_test.go keeps its own.
 
 // lineContaining is deliberately GONE. It returned the first line of the report
 // containing a package's name, which stopped being that package's row the moment
@@ -409,19 +279,60 @@ func TestClassificationRendersNothingAtItsZeroValue(t *testing.T) {
 // TestClassificationReachesTheRenderedReport closes the gap the two builders
 // leave: a line builder nothing calls is a line nobody sees.
 //
-// _Requirements: R2, R2.4, R2.5_
+// # Story 047, sub-task 5.5 — it now asks the question of the FINDINGS
+//
+// It used to call FormatReport and look for the three counts in its text.
+// Sub-task 4.2 deletes FormatReport, so the assertion is taken where the counts
+// actually leave this package now: `func classificationFinding` in
+// annotate_baseline.go builds a FindingClassification carrying Classified as
+// three integers, EstablishFindings composes it into CompareReport.Findings,
+// and `func comparePackageNotes` in cmd/bentoo turns every finding beyond a
+// package's first into a note under that package's section. The counts are
+// therefore READ as numbers rather than matched as digits in a sentence, which
+// is the stronger form of the same claim — `strings.Contains(rendered, "22")`
+// passed on any line that happened to contain a 2 and a 2.
+//
+// The per-package half is all this test can carry. The RUN-level block —
+// runClassificationLines, the share with its denominator — has no consumer once
+// FormatReport is gone: it is a summary and deliberately not a finding, so
+// EstablishFindings does not compose it and compareRunNotes does not carry it.
+// That gap is recorded rather than papered over; asserting the builder here
+// would test a function nothing calls and read as coverage.
+//
+// _Requirements: R2, R2.4, R2.5, S047-R8.2_
 func TestClassificationReachesTheRenderedReport(t *testing.T) {
 	report := &CompareReport{
 		TotalPackages:    1,
 		ComparedPackages: 1,
 		Results:          []CompareResult{classificationResult(classificationVersionMove, classificationOurs, classificationUnclassified, true)},
 	}
+	EstablishFindings(report)
 
-	rendered := FormatReport(report)
-
-	for _, want := range []string{strconv.Itoa(classificationVersionMove), strconv.Itoa(classificationOurs), strconv.Itoa(classificationUnclassified)} {
-		if !strings.Contains(rendered, want) {
-			t.Errorf("FormatReport does not show the count %s; the builders are written and called by nobody:\n%s", want, rendered)
+	var found *Finding
+	for i := range report.Findings {
+		if report.Findings[i].Kind == FindingClassification {
+			found = &report.Findings[i]
+			break
 		}
+	}
+	if found == nil {
+		t.Fatalf("no classification finding reached the report; the builders are written and called by nobody:\n%+v", report.Findings)
+	}
+	if found.Atom != "media-libs/gst-plugins-qt6" {
+		t.Errorf("the classification finding names %q; a count with no package to attach it to cannot be shown under a row", found.Atom)
+	}
+	if got := found.Classified.VersionMove; got != classificationVersionMove {
+		t.Errorf("VersionMove = %d, want %d", got, classificationVersionMove)
+	}
+	if got := found.Classified.Ours; got != classificationOurs {
+		t.Errorf("Ours = %d, want %d", got, classificationOurs)
+	}
+	if got := found.Classified.Unclassified; got != classificationUnclassified {
+		t.Errorf("Unclassified = %d, want %d", got, classificationUnclassified)
+	}
+	// The sentence the operator reads is still built from the same value, so
+	// the finding and the line cannot drift apart.
+	if lines := renderClassificationLines(*found); len(lines) == 0 {
+		t.Error("the classification finding renders no line; the counts reach a consumer and no reader")
 	}
 }

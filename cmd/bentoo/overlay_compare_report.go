@@ -810,10 +810,21 @@ func comparePackageNotes(rep *overlay.CompareReport) []compareNote {
 	return notes
 }
 
-// compareRunNotes is what a comparison run has to say about ITSELF: the two
+// compareRunNotes is what a comparison run has to say about ITSELF: the
 // run-level facts the terminal output printed beside the table, which no row
 // carries and `type CompareRun` in internal/common/report/compare_run.go has no
 // field for (S047-R1.5).
+//
+// # Every one of them is here for the same structural reason
+//
+// A run-level summary names no package, so it cannot be a Finding — a
+// package-scoped finding with a blank atom is a bug — and it therefore had no
+// atom to travel on when the report moved off `func FormatReport`. That is why
+// each of these is rebuilt from the report's own numbers rather than harvested:
+// the numbers survived the move, the sentences did not. The three helpers below
+// (`func compareClassificationNote`, `func compareRealignNote`,
+// `func compareRemovalRecommended`) each state the condition they are silent
+// under, because a note that fires always is as wrong as one that never fires.
 //
 // # The baseline fact is HARVESTED from the findings, not re-derived
 //
@@ -899,15 +910,192 @@ func compareRunNotes(rep *overlay.CompareReport, realignRan, judged, noReview bo
 			rep.NoBaselineCount, rep.ComparedPackages)})
 	}
 
-	if realignRan && !judged {
+	if line := compareClassificationNote(rep); line != "" {
+		notes = append(notes, compareNote{text: line})
+	}
+
+	if line := compareRealignNote(rep, realignRan, judged, noReview); line != "" {
+		notes = append(notes, compareNote{text: line})
+	}
+
+	if compareRemovalRecommended(rep) {
+		notes = append(notes, compareNote{text: comparePruneAdvice})
+	}
+
+	return notes
+}
+
+// compareClassificationNote is the run-level classification share, with the
+// number it is a share of (S034-R8.1).
+//
+// # Why it is written here and not read from the producer
+//
+// `func runClassificationLines` in internal/overlay/annotate_baseline.go states
+// the same facts and is reached only from `func FormatReport`, the renderer this
+// story retires — so the sentence it published has no consumer once the command
+// stops calling it, while its per-package half travels on the classification
+// findings and is unaffected. The FACTS are re-derived from the report here; the
+// SENTENCE is written here, because a library that formats a report line is the
+// boundary story 046 closed (S047-D1). It is the same split
+// `func compareRunNotes` already applies to the baseline coverage above.
+//
+// # Why it is a note and not a finding
+//
+// It names no package. `type Finding` permits a blank Atom for exactly one kind
+// and forbids it everywhere else, so a Finding built from a run-level summary
+// would be a malformed one — which is why nothing carried it across the move and
+// why a run-scoped note, whose empty atom means exactly "about the run", is where
+// it belongs.
+//
+// # The counts and their denominator
+//
+// The three classes are re-derived by the same walk the producer performs: the
+// per-result Classified fields, skipping every result that carries none, so this
+// block and the per-package lines cannot disagree. A result with no
+// classification is a package with no readable baseline, or any package at all on
+// a run that asked for no review; counting it as a package with zero differences
+// would inflate the reach of the classification with rows nobody looked at.
+//
+// The denominator is the point, and it is stated twice over: the differences
+// examined are given as a count across the packages they were examined in, and
+// each class is given as a count of those differences. "122 differences were
+// attributed to nobody" is unreadable alone, and "63% unclassified" is worse —
+// 63% of twelve differences in one package and 63% of forty thousand across the
+// overlay are different claims (S034-R8.1).
+//
+// It is ONE line because a note is wrapped to the device by the renderer, so the
+// three per-class lines the producer indented under its lead cannot survive as
+// lines; they are said inline instead, which loses the indent and no count.
+//
+// It renders nothing when no result carries a classification, which is every run
+// that requested no review: silence there is the same silence the per-package
+// lines keep, and a run that classified nothing has no share to state.
+//
+// _Requirements: S047-R7.2, S034-R8.1_
+func compareClassificationNote(rep *overlay.CompareReport) string {
+	if rep == nil {
+		return ""
+	}
+
+	var run overlay.Classified
+	packages := 0
+	for _, result := range rep.Results {
+		if result.Classified == (overlay.Classified{}) {
+			continue
+		}
+		packages++
+		run.VersionMove += result.Classified.VersionMove
+		run.Ours += result.Classified.Ours
+		run.Unclassified += result.Classified.Unclassified
+	}
+	if packages == 0 {
+		return ""
+	}
+
+	total := run.VersionMove + run.Ours + run.Unclassified
+	return fmt.Sprintf(
+		"Classification: %d differences were examined across %d of the packages reviewed — of those %d, %d were attributed to the version move, %d to us, and %d to neither.",
+		total, packages, total, run.VersionMove, run.Ours, run.Unclassified)
+}
+
+// compareRealignNote is what the realignment has to say about its own
+// completeness: either that no verdict was produced at all, or that some
+// divergence put to the model came back without one.
+//
+// # The two branches answer two different questions, and the flags only answer
+// the first
+//
+// `judged` is computed by the caller as `reviewer != nil` — whether a model was
+// REACHABLE, not whether every divergence came back judged. A reviewer that
+// exists and then fails half its calls satisfies `judged` and leaves half the
+// divergences unjudged, which the flags cannot see. `func formatRealignSummary`
+// in internal/overlay/realign_reviewer.go published that second fact and is
+// reached only from the renderer this story retires, so the flag-derived notice
+// alone would report a partially judged run as a fully judged one.
+//
+// The counters ARE on the report — CompareReport.RealignNoVerdict and
+// RealignAsked, maintained by the review itself — so the second branch is read
+// from the run rather than inferred from the flags, and states the count with the
+// number it is a share of.
+//
+// The two are exclusive by construction: nothing is asked when no reviewer
+// exists, so RealignAsked is zero on every run the first branch fires on. They
+// are written as one function so that they cannot both be emitted, which would
+// tell an operator both that nothing was judged and that some of it was.
+//
+// It says nothing on a run that produced a verdict for everything it asked
+// about, which is the outcome that needs no qualification.
+//
+// _Requirements: S047-R7.2_
+func compareRealignNote(rep *overlay.CompareReport, realignRan, judged, noReview bool) string {
+	if !realignRan {
+		return ""
+	}
+
+	if !judged {
 		reason := "no model was reachable"
 		if noReview {
 			reason = "--no-review contacted no model"
 		}
-		notes = append(notes, compareNote{text: "Realignment verdicts: none was produced — " + reason +
+		return "Realignment verdicts: none was produced — " + reason +
 			", so every divergence above carries no verdict, and an unjudged divergence is not a justified one. " +
-			"Everything above was established by reading files and stands without a model."})
+			"Everything above was established by reading files and stands without a model."
 	}
 
-	return notes
+	if rep == nil || rep.RealignNoVerdict <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Realignment verdicts: %d of the %d divergences put to the model came back with no verdict — they were not judged, and an unjudged divergence is not a justified one. "+
+			"What they state was established by reading files and stands without a model.",
+		rep.RealignNoVerdict, rep.RealignAsked)
+}
+
+// comparePruneAdvice is how an operator acts on the removal recommendation
+// (S025-R3.3).
+//
+// The redundant section recommends removing packages and, without this, names no
+// way to do it: a report that recommends a destructive action and withholds the
+// command is asking somebody to invent one. The sentence also says what the
+// command decides on, because `bentoo overlay prune` does NOT act on the verdict
+// — it re-reads content — and an operator who expects the two to agree row for
+// row would read any difference as a bug.
+//
+// It is written in this package and not in internal/common/report, where the
+// recommendation itself is built, because that package must not learn a command
+// name: `bentoo overlay prune` is this domain's vocabulary, and the guards on
+// internal/common/report exist to keep exactly that out. A run note from the
+// adapter is the nearest home that may spell it.
+const comparePruneAdvice = "Nothing is deleted here: act on the recommendation to remove with 'bentoo overlay prune', which decides on content — every version the two trees share, plus the whole files/ tree — and never on the verdict alone."
+
+// compareRemovalRecommended reports whether this run made a removal
+// recommendation at all, and so whether comparePruneAdvice has anything to attach
+// itself to.
+//
+// # The predicate is the one the recommendation itself uses
+//
+// `func compareRemovalAdvice` in internal/common/report/compare_run.go recommends
+// removal only where a redundant package was READ: with `read == 0` it says "no
+// removal advice follows" and recommends nothing. Naming a destructive command
+// under that sentence would offer an action for an empty list, which is noise at
+// best and an invitation at worst. So this asks the same question of the same
+// population — the redundant rows, taken from the narrowed Results the section
+// draws — and reuses `func compareReadingWord`, the one place this file maps a
+// Reading to the word that package counts, so the two cannot fall out of step. An
+// unmapped reading falls to "not requested" there, which costs a recommendation
+// this run could have supported and never earns one over evidence nobody has.
+//
+// It walks Results and not the whole run for the reason the notes do: the advice
+// is read beside rows, and a run whose every redundant package was filtered out
+// of the view has no recommendation on screen to attach a command to.
+func compareRemovalRecommended(rep *overlay.CompareReport) bool {
+	if rep == nil {
+		return false
+	}
+	for _, result := range rep.Results {
+		if result.Verdict == overlay.VerdictRedundant && compareReadingWord(result.Reading) == "read" {
+			return true
+		}
+	}
+	return false
 }

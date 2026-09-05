@@ -130,17 +130,33 @@ func TestUndeclaredDivergenceCarriesMagnitude(t *testing.T) {
 	writeVerifyEbuild(t, upstreamRoot, "app-editors", "zed", "1.0", zedEbuildStock)
 	prov := &localRootedFakeProvider{root: upstreamRoot, versions: map[string][]string{"app-editors/zed": {"1.0"}}}
 
-	got, out := verifyRun(t, overlayRoot, prov, pkg, silent)
+	got, findings := verifyRun(t, overlayRoot, prov, pkg, silent)
 
 	if got.DiffAdded != 1 || got.DiffRemoved != 0 {
 		t.Errorf("DiffAdded/DiffRemoved = +%d/-%d, want +1/-0; ours adds the PATCHES line",
 			got.DiffAdded, got.DiffRemoved)
 	}
-	if !strings.Contains(out, "(+1/-0)") {
-		t.Errorf("the finding does not carry the size of the difference, so a one-line drift reads like our work.\n--- report ---\n%s", out)
+	// Story 047, sub-task 5.5 (S047-R8.2): the magnitude is asked of the finding.
+	// It travels twice on purpose — as the Added/Removed FIELDS a consumer sums
+	// or exports, and inside the producer's own sentence — and both are asserted,
+	// because the fields without the sentence reach no operator and the sentence
+	// without the fields reaches no export.
+	div := findingOfKind(findings, FindingUndeclaredDivergence)
+	if div == nil {
+		t.Fatalf("no undeclared divergence was established:\n%+v", findings)
 	}
-	if !strings.Contains(out, undeclaredDivergenceCaveat) {
-		t.Errorf("the finding claims a divergence without saying the direction is unknown.\n--- report ---\n%s", out)
+	if div.Added != 1 || div.Removed != 0 {
+		t.Errorf("the finding carries +%d/-%d, want +1/-0; a one-line drift with no size beside it reads like our work", div.Added, div.Removed)
+	}
+	if !strings.Contains(div.Detail, "(+1/-0)") {
+		t.Errorf("the finding's own sentence does not carry the size of the difference: %q", div.Detail)
+	}
+	// The caveat that says the DIRECTION is unknown is the section's, not the
+	// finding's, and is now emitted once per section by internal/common/report —
+	// pinned in testdata/TestCompareGoldenPlain.golden. What belongs to the
+	// finding is that it claims no authorship it cannot prove.
+	if div.Authorship != AuthorshipUnproved || div.ProvedBy != "" {
+		t.Errorf("the finding claims authorship (%v, %q) it did not prove; unproved is never a finding that the change is ::gentoo's", div.Authorship, div.ProvedBy)
 	}
 }
 
@@ -157,14 +173,18 @@ func TestUndeclaredDivergenceMagnitudeIsZeroWhenNothingDiffers(t *testing.T) {
 	writeVerifyEbuild(t, upstreamRoot, "app-editors", "zed", "1.0", zedEbuildStock)
 	prov := &localRootedFakeProvider{root: upstreamRoot, versions: map[string][]string{"app-editors/zed": {"1.0"}}}
 
-	got, out := verifyRun(t, overlayRoot, prov, pkg, silent)
+	got, findings := verifyRun(t, overlayRoot, prov, pkg, silent)
 
 	if got.DiffAdded != 0 || got.DiffRemoved != 0 {
 		t.Errorf("DiffAdded/DiffRemoved = +%d/-%d on byte-identical ebuilds, want +0/-0",
 			got.DiffAdded, got.DiffRemoved)
 	}
-	if strings.Contains(out, undeclaredDivergenceCaveat) {
-		t.Errorf("the caveat prints where no divergence was found.\n--- report ---\n%s", out)
+	// No divergence, so nothing for the section caveat to qualify. Asserted as
+	// the absence of the FINDING (story 047, sub-task 5.5, S047-R8.2): the caveat
+	// is the section's now, and it is emitted from the presence of rows, so the
+	// finding's absence is what the old assertion was really about.
+	if f := findingOfKind(findings, FindingUndeclaredDivergence); f != nil {
+		t.Errorf("a divergence was established over byte-identical ebuilds: %q", f.Detail)
 	}
 }
 
@@ -199,12 +219,33 @@ func TestUndeclaredDivergenceCaveatPrintsOncePerSection(t *testing.T) {
 		t.Fatalf("CompareWithProvider returned %v, want nil", err)
 	}
 
-	out := FormatReport(report)
-	if n := strings.Count(out, "undeclared divergence"); n != 2 {
-		t.Fatalf("report holds %d undeclared-divergence findings, want 2", n)
+	// Story 047, sub-task 5.5 (S047-R8.2). The FINDINGS half is asserted here,
+	// against the values: two undeclared divergences, counted by Kind rather than
+	// by a substring that a caveat mentioning the same words would also match.
+	EstablishFindings(report)
+	n := 0
+	for _, f := range report.Findings {
+		if f.Kind == FindingUndeclaredDivergence {
+			n++
+		}
 	}
-	if n := strings.Count(out, undeclaredDivergenceCaveat); n != 1 {
-		t.Errorf("the caveat prints %d times for 2 findings, want 1.\n--- report ---\n%s", n, out)
+	if n != 2 {
+		t.Fatalf("report holds %d undeclared-divergence findings, want 2:\n%+v", n, report.Findings)
+	}
+
+	// The CAVEAT half — "once per section, however many findings it holds" — is
+	// no longer this package's. The caveat is a property of the redundant SECTION
+	// and is emitted by `func compareRedundantSection` in internal/common/report,
+	// once, unconditionally when the section has rows. It is pinned in
+	// testdata/TestCompareGoldenPlain.golden (a whole-file golden, so a second
+	// copy is a diff) and its absence over an empty section by
+	// TestCompareRunEmptyRedundantRecommendsNothing. What is left here is the
+	// precondition that made "once for two findings" a claim at all: that the two
+	// findings are in one section, which is to say one verdict.
+	for _, r := range report.Results {
+		if r.Verdict != VerdictRedundant {
+			t.Errorf("%s/%s is %s, not redundant; the two findings are then in two sections and 'once per section' says nothing", r.Category, r.Package, r.Verdict)
+		}
 	}
 }
 
@@ -268,6 +309,27 @@ func findingLine(t *testing.T, out, atom string) string {
 	}
 	if len(found) != 1 {
 		t.Fatalf("the section holds %d lines naming %s, want exactly 1.\n--- section ---\n%s", len(found), atom, out)
+	}
+	return found[0]
+}
+
+// divergenceFor is one package's undeclared-divergence finding, or a fatal.
+//
+// It replaces findingLine, which cut the rendered report into lines and demanded
+// exactly one naming the atom (story 047, sub-task 5.5, S047-R8.2). The
+// exactly-one guard is kept and is stricter here: two findings of the same kind
+// for one package is a real defect, where two LINES naming an atom could also
+// have been one row and one note.
+func divergenceFor(t *testing.T, findings []Finding, atom string) Finding {
+	t.Helper()
+	var found []Finding
+	for _, f := range findings {
+		if f.Kind == FindingUndeclaredDivergence && f.Atom == atom {
+			found = append(found, f)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("the report holds %d undeclared-divergence findings for %s, want exactly 1:\n%+v", len(found), atom, findings)
 	}
 	return found[0]
 }
@@ -513,21 +575,35 @@ func TestProvedAuthorshipReachesTheRenderedReport(t *testing.T) {
 	}
 	AnnotateAuthorship(report, prov, opts)
 
-	out := FormatReport(report)
-
-	proved := findingLine(t, out, "kde-plasma/spectacle")
-	if !strings.Contains(proved, provingFile) || !strings.Contains(proved, "proved") {
-		t.Errorf("the report does not state what the overlay's content proves about spectacle, or does not name %q:\n%s",
-			provingFile, proved)
+	// Story 047, sub-task 5.5 (S047-R8.2): the same two claims, asked of the
+	// findings. The proved one is now checked on its ProvedBy FIELD as well as in
+	// its sentence — S046-R5.1's whole point is that a filename in a field can be
+	// re-emitted and one in prose cannot — and the unproved one keeps its
+	// verbatim wording, minus the "⚠ " glyph and the atom prefix, which were the
+	// renderer's and are not part of what the producer said.
+	EstablishFindings(report)
+	proved := divergenceFor(t, report.Findings, "kde-plasma/spectacle")
+	if proved.ProvedBy != provingFile {
+		t.Errorf("spectacle's finding names %q as its proving file, want %q; a filename in prose can be printed and nothing else", proved.ProvedBy, provingFile)
 	}
-	if !strings.Contains(out, todaysUnprovedFinding) {
-		t.Errorf("kwin's finding no longer reads as it does today.\nwant the line: %s\n--- report ---\n%s",
-			todaysUnprovedFinding, out)
+	if proved.Authorship != AuthorshipOverlay {
+		t.Errorf("spectacle's authorship is %v, want it proved the overlay's — unproved is never a finding that the change is ::gentoo's", proved.Authorship)
 	}
-	// One unproved finding is left in the section, so the caveat still belongs —
-	// once, for the section, exactly as with two unproved findings.
-	if n := strings.Count(out, undeclaredDivergenceCaveat); n != 1 {
-		t.Errorf("the caveat prints %d times for a section holding one proved and one unproved finding, want 1.\n--- report ---\n%s",
-			n, out)
+	if !strings.Contains(proved.Detail, provingFile) || !strings.Contains(proved.Detail, "proved") {
+		t.Errorf("the finding's own sentence does not state what the overlay's content proves about spectacle, or does not name %q: %q", provingFile, proved.Detail)
+	}
+	unproved := divergenceFor(t, report.Findings, "kde-plasma/kwin")
+	if want := strings.TrimPrefix(todaysUnprovedFinding, "⚠ kde-plasma/kwin: "); unproved.Detail != want {
+		t.Errorf("kwin's finding no longer reads as it does today.\n got: %q\nwant: %q", unproved.Detail, want)
+	}
+	if unproved.ProvedBy != "" || unproved.Authorship != AuthorshipUnproved {
+		t.Errorf("kwin's finding claims authorship (%v, %q) from a one-line difference that proves nothing either way", unproved.Authorship, unproved.ProvedBy)
+	}
+	// The caveat over a section holding one proved and one unproved finding is
+	// the renderer's, and is pinned in testdata/TestCompareGoldenPlain.golden
+	// (see the note above). What matters here is that one finding is still
+	// unproved, which is what makes the caveat belong at all.
+	if unproved.Authorship != AuthorshipUnproved {
+		t.Error("no finding is left unproved, so the section-level caveat about unproved differences would be printed over nothing")
 	}
 }

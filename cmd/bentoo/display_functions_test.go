@@ -10,7 +10,6 @@ import (
 	"github.com/obentoo/bentoolkit/internal/autoupdate"
 	"github.com/obentoo/bentoolkit/internal/common/output"
 	"github.com/obentoo/bentoolkit/internal/common/version"
-	"github.com/obentoo/bentoolkit/internal/overlay"
 )
 
 // ---- displayPendingUpdates ----
@@ -240,30 +239,19 @@ func TestDisplaySchemaFull(t *testing.T) {
 }
 
 // ---- printComparisonSummary ----
-
-// TestPrintComparisonSummaryWithErrors tests printComparisonSummary with errors.
-func TestPrintComparisonSummaryWithErrors(t *testing.T) {
-	report := &overlay.CompareReport{
-		TotalPackages:    10,
-		ComparedPackages: 8,
-		NotInRemoteCount: 2,
-		ErrorCount:       1,
-	}
-	printComparisonSummary(report, "gentoo")
-}
-
-// TestPrintComparisonSummaryNoErrors tests printComparisonSummary with no errors.
-func TestPrintComparisonSummaryNoErrors(t *testing.T) {
-	report := &overlay.CompareReport{
-		TotalPackages:    5,
-		ComparedPackages: 5,
-		NotInRemoteCount: 0,
-		ErrorCount:       0,
-	}
-	printComparisonSummary(report, "guru")
-}
-
-// ---- output.NoColor / global flag side effects ----
+//
+// TestPrintComparisonSummaryWithErrors and TestPrintComparisonSummaryNoErrors
+// stood here and were RETIRED by story 047, sub-task 5.5 (S047-R8.2), because
+// sub-task 4.2 deletes printComparisonSummary.
+//
+// Both were smoke tests: they built a CompareReport, called the printer, and
+// asserted nothing at all — they proved the call did not panic. The summary the
+// operator now reads is the report's own Summary section, whose counts are
+// asserted on the payload by TestBuildCompareReport/"the counts come from the
+// producer's own counters" and whose rendered form is pinned by
+// testdata/TestCompareGoldenPlain.golden and TestCompareGoldenPlainNoneRead.
+// Nothing is lost: a golden diff is a stronger no-panic test than a call with no
+// assertion after it.
 
 // TestNoColorFlagDoesNotPanic tests that calling output.NoColor() does not panic.
 func TestNoColorFlagDoesNotPanic(t *testing.T) {

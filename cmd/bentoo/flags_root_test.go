@@ -67,22 +67,49 @@ func TestRootFlagsAreHonouredWithoutDeclaration(t *testing.T) {
 // make between them. One command honouring the flags is exactly what the story
 // starts from; what R3.1 asks is that a command NOT REMEMBERED still honours
 // them, which is only observable across more than one.
+// It is NOT every report producer, and the gap is named rather than closed
+// here. This repository has five: `overlay manifest`, `overlay autoupdate
+// --check`, `overlay validate`, `snapshot run` and — since story 047 — `overlay
+// compare`, each one a `func present*Report` calling `func exportReport` in
+// report_export.go. Two of the five were listed when 046 wrote this, which is
+// how `overlay compare` could join the envelope in 047 without a single
+// assertion noticing. Story 047, sub-task 5.4 adds the fifth because that is its
+// scope; `overlay validate` and `snapshot run` stay unlisted and stay named
+// here, so the next reader inherits a measured gap instead of a guard whose
+// title outruns its table.
+//
+// The seed is per row from 5.4 onward. `func seedCheckOverlay` gives the first
+// two rows the packages and the upstream stub they need; `overlay compare`
+// additionally needs a repository to compare AGAINST, and
+// `func seedCompareFixture` in compare_ambient_mode_test.go supplies a local
+// ::gentoo tree so the row reaches the report without the network and without a
+// real tree on the machine running the suite.
 func TestRootFlagsReachEveryReportProducer(t *testing.T) {
-	for _, command := range [][]string{
-		{"overlay", "manifest", "--dry-run"},
-		{"overlay", "autoupdate", "--check", "--force"},
+	for _, tc := range []struct {
+		command []string
+		seed    func(t *testing.T, c *testCLI)
+	}{
+		{command: []string{"overlay", "manifest", "--dry-run"}},
+		{command: []string{"overlay", "autoupdate", "--check", "--force"}},
+		{
+			command: []string{"overlay", "compare", "--no-review"},
+			seed:    func(t *testing.T, c *testCLI) { seedCompareFixture(t, c, true) },
+		},
 	} {
-		t.Run(strings.Join(command, " "), func(t *testing.T) {
+		t.Run(strings.Join(tc.command, " "), func(t *testing.T) {
 			c := newTestCLI(t)
 			seedCheckOverlay(t, c, "1.7.1", "1.8.0", "app-misc/jq")
+			if tc.seed != nil {
+				tc.seed(t, c)
+			}
 
 			export := t.TempDir() + "/report.json"
-			args := append(append([]string{}, command...), "--ui=plain", "--export="+export)
+			args := append(append([]string{}, tc.command...), "--ui=plain", "--export="+export)
 
 			_, stderr, _ := c.Run(args...)
 
 			if strings.Contains(stderr, "unknown flag") {
-				t.Errorf("%v rejected a root flag (R3.1): %s", command, stderr)
+				t.Errorf("%v rejected a root flag (R3.1): %s", tc.command, stderr)
 			}
 		})
 	}

@@ -232,49 +232,32 @@ func TestCompareStatus(t *testing.T) {
 	}
 }
 
-func TestFormatReport(t *testing.T) {
-	report := &CompareReport{
-		TotalPackages:    5,
-		ComparedPackages: 4,
-		OutdatedCount:    2,
-		Results: []CompareResult{
-			{Category: "app-editors", Package: "vscode", LocalVersion: "1.107.1", RemoteVersion: "1.108.0", Status: StatusOutdated},
-			{Category: "www-client", Package: "firefox", LocalVersion: "128.0", RemoteVersion: "129.0", Status: StatusOutdated},
-		},
-	}
-
-	output := FormatReport(report)
-
-	// Check that output contains expected elements
-	if !strings.Contains(output, "vscode") {
-		t.Error("Output should contain vscode")
-	}
-	if !strings.Contains(output, "firefox") {
-		t.Error("Output should contain firefox")
-	}
-	if !strings.Contains(output, "1.107.1") {
-		t.Error("Output should contain version 1.107.1")
-	}
-	if !strings.Contains(output, "1.108.0") {
-		t.Error("Output should contain version 1.108.0")
-	}
-	if !strings.Contains(output, "2") {
-		t.Error("Output should contain count 2")
-	}
-}
-
-func TestFormatReportEmpty(t *testing.T) {
-	report := &CompareReport{
-		TotalPackages: 5,
-		Results:       []CompareResult{},
-	}
-
-	output := FormatReport(report)
-
-	if !strings.Contains(output, "up-to-date") {
-		t.Error("Empty report should indicate all packages are up-to-date")
-	}
-}
+// Story 047, sub-task 5.5 — S047-R8.2: TestFormatReport and
+// TestFormatReportEmpty stood here and were RETIRED, not lost.
+//
+// Both asserted over FormatReport's text, which sub-task 4.2 deletes.
+//
+//   - TestFormatReport checked that a row printed its package name and its two
+//     versions, and that the outdated count "2" appeared somewhere in the
+//     output. The row shape is pinned far harder by
+//     internal/common/report/render/testdata/TestCompareGoldenPlain.golden,
+//     which pins the whole PACKAGE/BENTOO/GENTOO/STATE table rather than four
+//     substrings; TestCompareJSONGolden pins the same three fields on the wire.
+//     The count assertion was `strings.Contains(output, "2")` over a report
+//     whose versions include "128.0" and "129.0", so it could not have failed
+//     and pinned nothing.
+//   - TestFormatReportEmpty checked the sentence "All packages are up-to-date!".
+//     That early return is deliberately gone: runCompare now sends the empty run
+//     down the SAME tail as the full one, so an emptiness the renderer cannot
+//     explain is no longer announced as a clean bill of health. The empty run is
+//     covered by TestBuildCompareReport's "a nil report is an empty run, not a
+//     crash" and "an empty list reaches the WIRE as [] and never as null" in
+//     cmd/bentoo, and the empty SECTIONS' wording by
+//     testdata/TestCompareGoldenPlainNoneRead.golden.
+//
+// The per-status counters those two exercised (OutdatedCount, NewerCount,
+// UpToDateCount) keep their own tests below and in compare_verdict_test.go;
+// they are asserted on the report, which is where they live.
 
 func TestTruncateString(t *testing.T) {
 	tests := []struct {

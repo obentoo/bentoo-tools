@@ -207,9 +207,28 @@ func TestRealignVerdictAnnotatesWhatItIsGiven(t *testing.T) {
 	if !strings.Contains(got.RealignVerdict, "eclass") {
 		t.Errorf("RealignVerdict is %q, want the model's own reason — 'not justified' with no why is an instruction, not an input", got.RealignVerdict)
 	}
-	rendered := FormatReport(report)
-	if !strings.Contains(rendered, "gstreamer-meson") {
-		t.Errorf("the report does not show the baseline text that would replace the divergence (R4.2):\n%s", rendered)
+	// R4.2, asked of the finding rather than of FormatReport's text (story 047,
+	// sub-task 5.5, S047-R8.2). formatRealignVerdict composes BOTH halves — the
+	// reason and the ::gentoo text that would replace the divergence — into the
+	// one RealignVerdict field the R4.3 fence watches, so the finding carries the
+	// replacement text by construction and this asserts it where cmd/bentoo reads
+	// it.
+	EstablishFindings(report)
+	var verdict *Finding
+	for i := range report.Findings {
+		if report.Findings[i].Kind == FindingRealignVerdict {
+			verdict = &report.Findings[i]
+			break
+		}
+	}
+	if verdict == nil {
+		t.Fatalf("no realignment-verdict finding reached the report:\n%+v", report.Findings)
+	}
+	if !strings.Contains(verdict.Detail, "gstreamer-meson") {
+		t.Errorf("the finding does not carry the baseline text that would replace the divergence (R4.2): %q", verdict.Detail)
+	}
+	if verdict.Effect.Source != EffectReviewed {
+		t.Errorf("the verdict arrives as %v, not as a model's reading; an operator who cannot tell a guess from a finding acts on both alike (R5.8)", verdict.Effect.Source)
 	}
 }
 
@@ -233,9 +252,24 @@ func TestRealignVerdictUnreachableModelSaysSo(t *testing.T) {
 			t.Errorf("%s/%s carries RealignVerdict %q although the model could not be reached; a verdict invented on a failed call is worse than none", r.Category, r.Package, r.RealignVerdict)
 		}
 	}
-	rendered := FormatReport(report)
-	if !strings.Contains(strings.ToLower(rendered), "no verdict") {
-		t.Errorf("the report does not say that no verdict was produced (R4.4); silence here reads as 'every divergence was judged and none objected':\n%s", rendered)
+	// R4.4, asserted on the two counters the sentence is built from (story 047,
+	// sub-task 5.5, S047-R8.2). formatRealignSummary is a run-level SUMMARY and
+	// deliberately not a finding — it names no package — so it has no atom to
+	// travel on, and what survives the printer's deletion is RealignNoVerdict
+	// with its denominator RealignAsked. A consumer holding the report re-derives
+	// the sentence from them, which is what the summary's own doc says it is for.
+	//
+	// KNOWN GAP, recorded rather than asserted here: cmd/bentoo's replacement
+	// note fires on `realignRan && !judged`, and `judged` is `reviewer != nil` —
+	// whether a model was REACHABLE, not whether every divergence came back
+	// judged. So this case, a reviewer that exists and fails every call, produces
+	// no note today. See /tmp/047-triage.md, Group B, LOST #3.
+	if report.RealignAsked == 0 {
+		t.Fatal("the run put no divergence to the model, so the counters below are a share of nothing and R4.4 has nothing to state")
+	}
+	if report.RealignNoVerdict != report.RealignAsked {
+		t.Errorf("RealignNoVerdict is %d of %d asked; every call failed, so every divergence must be counted unjudged — silence here reads as 'every divergence was judged and none objected' (R4.4)",
+			report.RealignNoVerdict, report.RealignAsked)
 	}
 }
 

@@ -239,6 +239,64 @@ func TestCompareRunKeepsASectionThatHasNoRow(t *testing.T) {
 	})
 }
 
+// TestCompareRunEmptyRedundantRecommendsNothing is the NEGATIVE half of the
+// removal recommendation, over the one payload the other tests here cannot
+// reach: a run with nothing redundant in it at all.
+//
+// # Where it came from, and why it is here rather than where it was
+//
+// Story 047, sub-task 5.5 (S047-R8.2). It was
+// TestFormatReportVerdict/"no removal is suggested when nothing is redundant"
+// in internal/overlay, asserted over FormatReport's text, and sub-task 4.2
+// deletes FormatReport. The claim is not a formatting claim — a report that
+// recommends deleting packages when it found none to delete is the failure
+// S047-R3.3 exists to prevent, and it is the direction an operator acts on
+// destructively — so it is rewritten against the renderer that now owns the
+// sentence instead of being retired with the printer.
+//
+// # It is asserted on the SENTENCE and not on a substring
+//
+// The old assertion was `!strings.Contains(out, "remov")`, and it could not have
+// been carried over: the empty section's own lead reads "...so nothing here is
+// recommended for removal", which contains it. A test moved by substring would
+// have failed here and been dismissed as a prose collision, retiring a real
+// guard. So the two things are asserted apart — the section states the absence,
+// and none of the four RECOMMENDATION sentences compareRedundantLead can produce
+// appears — which is what "recommends nothing" actually means.
+func TestCompareRunEmptyRedundantRecommendsNothing(t *testing.T) {
+	run := compareFixture()
+	run.Redundant = nil
+	run.Verdicts.Redundant = 0
+
+	redundant := run.Sections(SectionOptions{})[1]
+	prose := compareProse(redundant)
+
+	if len(redundant.Rows.Rows) != 0 {
+		t.Fatalf("the fixture was emptied and the section still holds %d row(s)", len(redundant.Rows.Rows))
+	}
+	if !strings.Contains(prose, "No package is counted as redundant") {
+		t.Errorf("the section does not state that nothing is redundant:\n%s", prose)
+	}
+	// Every arm of the advice, none of which may be reached with no list to
+	// take it over. Naming all four is what keeps this test honest when the
+	// wording of one of them changes.
+	for _, recommendation := range []string{
+		"The recommendation to remove covers the whole list.",
+		"recommendation to remove covers the",
+		"No removal advice follows from either.",
+		"No removal advice follows from a package nobody read.",
+	} {
+		if strings.Contains(prose, recommendation) {
+			t.Errorf("a run with nothing redundant reaches the removal advice %q:\n%s", recommendation, prose)
+		}
+	}
+	// The caveat belongs to the rows and must not outlive them: it exists to
+	// qualify a list, and printed over no list it warns about nothing.
+	if strings.Contains(prose, "A difference is not proof of authorship") {
+		t.Errorf("the authorship caveat is printed over an empty section:\n%s", prose)
+	}
+}
+
 // TestCompareRunRedundantLeadNamesTheRefusedVersionPair is S047-R3.3 and the
 // advice that follows from it.
 //

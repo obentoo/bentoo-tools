@@ -107,6 +107,42 @@ func TestBuildCompareReport(t *testing.T) {
 		assertCompareSlicesNonNil(t, compareComparePayload(t, buildCompareReport(rep, "gentoo", nil)))
 	})
 
+	t.Run("an empty list reaches the WIRE as [] and never as null", func(t *testing.T) {
+		// The subtest above proves the payload's slices are non-nil. This one
+		// proves the consequence survives the encoder, which is the claim
+		// S047-D8 actually makes and the only one a consumer can observe.
+		//
+		// The two are not the same assertion, and the gap between them is where
+		// this would break: the normalisation lives at this layer, in
+		// `func buildCompareReport`, and render/json.go is documented as
+		// REFUSING to do it. So a future edit that dropped the seeding would
+		// leave every guard in internal/common/report green — its own goldens
+		// are taken over populated fixtures, where no empty list occurs — and
+		// publish `"keep": null` to every reader of --export. That is the
+		// residual gap sub-task 5.2 named and could not close from inside the
+		// render package.
+		//
+		// Taken over a report with NO results at all, because that is the run
+		// where every list is empty at once and the one a wire contract is most
+		// likely to be read on: an overlay with nothing to say.
+		var buf strings.Builder
+		if err := render.JSON(&buf, buildCompareReport(&overlay.CompareReport{}, "gentoo", nil)); err != nil {
+			t.Fatalf("render.JSON returned an error: %v", err)
+		}
+
+		got := buf.String()
+		for _, key := range []string{"redundant", "needs_rebase", "keep", "keep_groups", "unknown"} {
+			if strings.Contains(got, `"`+key+`": null`) {
+				t.Errorf("%q reached the wire as null; an empty list must be [], because null says the producer "+
+					"established nothing and [] says the run found nothing (S047-D8)\n%s", key, got)
+			}
+			if !strings.Contains(got, `"`+key+`": []`) {
+				t.Errorf("%q is not published as [] on a run with no results; the list is either absent or "+
+					"some other shape\n%s", key, got)
+			}
+		}
+	})
+
 	t.Run("each verdict lands in its own list", func(t *testing.T) {
 		rep := &overlay.CompareReport{Results: []overlay.CompareResult{
 			compareFixtureResult("app-editors", "vim", overlay.VerdictRedundant),

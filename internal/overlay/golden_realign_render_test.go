@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -78,10 +79,26 @@ func TestNodejsClassificationIsAttributedToThePackageInTheReport(t *testing.T) {
 		t.Errorf("the classification's lead line is %q and does not name %s; a count with no package beside it cannot be acted on across an overlay of 321 packages (R2.4)", lines[0], atom)
 	}
 
-	rendered := FormatReport(report)
-	for _, line := range lines {
-		if !strings.Contains(rendered, line) {
-			t.Errorf("the classification line %q was built and never printed; the divergence is classified in a field the operator never sees, which is 'not proposed for realignment' achieved by saying nothing:\n--- report ---\n%s", line, rendered)
+	// Story 047, sub-task 5.5 (S047-R8.2): "built and never printed" is now
+	// "built and never established". The lines above are rendered FROM the
+	// finding — classificationLines is renderClassificationLines over
+	// classificationFinding — so the line reaching an operator depends on the
+	// finding reaching EstablishFindings, which is what is asserted here.
+	EstablishFindings(report)
+	var carried *Finding
+	for i := range report.Findings {
+		if report.Findings[i].Kind == FindingClassification && report.Findings[i].Atom == atom {
+			carried = &report.Findings[i]
+			break
 		}
+	}
+	if carried == nil {
+		t.Fatalf("the classification was built and reaches no consumer; the divergence is classified in a field the operator never sees, which is 'not proposed for realignment' achieved by saying nothing:\n%+v", report.Findings)
+	}
+	if carried.Classified != res.Classified {
+		t.Errorf("the finding carries %+v and the result %+v; the counts an operator reads and the counts the reduction made must not be two answers", carried.Classified, res.Classified)
+	}
+	if !reflect.DeepEqual(renderClassificationLines(*carried), lines) {
+		t.Errorf("the lines rendered from the finding differ from the ones built off the result:\n from finding: %q\n from result:  %q", renderClassificationLines(*carried), lines)
 	}
 }

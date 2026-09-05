@@ -1,0 +1,200 @@
+{
+  "schema": 2,
+  "kind": "overlay.compare",
+  "title": "overlay comparison",
+  "complete": true,
+  "not_evaluated": 0,
+  "payload": {
+    "repository": "gentoo",
+    "scanned": 20,
+    "in_both": 15,
+    "only_local": 5,
+    "redundant": [
+      {
+        "package": "dev-lang/go",
+        "local_version": "1.27.0",
+        "remote_version": "1.27.0",
+        "status": "up-to-date",
+        "reading": "failed",
+        "diff": "+24/-0",
+        "reason": "differs, and no entry declares why"
+      },
+      {
+        "package": "kde-plasma/breeze-gtk",
+        "local_version": "6.7.4",
+        "remote_version": "6.7.4-r1",
+        "status": "outdated",
+        "reading": "not comparable",
+        "diff": "not compared",
+        "reason": ""
+      },
+      {
+        "package": "net-libs/nodejs",
+        "local_version": "26.8.1",
+        "remote_version": "26.8.1",
+        "status": "up-to-date",
+        "reading": "read",
+        "diff": "identical",
+        "reason": "identical to the ::gentoo copy, line for line"
+      },
+      {
+        "package": "sys-apps/fwupd",
+        "local_version": "2.1.7",
+        "remote_version": "2.1.7",
+        "status": "up-to-date",
+        "reading": "not requested",
+        "diff": "+8/-29",
+        "reason": ""
+      }
+    ],
+    "needs_rebase": [
+      {
+        "package": "kde-plasma/kwin",
+        "local_version": "6.7.4",
+        "remote_version": "6.7.4-r2",
+        "status": "outdated",
+        "reading": "read",
+        "diff": "+3/-1",
+        "reason": "ours: adds files/kwin-wayland-crash.patch on top of a version ::gentoo has moved past"
+      },
+      {
+        "package": "x11-base/xwayland",
+        "local_version": "24.1.6",
+        "remote_version": "24.1.8",
+        "status": "outdated",
+        "reading": "failed",
+        "diff": "+11/-4",
+        "reason": ""
+      }
+    ],
+    "keep": [
+      {
+        "package": "media-plugins/gst-plugins-base",
+        "local_version": "1.29.2",
+        "remote_version": "1.26.11",
+        "status": "newer",
+        "reading": "not requested",
+        "diff": "",
+        "reason": ""
+      },
+      {
+        "package": "media-plugins/gst-plugins-good",
+        "local_version": "1.29.2",
+        "remote_version": "1.26.11",
+        "status": "newer",
+        "reading": "not requested",
+        "diff": "",
+        "reason": ""
+      },
+      {
+        "package": "media-libs/gst-libav",
+        "local_version": "1.29.2",
+        "remote_version": "1.26.11",
+        "status": "newer",
+        "reading": "not requested",
+        "diff": "",
+        "reason": ""
+      },
+      {
+        "package": "media-plugins/gst-plugins-ugly",
+        "local_version": "1.29.2",
+        "remote_version": "1.26.11",
+        "status": "newer",
+        "reading": "read",
+        "diff": "",
+        "reason": "patched: applies files/gst-ugly-x264.patch, which ::gentoo does not ship"
+      },
+      {
+        "package": "dev-lang/rust",
+        "local_version": "1.98.0",
+        "remote_version": "1.97.1",
+        "status": "newer",
+        "reading": "not requested",
+        "diff": "",
+        "reason": ""
+      },
+      {
+        "package": "dev-lang/rust-bin",
+        "local_version": "1.98.0",
+        "remote_version": "1.97.1",
+        "status": "newer",
+        "reading": "not requested",
+        "diff": "",
+        "reason": ""
+      },
+      {
+        "package": "app-admin/ansible",
+        "local_version": "14.3.1",
+        "remote_version": "14.1.0",
+        "status": "newer",
+        "reading": "not requested",
+        "diff": "",
+        "reason": ""
+      }
+    ],
+    "keep_groups": [
+      {
+        "label": "gst",
+        "local_version": "1.29.2",
+        "remote_version": "1.26.11",
+        "members": [
+          "media-plugins/gst-plugins-base",
+          "media-plugins/gst-plugins-good",
+          "media-libs/gst-libav"
+        ],
+        "by_category": [
+          {
+            "category": "media-plugins",
+            "count": 2
+          },
+          {
+            "category": "media-libs",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "label": "rust",
+        "local_version": "1.98.0",
+        "remote_version": "1.97.1",
+        "members": [
+          "dev-lang/rust",
+          "dev-lang/rust-bin"
+        ],
+        "by_category": [
+          {
+            "category": "dev-lang",
+            "count": 2
+          }
+        ]
+      }
+    ],
+    "unknown": [
+      {
+        "package": "sys-kernel/gentoo-kernel",
+        "local_version": "7.2.2",
+        "remote_version": "7.1.12",
+        "status": "newer",
+        "reading": "not requested",
+        "diff": "",
+        "reason": ""
+      },
+      {
+        "package": "virtual/dist-kernel",
+        "local_version": "7.2.2",
+        "remote_version": "7.1.12",
+        "status": "newer",
+        "reading": "not requested",
+        "diff": "",
+        "reason": ""
+      }
+    ],
+    "verdicts": {
+      "keep": 7,
+      "redundant": 4,
+      "needs_rebase": 2,
+      "unknown": 7
+    },
+    "unread": 12
+  }
+}

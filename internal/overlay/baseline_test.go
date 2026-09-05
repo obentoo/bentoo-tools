@@ -312,18 +312,36 @@ func TestMissingBaselineTreeIsSkippedNotClean(t *testing.T) {
 		t.Errorf("BaselineSkipped is %q, want it to name %s", report.BaselineSkipped, missing)
 	}
 
-	rendered := FormatReport(report)
-	if !strings.Contains(rendered, "SKIPPED") {
-		t.Errorf("the rendered report never says SKIPPED:\n%s\nstory 031's rule is that every outcome names its own reach, and silence here claims a reach the run did not have", rendered)
+	// Story 047, sub-task 5.5 (S047-R8.2): asserted on what the run ESTABLISHED,
+	// not on FormatReport's text, which 4.2 deletes. The run-level skip crosses
+	// as the one finding with no Atom, and `func compareRunNotes` in cmd/bentoo
+	// turns it into the report's run-scoped note — so this is the same claim one
+	// step earlier, where it is a value rather than a word to grep for.
+	EstablishFindings(report)
+	var skip *Finding
+	for i := range report.Findings {
+		if report.Findings[i].Kind == FindingBaselineSkipped {
+			skip = &report.Findings[i]
+			break
+		}
 	}
-	if !strings.Contains(rendered, missing) {
-		t.Errorf("the rendered report never names the path that was looked for:\n%s", rendered)
+	if skip == nil {
+		t.Fatalf("no baseline-skipped finding reached the report:\n%+v\nstory 031's rule is that every outcome names its own reach, and silence here claims a reach the run did not have", report.Findings)
+	}
+	if skip.Atom != "" {
+		t.Errorf("the skipped finding names the package %q; the run examined NOTHING, so borrowing one package's name would assert about it something the run never established", skip.Atom)
+	}
+	if !strings.Contains(skip.Detail, missing) {
+		t.Errorf("the finding never names the path that was looked for: %q", skip.Detail)
 	}
 
-	// And the zero value still renders nothing, so a plain compare is untouched.
+	// And the zero value establishes nothing, so a plain compare is untouched.
 	clean := &CompareReport{TotalPackages: 1, ComparedPackages: 1, Results: report.Results}
-	if strings.Contains(FormatReport(clean), "SKIPPED") {
-		t.Error("a report with BaselineSkipped empty renders a SKIPPED line; R7.2 says a run that requested no review prints what it printed yesterday")
+	EstablishFindings(clean)
+	for _, f := range clean.Findings {
+		if f.Kind == FindingBaselineSkipped {
+			t.Error("a report with BaselineSkipped empty establishes a skipped finding; a run that requested no review says nothing about a review")
+		}
 	}
 }
 
@@ -610,22 +628,50 @@ func TestNoBaselineCountIsReportedWithItsDenominator(t *testing.T) {
 		},
 	}
 
-	rendered := FormatReport(report)
-
-	if !strings.Contains(rendered, "1") || !strings.Contains(rendered, "3") {
-		t.Errorf("the report does not state the no-baseline count with the number of packages examined:\n%s", rendered)
+	// Story 047, sub-task 5.5 (S047-R8.2). The old assertion was
+	// `Contains(rendered, "1") || Contains(rendered, "3")` over FormatReport's
+	// whole text, which any two-digit table satisfies; it pinned neither the
+	// count nor the denominator.
+	//
+	// NoBaselineCount is the ONE baseline carrier that is not a finding — it is
+	// run-level, and `func baselineRunFindings` composes only BaselineSkipped —
+	// so the pairing with its denominator happens in its consumer,
+	// `func compareRunNotes` in cmd/bentoo, and is asserted there by
+	// TestCompareRunNotesCarryTheRunLevelFacts/"the baseline coverage is a share
+	// of the packages COMPARED", which pins the literal "1 of the 3 packages
+	// compared" and the silence at zero. What is left for this package is the
+	// count itself and its definition, which is what is asserted here.
+	want := 0
+	for _, r := range report.Results {
+		if !r.Baseline.Found {
+			want++
+		}
 	}
-	// The zero value stays silent, so a plain compare is untouched (R7.2). The
-	// shipped report has never used the word "baseline", so its absence is a
-	// usable proxy for "this story's lines did not render".
+	if want == 0 {
+		t.Fatal("no result has Found=false, so the assertion below would pass for the wrong reason")
+	}
+	if report.NoBaselineCount != want {
+		t.Errorf("NoBaselineCount is %d, want %d — it must equal the number of results with Baseline.Found=false, or the report has two answers to one question (R6.4)", report.NoBaselineCount, want)
+	}
+	if report.ComparedPackages == 0 {
+		t.Error("ComparedPackages is 0, so the count above has no denominator to be a share of, and R6.4 is a count nobody can size")
+	}
+
+	// The zero value stays silent: a run that requested no review establishes no
+	// baseline finding at all, so nothing of this story's can reach a report it
+	// was never asked for (R7.2).
 	quiet := &CompareReport{TotalPackages: 3, ComparedPackages: 3}
 	quiet.Results = append([]CompareResult(nil), report.Results...)
 	for i := range quiet.Results {
 		quiet.Results[i].Baseline = Baseline{}
 		quiet.Results[i].Others = nil
 	}
-	if strings.Contains(strings.ToLower(FormatReport(quiet)), "baseline") {
-		t.Errorf("a report with no baseline data renders a baseline line; a run that requested no review must print what it printed yesterday (R7.2):\n%s", FormatReport(quiet))
+	EstablishFindings(quiet)
+	for _, f := range quiet.Findings {
+		switch f.Kind {
+		case FindingBaseline, FindingBaselineUnexamined, FindingBaselineSkipped, FindingOtherRepo:
+			t.Errorf("a report with no baseline data established %v (%q); a run that requested no review says nothing about a review (R7.2)", f.Kind, f.Detail)
+		}
 	}
 }
 

@@ -1,0 +1,47 @@
+Overlay Comparison
+──────────────────
+  4 package(s) scanned in the Bentoo overlay. 3 also exist in ::gentoo and are compared below; 1
+  exist only here and have nothing to compare against.
+
+  3 comparison(s) were never read: a review nobody requested, a review that was attempted and
+  failed, or a version pair the content check refused. A row whose review failed is marked [reading
+  failed] — the difference is real, the explanation is missing, and no row below was quietly
+  downgraded to hide it.
+
+Redundant — ::gentoo ships the version, and nothing cleared the content check
+─────────────────────────────────────────────────────────────────────────────
+  3 package(s), and not one of them carries a reading. 2 were never compared at all, because the
+  check refuses to diff two different versions; the review died on the other 1. No removal advice
+  follows from either.
+
+  PACKAGE              BENTOO  GENTOO    STATE       DIFF
+  kde-plasma/discover  6.7.4   6.7.4-r1  outdated    not compared
+  kde-plasma/drkonqi   6.7.4   6.7.4-r1  outdated    not compared
+  sys-apps/fwupd       2.1.7   2.1.7     up-to-date  +8/-29
+    differs, and no entry declares why [reading failed]
+
+  A difference is not proof of authorship: ::gentoo also revises ebuilds in place, without a
+  revbump, so a small diff is often our copy having fallen behind rather than work of ours. Diff
+  before removing or declaring.
+
+Needs Rebase — ::gentoo moved ahead of changes of ours, which must be re-applied
+────────────────────────────────────────────────────────────────────────────────
+  No package needs a rebase: nothing here carries changes of ours on top of a version ::gentoo has
+  since moved past.
+
+Keep — the overlay copy is ahead
+────────────────────────────────
+  No package is counted as worth keeping on its own merits.
+
+Unknown — no recommendation
+───────────────────────────
+  1 package(s) are counted as unknown.
+
+  No per-package row reached this report, so the count above is stated without the list it was taken
+  over.
+
+Summary
+───────
+  4 scanned · 3 in both · 1 only here
+  keep 0 · redundant 3 · needs rebase 0 · unknown 1
+  Verdicts count every package scanned; 1 of 4 have no row above.
