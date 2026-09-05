@@ -859,9 +859,9 @@ func comparePackageNotes(rep *overlay.CompareReport) []compareNote {
 //
 // # The baseline review's COVERAGE is rebuilt here, from the producer's counters
 //
-// `func formatBaselineSummary` in internal/overlay/annotate_baseline.go writes
-// the same sentence today and is reached only from the renderer this story
-// retires. The FACTS are read from the report; the SENTENCE is written here,
+// internal/overlay wrote the same sentence until sub-task 4.2 deleted it with
+// the rest of the library's formatting; it was reachable only from the renderer
+// this story retires. The FACTS are read from the report; the SENTENCE is here,
 // because a library that formats a report line is the boundary story 046 closed
 // (S047-D1) — internal/overlay establishes what is true, this file decides how a
 // reader is told.
@@ -930,11 +930,11 @@ func compareRunNotes(rep *overlay.CompareReport, realignRan, judged, noReview bo
 //
 // # Why it is written here and not read from the producer
 //
-// `func runClassificationLines` in internal/overlay/annotate_baseline.go states
-// the same facts and is reached only from `func FormatReport`, the renderer this
-// story retires — so the sentence it published has no consumer once the command
-// stops calling it, while its per-package half travels on the classification
-// findings and is unaffected. The FACTS are re-derived from the report here; the
+// internal/overlay stated the same facts from a run-level line builder reachable
+// only from the renderer this story retires; sub-task 4.2 deleted both, because
+// the sentence they published had no consumer once the command stopped calling
+// it, while its per-package half travels on the classification findings and is
+// unaffected. The FACTS are re-derived from the report here; the
 // SENTENCE is written here, because a library that formats a report line is the
 // boundary story 046 closed (S047-D1). It is the same split
 // `func compareRunNotes` already applies to the baseline coverage above.

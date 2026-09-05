@@ -576,44 +576,6 @@ func formatRealignVerdict(note RealignNote) string {
 	return "NOT justified — " + why + "; the " + axisBaselineLabel + " text that would replace it: " + baseline
 }
 
-// formatRealignSummary renders the run-level line that says how many divergences
-// came back with NO VERDICT, with the number they are a share of (R4.4).
-//
-// This line is R4.4 itself. An unreachable model exits 0 (D9), so the exit code
-// says nothing, and every affected package carries an empty RealignVerdict —
-// which renders as silence, and silence here reads as "every divergence was
-// judged and none objected". The denominator is the point for the reason
-// formatBaselineSummary's is: "12 packages went unjudged" is a different claim
-// out of 12 than out of 237.
-//
-// It renders NOTHING at zero, which is every run that produced a verdict for
-// everything it asked about AND every run that asked about nothing — including
-// every run that requested no review at all, which is what keeps R7.2's
-// byte-identical promise mechanical.
-//
-// It is a run-level SUMMARY and not a finding, on formatBaselineSummary's own
-// argument: it names no package, so a Finding built from it would carry a blank
-// atom — which Finding.Atom permits for exactly one kind and forbids everywhere
-// else — and both numbers it states are already FIELDS the caller is holding
-// (RealignAsked, RealignNoVerdict). Nothing is lost by summarising here: a
-// consumer with the report re-derives the sentence from those two fields, which
-// is the whole of what R5.1 asks for.
-//
-// It chooses NO APPEARANCE (S046-R5.2). The line used to arrive yellow, and a
-// colour is a decision only a terminal can use — the same sentence has to reach
-// a Markdown file, a JSON export and a log unchanged. What is left is
-// arrangement: the blank line that separates it from the report above, and the
-// lead that says which line this is. Off a TTY the result is byte-identical to
-// yesterday's, and story 047 restyles the whole report in the renderers.
-func formatRealignSummary(report *CompareReport) string {
-	if report == nil || report.RealignNoVerdict <= 0 {
-		return ""
-	}
-	return fmt.Sprintf(
-		"\n%s%d of the %d divergences put to the model came back with no verdict — they were not judged, and an unjudged divergence is not a justified one. Everything above was established by reading files and stands without a model.\n",
-		realignSummaryLead, report.RealignNoVerdict, report.RealignAsked)
-}
-
 // CandidateDeclarationsWithVerdict is CandidateDeclarations enriched with the
 // model's reading, which is task 3.3's proposal finished where the model already
 // is (R3.5, R4.1).

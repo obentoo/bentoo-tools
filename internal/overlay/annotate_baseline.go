@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/obentoo/bentoolkit/internal/common/ebuild"
 	"github.com/obentoo/bentoolkit/internal/common/provider"
@@ -570,19 +569,13 @@ func countNoBaseline(results []CompareResult) int {
 	return missing
 }
 
-// The two indents the baseline review prints under.
-//
-// baselineFindingLead is the same "  ↳ " the verification findings and the model
-// commentary already use, so a baseline line reads as one more thing said about
-// the row above rather than as a second report. baselineClassLead sits one level
-// under it, for the per-class counts that belong to the line introducing them.
-//
-// They are constants so a test can name them without copying the wording, on the
-// same argument that made undeclaredDivergenceCaveat one.
-const (
-	baselineFindingLead = "  ↳ "
-	baselineClassLead   = "      "
-)
+// Story 047, sub-task 4.2 addendum: baselineFindingLead and baselineClassLead
+// stood here, the two indents the per-package classification block printed
+// under. Their only readers were renderClassificationLines and
+// classificationClassLines, deleted below with the renderer 4.2 removed, so
+// keeping them would leave this package holding an opinion about an indent it no
+// longer prints. The indent an operator sees is decided by the renderer in
+// internal/common/report, over the notes cmd/bentoo builds from the findings.
 
 // baselineSummaryLead opens the run-level coverage line.
 const baselineSummaryLead = "Baseline coverage: "
@@ -596,35 +589,6 @@ const baselineSummaryLead = "Baseline coverage: "
 // many differences nobody attributed" are different numbers over different
 // denominators, and one line carrying both would be read as one claim.
 const classificationSummaryLead = "Difference classification: "
-
-// formatBaselineFindings renders the baseline review for a section's results,
-// beneath its table and beneath the verification findings.
-//
-// IT RENDERS NOTHING FOR A RESULT WHOSE FIELDS ARE ALL ZERO, which is every
-// result of every run that requested no review — and that is the entire
-// mechanism behind R7.2's byte-identical promise. A report the pass never
-// touched appends the empty string here and prints what it printed yesterday.
-//
-// The other half of that promise is that these fields ARE read: a field written
-// by the review and rendered by nobody would keep the promise true and make it
-// worthless, since the whole story could then ship as dead struct fields.
-//
-// # It is a RENDERER over values, and composes no fact of its own
-//
-// It is baselineResultsFindings' output put into lines, exactly as
-// formatVerificationFindings is renderCompareFindings over compareFindings
-// (S046-R5.1). That is what keeps the sentence an operator reads and the
-// sentence a caller receives ONE statement rather than two spellings free to
-// drift: there is no second place here where a count is interpolated or a
-// reason is worded.
-//
-// The findings are re-established from the SECTION's results rather than sliced
-// out of CompareReport.Findings, for the reason stated there: a section is a
-// subset the caller chose to look at, and the report-level list is deliberately
-// not narrowed by that choice.
-func formatBaselineFindings(results []CompareResult) string {
-	return renderBaselineFindings(baselineResultsFindings(results))
-}
 
 // baselineRunFindings is what the baseline review established about the RUN
 // rather than about any one package: today, exactly the outcome that may never
@@ -749,43 +713,6 @@ func baselineResultFindings(r CompareResult) []Finding {
 	return findings
 }
 
-// renderBaselineFindings turns baseline findings into the lines they print
-// beneath a section's table, and chooses NO APPEARANCE (S046-R5.2).
-//
-// Every line here used to arrive coloured, which is a decision only a terminal
-// can use: the same finding could not then be written to a Markdown file,
-// exported as JSON or logged plain. The LEAD stays — "  ↳ " says this is one
-// more thing said about the row above rather than a second report — because it
-// is structure and not style.
-//
-// Every per-package finding renders in the SAME shape, lead + atom + sentence,
-// which is not a simplification of what was printed before: all thirteen of the
-// coloured lines this replaces were already built that way, and their colours
-// were the only thing distinguishing them. The classification is the one
-// exception, because its counts are three further lines under the sentence that
-// introduces them.
-//
-// A kind that belongs elsewhere renders NOTHING here rather than falling into
-// the shape above. That is deliberate: the comparison's own findings are
-// rendered by renderCompareFindings beneath the same table, and the run-level
-// skip opens the whole report (formatBaselineSkipped) and carries no atom for
-// the shape to interpolate. Listing the kinds instead of taking a default is
-// what keeps a kind added later from silently printing twice.
-func renderBaselineFindings(findings []Finding) string {
-	var sb strings.Builder
-	for _, f := range findings {
-		switch f.Kind {
-		case FindingBaseline, FindingBaselineUnexamined, FindingAxisDivergence,
-			FindingEbuildDeclaration, FindingExpiredDeclaration,
-			FindingOtherRepo, FindingRealignVerdict:
-			fmt.Fprintf(&sb, "%s%s: %s\n", baselineFindingLead, f.Atom, f.Detail)
-		case FindingClassification:
-			sb.WriteString(joinReportLines(renderClassificationLines(f)))
-		}
-	}
-	return sb.String()
-}
-
 // measuredAgainstFindings names the ebuild this package was measured against
 // (R1.1), or says that the one that should have been read could not be.
 //
@@ -908,48 +835,21 @@ func baselineDeclarationFinding(atom string, r CompareResult, declaration Declar
 	return finding
 }
 
-// classificationLines renders one package's per-class counts WITH the total they
-// are a share of (R2.4, R2.5), or nothing for a package nothing was classified
-// for.
+// Story 047, sub-task 4.2 addendum — S047-R8.1: classificationLines stood
+// here. Sub-task 4.2 deleted renderBaselineFindings, its last production caller,
+// which left it exercised only by tests — code nothing calls cannot fail for its
+// own reason, and the eleven green tests over it were reporting on nothing.
 //
-// The three classes get a line each rather than one line with three numbers on
-// it, so that "how many differences are unclassified" can be read without
-// arithmetic — and so that the unclassified count cannot be mistaken for either
-// of the other two, which is what R2.3 is about. An unclassified difference is
-// counted in the third line and in NEITHER of the first two: pushing it into
-// "ours" would invite a realignment of something nobody read, and pushing it
-// into "version move" would subtract deliberate work as noise.
+// The RATIONALE it carried outlives it and is restated on the value below,
+// because it is about the classification and not about its rendering: the three
+// classes are three NUMBERS rather than one, so "how many differences are
+// unclassified" can be read without arithmetic; the denominator is the
+// arithmetic classifiedTotal states rather than a fourth number typed out, since
+// a total computed twice eventually disagrees with itself; and the REACH is
+// carried beside the counts, because a share whose reach is invisible is
+// indistinguishable from a guess (R2.5).
 //
-// The DENOMINATOR is on the line that introduces them, once, and it is the
-// arithmetic classifiedTotal states rather than a fourth number typed out here —
-// three counts whose total is invisible let a reader infer the missing one
-// wrongly, and a total computed twice eventually disagrees with itself.
-//
-// The REACH of the classification is stated beside it too, because a share whose
-// reach is invisible is indistinguishable from a guess (R2.5). Reduced, Span and
-// the version-move count are read together and never separately: false with Span
-// 0 means no third point existed, false with a large Span means one existed and
-// was refused for being too wide, and true with a span but nothing attributed
-// means one was accepted and explained nothing (D5). Those are different facts
-// about the same package, and baselineReachProse is where they are told apart.
-//
-// It takes the whole result rather than the atom and the Classified so a
-// renderer holding one result cannot pair one package's counts with another's
-// name, and it returns LINES rather than a block so the run-level builder below
-// can be assembled and asserted the same way (D-8.1).
-//
-// It is now a RENDERER over classificationFinding's value rather than a second
-// composer of the same sentence (S046-R5.1), which is what stops the line an
-// operator reads and the finding a caller receives from drifting apart.
-//
-// _Requirements: R2, R2.3, R2.4, R2.5, R7.2_
-func classificationLines(r CompareResult) []string {
-	finding, classified := classificationFinding(r)
-	if !classified {
-		return nil
-	}
-	return renderClassificationLines(finding)
-}
+// _Requirements: R2, R2.3, R2.4, R2.5, R7.2, S047-R8.1_
 
 // classificationFinding is one package's classification as a VALUE, and false
 // when nothing was classified for it.
@@ -957,6 +857,13 @@ func classificationLines(r CompareResult) []string {
 // Every result of every run that requested no review is in exactly that state,
 // which is what keeps R7.2's byte-identical promise mechanical here: no
 // classification, no finding, no lines, nothing to join.
+//
+// An UNCLASSIFIED difference is counted in Unclassified and in NEITHER of the
+// other two fields (R2.3). Pushing it into Ours would invite a realignment of
+// something nobody read, and pushing it into VersionMove would subtract
+// deliberate work as noise. That rule used to be stated by the renderer that
+// printed the three classes on three lines; it is a property of the value, so it
+// is stated and asserted here instead.
 //
 // The COUNTS ride on the finding as numbers, in Classified, beside the sentence
 // that reads them out. That is the whole of R5.2 for this block: a consumer
@@ -978,97 +885,14 @@ func classificationFinding(r CompareResult) (Finding, bool) {
 	}, true
 }
 
-// renderClassificationLines lays one classification finding out as the lines the
-// report prints: the sentence that introduces the counts, then the counts.
-//
-// It reads the finding's own Classified rather than a second parameter, on the
-// argument baselineReachProse already makes about the same value — a caller
-// passing the counts alongside the finding carrying them would be a second way
-// of saying what was attributed, and eventually a second answer.
-func renderClassificationLines(f Finding) []string {
-	lead := fmt.Sprintf("%s%s: %s", baselineFindingLead, f.Atom, f.Detail)
-	return append([]string{lead}, classificationClassLines(f.Classified)...)
-}
-
-// runClassificationLines renders the run-level classification block: how many of
-// all the differences this run examined were attributed to the version move, how
-// many to us, and how many to neither — with the number they are a share of
-// (R2.3, R2.5).
-//
-// The denominator is the point, and it is the same point formatBaselineSummary's
-// is. "122 differences were attributed to nobody" is unreadable alone, and "63%
-// unclassified" is worse: 63% of twelve differences in one package and 63% of
-// forty thousand across the overlay are different claims, and a classification
-// whose reach is invisible is indistinguishable from a guess.
-//
-// It is derived ENTIRELY from the per-result Classified fields — no counter on
-// the report, nothing accumulated during the pass. That is not tidiness: it is
-// what makes the block and the per-package lines above it incapable of
-// disagreeing, on the same argument countNoBaseline is a separate walk rather
-// than a counter incremented as the results are annotated.
-//
-// It renders NOTHING when no result carries a classification, which is every run
-// that requested no review (R7.2) — the same predicate, `== (Classified{})`, that
-// silences the per-package lines, so the two cannot fall out of step.
-//
-// _Requirements: R2, R2.3, R2.5, R7.2_
-func runClassificationLines(report *CompareReport) []string {
-	if report == nil {
-		return nil
-	}
-
-	var run Classified
-	packages := 0
-	for _, r := range report.Results {
-		if r.Classified == (Classified{}) {
-			// Never classified — a package with no readable baseline, or any
-			// package at all on a run that asked for no review. Counting it as a
-			// package with zero differences would inflate the reach of the
-			// classification with rows nobody looked at.
-			continue
-		}
-		packages++
-		run.VersionMove += r.Classified.VersionMove
-		run.Ours += r.Classified.Ours
-		run.Unclassified += r.Classified.Unclassified
-	}
-	if packages == 0 {
-		return nil
-	}
-
-	// It is a run-level SUMMARY and not a finding, and that is the same call
-	// renderCompareFindings makes about its section caveat (S046-R5.1): it has
-	// no package to name, so a Finding built from it would carry a blank atom —
-	// which Finding.Atom permits for exactly one kind and forbids everywhere
-	// else. Nothing is lost by that: it is arithmetic over the per-package
-	// classification findings, and a consumer holding those re-derives it
-	// exactly as this loop does.
-	lead := fmt.Sprintf("%s%d differences examined across %d of the packages reviewed — %d of them were attributed to neither the version move nor to us",
-		classificationSummaryLead, classifiedTotal(run), packages, run.Unclassified)
-	return append([]string{lead}, classificationClassLines(run)...)
-}
-
-// classificationClassLines renders the three per-class counts, and is shared by
-// the per-package block and the run-level one so that the second reads as the
-// sum of the firsts rather than as a second way of saying the same thing.
-//
-// Sharing it is not only de-duplication. The two blocks sit in one report, and
-// an operator reads the run-level one as the total of the rows above it — which
-// they can only do if the labels, their order and their indent are the same
-// three, decided once. A class renamed on one of them and not the other would
-// read as two different classifications of the same diff.
-//
-// _Requirements: R2.3, R2.4_
-func classificationClassLines(classified Classified) []string {
-	return []string{
-		fmt.Sprintf("%sversion move: %d", baselineClassLead, classified.VersionMove),
-		fmt.Sprintf("%sours: %d", baselineClassLead, classified.Ours),
-		// Third and separate, always. An unclassified difference is one the
-		// reduction and the model both declined to attribute, and it is counted
-		// here and in neither line above (R2.3).
-		fmt.Sprintf("%sunclassified: %d", baselineClassLead, classified.Unclassified),
-	}
-}
+// Story 047, sub-task 4.2 addendum — S047-R8.1: renderClassificationLines and
+// classificationClassLines stood here. The first was classificationLines' only
+// helper and the second was its only reader, so both fell with it: a renderer
+// whose last caller is gone is not a renderer, and a test asserting its output
+// asserts nothing an operator can see. What they laid out — the lead sentence,
+// then the three per-class counts under it — is now built by
+// `func comparePackageNotes` in cmd/bentoo from the finding below, and rendered
+// by internal/common/report.
 
 // classifiedTotal is the denominator every one of the three counts is a share
 // of: the number of differences the reduction actually looked at.
@@ -1081,18 +905,6 @@ func classificationClassLines(classified Classified) []string {
 // _Requirements: R2.4, R2.5_
 func classifiedTotal(classified Classified) int {
 	return classified.VersionMove + classified.Ours + classified.Unclassified
-}
-
-// joinReportLines turns a line builder's output into the block the report
-// appends, one line each. It returns "" for no lines, which is what carries a
-// builder's silence through to the rendering unchanged (R7.2).
-func joinReportLines(lines []string) string {
-	var sb strings.Builder
-	for _, line := range lines {
-		sb.WriteString(line)
-		sb.WriteString("\n")
-	}
-	return sb.String()
 }
 
 // baselineReachProse says how far the classification reached, from the three
@@ -1177,36 +989,4 @@ func baselineOtherRepoFinding(atom string, other OtherRepo) Finding {
 		finding.Detail = fmt.Sprintf("also carried by ::%s at %s — informative only, never a baseline", other.Name, other.Version)
 	}
 	return finding
-}
-
-// formatBaselineSummary renders the run-level coverage line: how many packages
-// the review found no ::gentoo counterpart for, WITH the number it is a share of
-// (R6.4).
-//
-// The denominator is the point. "84 packages have no baseline" is unreadable
-// on its own — 84 out of 100 and 84 out of 40,000 are different claims — and the
-// count exists to say how much of the overlay this review could not measure.
-//
-// It is ComparedPackages rather than len(Results) because Results is the VIEW: a
-// --only-redundant run narrows it after the annotation pass has already run, and
-// a denominator that shrank with the filter could print a share larger than one.
-// The wording is careful for the mirror-image reason: with a status filter in
-// play the review ranges over fewer packages than were compared, so the line
-// says what was FOUND rather than asserting anything about the rows it never
-// examined.
-//
-// It renders nothing at 0, which is every run that requested no review (R7.2).
-//
-// It is a run-level SUMMARY and not a finding, on runClassificationLines' own
-// argument: it names no package, so a Finding built from it would carry a blank
-// atom, and it is a count over the per-package findings a consumer already
-// holds. The packages it counts are individually stated — each carries its own
-// zero Baseline — so nothing is lost by summarising them here.
-func formatBaselineSummary(report *CompareReport) string {
-	if report == nil || report.NoBaselineCount <= 0 {
-		return ""
-	}
-	return fmt.Sprintf(
-		"\n%s%d of the %d packages compared were found to have no ::%s counterpart — those are the overlay's own work rather than a divergence from anyone's, and no realignment is proposed for them\n",
-		baselineSummaryLead, report.NoBaselineCount, report.ComparedPackages, baselineRepo)
 }

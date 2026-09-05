@@ -522,33 +522,6 @@ func MarkBaselineSkipped(report *CompareReport, lookedFor string) {
 // made undeclaredDivergenceCaveat one.
 const baselineSkippedLead = "Baseline review SKIPPED: "
 
-// formatBaselineSkipped renders the run-level SKIPPED line, or "" when there is
-// none.
-//
-// "" is the answer for every run that requested no review, which is what keeps
-// `overlay compare` printing exactly what it printed yesterday (R7.2): the field
-// is additive and its zero value renders nothing at all.
-//
-// The text names an operator-configured path, so it is passed as an ARGUMENT and
-// never as a format string, exactly like every other piece of text this report
-// prints.
-//
-// It chooses NO APPEARANCE (S046-R5.2). The line used to arrive yellow, which is
-// a decision only a terminal can use and one this library had no business
-// making: the same sentence has to reach a Markdown file, a JSON export and a
-// log unchanged. The FACT is already a value the caller holds twice over —
-// report.BaselineSkipped and the FindingBaselineSkipped entry MarkBaselineSkipped
-// establishes — so what is left here is arrangement: the blank line that
-// separates it from the report, and the lead that says which line this is.
-// Off a TTY the result is byte-identical to yesterday's, and story 047 is where
-// the report's appearance is decided again, in the renderers.
-func formatBaselineSkipped(report *CompareReport) string {
-	if report.BaselineSkipped == "" {
-		return ""
-	}
-	return fmt.Sprintf("\n%s%s\n", baselineSkippedLead, report.BaselineSkipped)
-}
-
 // splitBaselineAtom splits "category/package" and refuses anything else.
 //
 // It is spelled here rather than reused from autoupdate.SplitPackageKey because

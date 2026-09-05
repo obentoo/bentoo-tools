@@ -119,25 +119,42 @@ func TestClassificationReachReadsReducedAndSpanTogether(t *testing.T) {
 	}
 }
 
-// TestClassificationReachReachesTheRenderedLines is the other half: the reach is
-// established correctly above and must arrive on the line the operator reads.
-// The counts and the reach are one sentence on purpose — a total with no reach
-// beside it is a number whose worth cannot be judged.
+// TestClassificationReachTravelsWithTheCounts is the other half: the reach is
+// established correctly above and must arrive BESIDE THE COUNTS, on the value a
+// consumer receives. The counts and the reach are one statement on purpose — a
+// total with no reach beside it is a number whose worth cannot be judged.
 //
-// _Requirements: R2, R2.4, R2.5_
-func TestClassificationReachReachesTheRenderedLines(t *testing.T) {
+// Story 047, sub-task 4.2 addendum (S047-R8.1): it was
+// TestClassificationReachReachesTheRenderedLines and asked classificationLines
+// for a line. That builder lost its last production caller when 4.2 deleted
+// renderBaselineFindings, so the claim is taken where the classification leaves
+// this package now — the FindingClassification that classificationFinding
+// establishes and EstablishFindings composes into the report, whose Detail is
+// the field a reader's sentence is built from.
+//
+// Nothing is copied: production's own baselineReachProse is both sides of the
+// comparison, so a rewording moves them together and only DROPPING the reach
+// fails. The counts are asserted as INTEGERS off Classified, which is the half
+// no rendering can be mistaken for.
+//
+// _Requirements: R2, R2.4, R2.5, S047-R8.1_
+func TestClassificationReachTravelsWithTheCounts(t *testing.T) {
 	for _, state := range classificationReachStates() {
 		t.Run(state.name, func(t *testing.T) {
-			lines := classificationLines(CompareResult{
+			finding, classified := classificationFinding(CompareResult{
 				Category: "net-libs", Package: "nodejs",
 				Classified: state.classified,
 			})
-			if len(lines) == 0 {
-				t.Fatal("a classified package rendered no lines; the reduction reached no report (R2.4)")
+			if !classified {
+				t.Fatal("a classified package established no classification; the reduction reached no consumer (R2.4)")
 			}
-			if !strings.Contains(lines[0], baselineReachProse(state.classified)) {
-				t.Errorf("the lead line is %q and does not carry the reach %q; the total is printed without saying what it is worth (R2.5)",
-					lines[0], baselineReachProse(state.classified))
+			if finding.Classified != state.classified {
+				t.Errorf("the classification carries %+v, want %+v; the counts a reader is given and the counts the reduction made must not be two answers",
+					finding.Classified, state.classified)
+			}
+			if !strings.Contains(finding.Detail, baselineReachProse(state.classified)) {
+				t.Errorf("the classification reads %q and does not carry the reach %q; the total is stated without saying what it is worth (R2.5)",
+					finding.Detail, baselineReachProse(state.classified))
 			}
 		})
 	}
@@ -163,7 +180,9 @@ func TestClassificationReachReachesTheRenderedLines(t *testing.T) {
 // together with the two that are already there.
 //
 // Borrowed, never re-declared: `Classified` (reduce.go), `baselineReachProse`
-// and `classificationLines` (annotate_baseline.go), `CompareResult`.
+// and `classificationFinding` (annotate_baseline.go), `CompareResult`.
+// (Story 047, sub-task 4.2 addendum: it borrowed `classificationLines`, which
+// was deleted with the renderer that was its last caller.)
 //
 // # PINNED CONTRACT (design.md D5)
 //
@@ -342,21 +361,30 @@ func TestClassificationReachDoesNotClaimASubtractionThatDidNotHappen(t *testing.
 			explainedNothing, span)
 	}
 
-	// And it must reach the line the operator actually reads. R2.3 is about the
-	// REPORT, not about a helper nobody prints.
-	t.Run("on the rendered line", func(t *testing.T) {
-		lines := classificationLines(CompareResult{
+	// And it must reach the value a consumer actually receives. R2.3 is about the
+	// REPORT, not about a helper nobody reads.
+	//
+	// Story 047, sub-task 4.2 addendum (S047-R8.1): this asked classificationLines
+	// for a line. That builder had no production caller left after 4.2, so the
+	// same claim is made against the classification finding — the value the
+	// sentence an operator reads is built from — and the version-move count it
+	// carries is checked as an INTEGER, so the guard cannot be satisfied by prose.
+	t.Run("on the established classification", func(t *testing.T) {
+		finding, classified := classificationFinding(CompareResult{
 			Category: "net-libs", Package: "nodejs",
 			Classified: fifthReachExplainedNothing(),
 		})
-		if len(lines) == 0 {
-			t.Fatal("a classified package rendered no lines; the reduction reached no report (R2.4)")
+		if !classified {
+			t.Fatal("a classified package established no classification; the reduction reached no consumer (R2.4)")
 		}
-		if strings.Contains(lines[0], fifthReachSubtractionClaim) {
-			t.Errorf("the lead line still claims a subtraction over a version-move count of 0:\n  %s", lines[0])
+		if finding.Classified.VersionMove != 0 {
+			t.Fatalf("the classification attributes %d differences to a version move; this subtest is about a subtraction that did NOT happen, and every assertion below would be about the wrong state", finding.Classified.VersionMove)
 		}
-		if !strings.Contains(lines[0], explainedNothing) {
-			t.Errorf("the lead line is %q and does not carry the reach %q; the total is printed without saying what it is worth (R2.5)", lines[0], explainedNothing)
+		if strings.Contains(finding.Detail, fifthReachSubtractionClaim) {
+			t.Errorf("the classification still claims a subtraction over a version-move count of 0:\n  %s", finding.Detail)
+		}
+		if !strings.Contains(finding.Detail, explainedNothing) {
+			t.Errorf("the classification reads %q and does not carry the reach %q; the total is stated without saying what it is worth (R2.5)", finding.Detail, explainedNothing)
 		}
 	})
 }

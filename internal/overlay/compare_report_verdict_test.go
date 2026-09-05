@@ -82,6 +82,14 @@ import (
 //	func classificationLines(r CompareResult) []string        // per package
 //	func runClassificationLines(rep *CompareReport) []string  // per run, with the denominator
 //
+// NEITHER OF THOSE EXISTS ANY MORE. Story 047 moved the rendering out of this
+// package: sub-task 4.2 deleted the renderer that called them, the run-level
+// builder went with it, and the 4.2 addendum deleted the per-package one. The
+// contract this file now holds is `func classificationFinding(r CompareResult)
+// (Finding, bool)` — the same counts, the same sentence, as a value — and the
+// count-with-its-denominator that reaches an operator is pinned by
+// TestCompareRunClassificationShareReachesTheReport in cmd/bentoo.
+//
 // Two pure line builders, following the precedent
 // overlay_compare_summary_test.go states for the summary: assert on the builder
 // rather than on captured log output, because logger binds its io.Writer at
@@ -120,48 +128,59 @@ func classificationResult(versionMove, ours, unclassified int, reduced bool) Com
 	}
 }
 
-// classificationLineWith returns the first line mentioning `keyword`, and fails
-// the test when none does — a missing line and an empty line are different
-// failures and only one of them is this sub-task's.
-func classificationLineWith(t *testing.T, lines []string, keyword string) string {
-	t.Helper()
-	for _, l := range lines {
-		if strings.Contains(strings.ToLower(l), keyword) {
-			return l
-		}
-	}
-	t.Fatalf("no line mentions %q; the classification is reported without one of its three classes:\n%s", keyword, strings.Join(lines, "\n"))
-	return ""
-}
+// Story 047, sub-task 4.2 addendum — S047-R8.1: classificationLineWith stood
+// here. It picked the first rendered line mentioning a class name, and every
+// caller it had is migrated below off the rendered lines and onto the value the
+// classification actually establishes. A helper for a rendering nothing produces
+// is one more thing that reads as coverage and is not.
 
 // TestClassificationCountsSumToTheTotal is R2.4 and R2.5 read together: the
-// three counts and the total are one arithmetic, and a report that shows two of
-// the three lets the third be inferred wrongly.
+// three counts and the total are one arithmetic, and a consumer given two of the
+// three lets the third be inferred wrongly.
 //
-// _Requirements: R2, R2.4, R2.5_
+// Story 047, sub-task 4.2 addendum (S047-R8.1): it read the digits back out of
+// the lines classificationLines built, and that builder lost its last production
+// caller when 4.2 deleted renderBaselineFindings. The counts are now read as
+// INTEGERS off the Classified the finding carries, which is the stronger form of
+// the same claim — `strings.Contains(joined, "22")` passed on any text holding a
+// 2 and a 2. The DENOMINATOR keeps one assertion on the sentence, because it is
+// stated there and computable everywhere else, and R2.4 is that it be STATED;
+// the constants are chosen so no count is a substring of another or of the total.
+//
+// _Requirements: R2, R2.4, R2.5, S047-R8.1_
 func TestClassificationCountsSumToTheTotal(t *testing.T) {
 	res := classificationResult(classificationVersionMove, classificationOurs, classificationUnclassified, true)
-	lines := classificationLines(res)
 
-	if len(lines) == 0 {
-		t.Fatal("classificationLines produced nothing for a classified result; the per-package counts reach no report (R2.4)")
+	if sum := res.Classified.VersionMove + res.Classified.Ours + res.Classified.Unclassified; sum != classificationTotal {
+		t.Fatalf("the fixture itself does not add up (%d != %d); every assertion here would be about the wrong arithmetic", sum, classificationTotal)
 	}
-	joined := strings.Join(lines, "\n")
 
-	for label, want := range map[string]int{
-		"version move": classificationVersionMove,
-		"ours":         classificationOurs,
-		"unclassified": classificationUnclassified,
-		"total":        classificationTotal,
+	finding, classified := classificationFinding(res)
+	if !classified {
+		t.Fatal("no classification was established for a classified result; the per-package counts reach no consumer (R2.4)")
+	}
+
+	for _, class := range []struct {
+		label string
+		got   int
+		want  int
+	}{
+		{"version move", finding.Classified.VersionMove, classificationVersionMove},
+		{"ours", finding.Classified.Ours, classificationOurs},
+		{"unclassified", finding.Classified.Unclassified, classificationUnclassified},
 	} {
-		if !strings.Contains(joined, strconv.Itoa(want)) {
-			t.Errorf("the per-package classification never states the %s count (%d):\n%s", label, want, joined)
+		if class.got != class.want {
+			t.Errorf("the classification states %d for the %s count, want %d", class.got, class.label, class.want)
 		}
 	}
 
-	sum := res.Classified.VersionMove + res.Classified.Ours + res.Classified.Unclassified
-	if sum != classificationTotal {
-		t.Fatalf("the fixture itself does not add up (%d != %d); every assertion here would be about the wrong arithmetic", sum, classificationTotal)
+	if total := classifiedTotal(finding.Classified); total != classificationTotal {
+		t.Errorf("the denominator is %d, want %d; the three counts and the total they are a share of are one arithmetic (R2.4)", total, classificationTotal)
+	}
+	// And it has to be SAID. Three counts whose total is invisible let a reader
+	// infer the missing one wrongly, which is the whole of R2.5 here.
+	if !strings.Contains(finding.Detail, strconv.Itoa(classificationTotal)) {
+		t.Errorf("the classification reads %q and never states the %d differences its counts are a share of (R2.5)", finding.Detail, classificationTotal)
 	}
 }
 
@@ -171,22 +190,36 @@ func TestClassificationCountsSumToTheTotal(t *testing.T) {
 // prevent: "ours" would invite a realignment of something nobody read, and
 // "version move" would subtract deliberate work as noise.
 //
-// _Requirements: R2, R2.3, R2.5_
+// Story 047, sub-task 4.2 addendum (S047-R8.1): "in neither column" used to mean
+// "the count is not a substring of the other two lines". The columns are three
+// FIELDS, so the claim is now arithmetic on them — the two attributed classes
+// hold the total minus the unclassified, and an unclassified difference is
+// therefore counted once, in the third field and in neither of the other two.
+// That cannot be satisfied by a rendering, and it cannot pass on a coincidence
+// of digits.
+//
+// _Requirements: R2, R2.3, R2.5, S047-R8.1_
 func TestClassificationUnclassifiedIsInNeitherColumn(t *testing.T) {
-	lines := classificationLines(classificationResult(classificationVersionMove, classificationOurs, classificationUnclassified, true))
-
-	versionLine := classificationLineWith(t, lines, "version")
-	oursLine := classificationLineWith(t, lines, "ours")
-	unclassifiedLine := classificationLineWith(t, lines, "unclassified")
-
-	if !strings.Contains(unclassifiedLine, strconv.Itoa(classificationUnclassified)) {
-		t.Errorf("the unclassified line is %q, want it to state %d", unclassifiedLine, classificationUnclassified)
+	finding, classified := classificationFinding(classificationResult(classificationVersionMove, classificationOurs, classificationUnclassified, true))
+	if !classified {
+		t.Fatal("no classification was established for a classified result; the per-package counts reach no consumer (R2.4)")
 	}
-	if strings.Contains(versionLine, strconv.Itoa(classificationUnclassified)) {
-		t.Errorf("the version-move line is %q and carries the unclassified count %d; a difference nobody attributed must not be counted as version noise (R2.3)", versionLine, classificationUnclassified)
+	got := finding.Classified
+
+	if got.Unclassified != classificationUnclassified {
+		t.Errorf("the unclassified count is %d, want %d", got.Unclassified, classificationUnclassified)
 	}
-	if strings.Contains(oursLine, strconv.Itoa(classificationUnclassified)) {
-		t.Errorf("the ours line is %q and carries the unclassified count %d; a difference nobody attributed must not be counted as ours (R2.3)", oursLine, classificationUnclassified)
+	if got.VersionMove != classificationVersionMove {
+		t.Errorf("the version-move count is %d, want %d; if the %d differences nobody attributed have been folded in here, deliberate work is being subtracted as version noise (R2.3)",
+			got.VersionMove, classificationVersionMove, classificationUnclassified)
+	}
+	if got.Ours != classificationOurs {
+		t.Errorf("the ours count is %d, want %d; if the %d differences nobody attributed have been folded in here, the report invites a realignment of something nobody read (R2.3)",
+			got.Ours, classificationOurs, classificationUnclassified)
+	}
+	if attributed := got.VersionMove + got.Ours; attributed != classificationTotal-classificationUnclassified {
+		t.Errorf("the two attributed classes hold %d of %d differences while %d are unclassified; an unclassified difference is counted in the third class and in NEITHER of the other two (R2.3)",
+			attributed, classificationTotal, classificationUnclassified)
 	}
 }
 
@@ -195,84 +228,71 @@ func TestClassificationUnclassifiedIsInNeitherColumn(t *testing.T) {
 // unclassified — not "ours by elimination", which is the tempting shortcut and
 // the one that would propose realigning 492 lines of deliberate slotting work.
 //
-// _Requirements: R2, R2.3, R2.5, R4.4_
+// Story 047, sub-task 4.2 addendum (S047-R8.1): asserted on the value rather
+// than on the lines classificationLines built, for the reason above it. The
+// reach keeps one assertion, because three zeroes with no reach beside them read
+// as a package there was nothing to classify for rather than as one nothing
+// could be attributed for — which is the distinction R2.5 exists to keep.
+//
+// _Requirements: R2, R2.3, R2.5, R4.4, S047-R8.1_
 func TestClassificationWithNoModelReportsEverythingUnclassified(t *testing.T) {
 	// Reduced=false is D3's third preference: no usable third point, so nothing
 	// was subtracted and no model spoke.
-	res := classificationResult(0, 0, classificationTotal, false)
-	lines := classificationLines(res)
-
-	versionLine := classificationLineWith(t, lines, "version")
-	oursLine := classificationLineWith(t, lines, "ours")
-	unclassifiedLine := classificationLineWith(t, lines, "unclassified")
-
-	if !strings.Contains(unclassifiedLine, strconv.Itoa(classificationTotal)) {
-		t.Errorf("the unclassified line is %q, want all %d differences reported there", unclassifiedLine, classificationTotal)
+	finding, classified := classificationFinding(classificationResult(0, 0, classificationTotal, false))
+	if !classified {
+		t.Fatal("no classification was established although the reduction ran; a package whose every difference is unclassified is still classified (R2.4)")
 	}
-	for _, line := range []string{versionLine, oursLine} {
-		if strings.Contains(line, strconv.Itoa(classificationTotal)) {
-			t.Errorf("%q claims %d differences although nothing was attributed; with no model and no third point, 'ours by elimination' is a guess wearing a count", line, classificationTotal)
-		}
-	}
-}
+	got := finding.Classified
 
-// TestRunClassificationStatesItsDenominator is the requirement's whole point. A
-// share without its denominator — "63% attributed" — is unreadable: 63% of
-// twelve differences in one package and 63% of forty thousand across the overlay
-// are different claims, and a classification whose reach is invisible is
-// indistinguishable from a guess.
-//
-// _Requirements: R2, R2.5_
-func TestRunClassificationStatesItsDenominator(t *testing.T) {
-	report := &CompareReport{
-		TotalPackages:    2,
-		ComparedPackages: 2,
-		Results: []CompareResult{
-			classificationResult(classificationVersionMove, classificationOurs, classificationUnclassified, true),
-			classificationResult(0, 0, classificationTotal, false),
-		},
+	if got.Unclassified != classificationTotal {
+		t.Errorf("%d differences are reported unclassified, want all %d of them", got.Unclassified, classificationTotal)
 	}
-
-	lines := runClassificationLines(report)
-	if len(lines) == 0 {
-		t.Fatal("runClassificationLines produced nothing; the run-level share is the line 8.1 exists to add")
+	if got.VersionMove != 0 || got.Ours != 0 {
+		t.Errorf("the classification attributes %d differences to a version move and %d to us although nothing was subtracted and no model spoke; 'ours by elimination' is a guess wearing a count",
+			got.VersionMove, got.Ours)
 	}
-	joined := strings.Join(lines, "\n")
-
-	// The denominator: every difference the run examined, across both packages.
-	wantExamined := 2 * classificationTotal
-	if !strings.Contains(joined, strconv.Itoa(wantExamined)) {
-		t.Errorf("the run-level lines never state how many differences were EXAMINED (%d):\n%s\na share without its denominator is the failure R2.5 exists to prevent", wantExamined, joined)
-	}
-	// The numerator that matters: the second package contributed its whole diff
-	// to the unclassified column, so the run's unclassified share is large and
-	// must be visible rather than averaged away.
-	wantUnclassified := classificationUnclassified + classificationTotal
-	if !strings.Contains(joined, strconv.Itoa(wantUnclassified)) {
-		t.Errorf("the run-level lines never state the unclassified count (%d of %d):\n%s", wantUnclassified, wantExamined, joined)
+	if want := baselineReachProse(got); !strings.Contains(finding.Detail, want) {
+		t.Errorf("the classification reads %q and does not state its reach %q; a total with no reach beside it cannot be told from one nobody looked for (R2.5)", finding.Detail, want)
 	}
 }
 
-// TestClassificationRendersNothingAtItsZeroValue is R7.2 held at the renderer,
+// TestClassificationRendersNothingAtItsZeroValue is R7.2 held at the builder,
 // and it is the reason these lines can be added to a shipped command at all: a
-// plain `compare` fills no Classified, so these builders produce nothing and
-// FormatReport prints exactly what it printed yesterday.
+// plain `compare` fills no Classified, so the builder produces nothing and the
+// run reports exactly what it reported yesterday.
 //
 // Task 6.3's TestAnnotateBaselineZeroValueRendersNothing asserts the same
 // property from the other end, over the whole rendering. This one is the local
 // half: the builder itself is silent, so the silence does not depend on a caller
 // remembering to check.
 //
-// _Requirements: R7.2, R2.5_
-func TestClassificationRendersNothingAtItsZeroValue(t *testing.T) {
-	if lines := classificationLines(CompareResult{Category: "media-libs", Package: "gst-plugins-qt6"}); len(lines) != 0 {
-		t.Errorf("classificationLines produced %q for an unclassified-and-unexamined result; a run without --realign must render exactly what it renders today", lines)
+// Story 047, sub-task 4.2: the run-level half of this test asserted the same
+// silence for the run-level line builder. Both the builder and the renderer that
+// was its only caller are deleted, so a report with no classification now has no
+// run-level line to be silent about. The per-package half below is the whole of
+// what this package still builds.
+//
+// Story 047, sub-task 4.2 addendum (S047-R8.1): the per-package half asked
+// classificationLines for an empty slice, and that builder went the same way.
+// The silence is now asserted where it is DECIDED — classificationFinding
+// returns false for a zero-value Classified — and again at the boundary, since
+// a gate nobody consults is not a gate: EstablishFindings must compose no
+// classification for a package nothing was classified for.
+//
+// _Requirements: R7.2, R2.5, S047-R8.1_
+func TestClassificationEstablishesNothingAtItsZeroValue(t *testing.T) {
+	unexamined := CompareResult{Category: "media-libs", Package: "gst-plugins-qt6"}
+
+	if finding, classified := classificationFinding(unexamined); classified {
+		t.Errorf("a classification was established for an unclassified-and-unexamined result: %+v; a run without --realign must report exactly what it reported yesterday", finding)
 	}
-	empty := &CompareReport{TotalPackages: 1, ComparedPackages: 1, Results: []CompareResult{{
-		Category: "media-libs", Package: "gst-plugins-qt6",
-	}}}
-	if lines := runClassificationLines(empty); len(lines) != 0 {
-		t.Errorf("runClassificationLines produced %q for a report with no classification; the run-level share is emitted only for a review run", lines)
+
+	report := &CompareReport{TotalPackages: 1, ComparedPackages: 1, Results: []CompareResult{unexamined}}
+	EstablishFindings(report)
+	for _, f := range report.Findings {
+		if f.Kind == FindingClassification {
+			t.Errorf("a classification finding reached the report for a package nothing was classified for: %+v", f)
+		}
 	}
 }
 
@@ -330,9 +350,14 @@ func TestClassificationReachesTheRenderedReport(t *testing.T) {
 	if got := found.Classified.Unclassified; got != classificationUnclassified {
 		t.Errorf("Unclassified = %d, want %d", got, classificationUnclassified)
 	}
-	// The sentence the operator reads is still built from the same value, so
-	// the finding and the line cannot drift apart.
-	if lines := renderClassificationLines(*found); len(lines) == 0 {
-		t.Error("the classification finding renders no line; the counts reach a consumer and no reader")
+	// The sentence a reader is given is built from the same value, so the counts
+	// and the sentence cannot drift apart.
+	//
+	// Story 047, sub-task 4.2 addendum (S047-R8.1): this asked
+	// renderClassificationLines, which had no production caller left after 4.2, for
+	// a non-empty slice. Detail is the field that sentence is now rendered from —
+	// by `func comparePackageNotes` in cmd/bentoo — so the claim is made there.
+	if found.Detail == "" {
+		t.Error("the classification finding carries no sentence; the counts reach a consumer and no reader")
 	}
 }

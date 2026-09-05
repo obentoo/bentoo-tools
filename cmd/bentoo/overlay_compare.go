@@ -633,86 +633,6 @@ func filterCompareResults(results []overlay.CompareResult, onlyRedundant, onlyPa
 	return filtered
 }
 
-// printFilteredOutFindings states the findings the comparison established about
-// packages the operator's filter removed from the table (S046-R5.1).
-//
-// # It exists because these facts used to be lost, and could not have been saved
-//
-// A finding printed beneath a section dies with the section. `--only-patched` on
-// an overlay whose undeclared divergences are all unpatched leaves no row, so no
-// section, so no line — and the run that just proved eight packages differ from
-// ::gentoo with nothing declaring why said none of it. Before sub-task 7.1 there
-// was nothing a caller could do about that: the findings existed only as text
-// the renderer had already composed and thrown away. They are values now, the
-// caller is holding them, and this is the caller printing them.
-//
-// # The presentation is deliberately minimal and unstyled
-//
-// One line per finding, its atom, its sentence — no colour, no glyph, no
-// grouping, no table. `overlay compare`'s whole report moves into the report
-// envelope in story 047, which will render these properly and export them; a
-// second styled renderer built here would be a second thing to migrate and a
-// second place for the wording to drift in the meantime.
-//
-// # FindingCompared is skipped, and that is the whole of the filtering
-//
-// Every compared package carries one, so printing them would answer a request to
-// see FEWER packages with a line about every package in the overlay. What is
-// printed is what a section would have printed: the divergences, the stale
-// declarations and the registry declarations. Nothing is printed at all when
-// there are none, so an ordinary empty run — nothing outdated, no filter —
-// reaches this and says nothing, exactly as it does today.
-func printFilteredOutFindings(findings []overlay.Finding) {
-	var lines []string
-	for _, f := range findings {
-		if f.Kind == overlay.FindingCompared {
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("  %s: %s", f.Atom, f.Detail))
-	}
-	if len(lines) == 0 {
-		return
-	}
-
-	logger.Info("")
-	logger.Info("%s", "The comparison still established the following about packages the filter removed:")
-	for _, line := range lines {
-		// Written as an ARGUMENT and never as a format string. A finding's Detail
-		// is built from ebuild text, registry text and — for the effect sentence a
-		// renderer may add later — a language model's words, none of which may
-		// reach a formatter as a format string.
-		logger.Info("%s", line)
-	}
-}
-
-// reportEmptyCompare says why the report has no rows to show.
-//
-// "All packages are up-to-date" is a claim only an UNFILTERED run can make.
-// Reached after a filter it is simply false, and misleading in exactly the way
-// this story exists to remove: --only-redundant on an overlay with nothing to
-// remove would print the very same words as on one whose removal candidates the
-// operator never asked to see. A filtered run therefore names the filter that
-// returned nothing, and the success message stays reserved for the run that
-// looked at everything.
-//
-// This is also the ONLY place that CAN name it. FormatReport takes a
-// *CompareReport and never learns which flags were passed, so its own
-// "All packages are up-to-date!" short-circuit could not name a filter even if
-// it wanted to — which is why the caller filters before testing for emptiness:
-// FormatReport is then never reached with an empty result set, and that
-// sentence is off both paths at once.
-func reportEmptyCompare(repoName string, onlyRedundant, onlyPatched bool) {
-	if filters := activeCompareFilters(onlyRedundant, onlyPatched); len(filters) > 0 {
-		// The names are this function's own literals, so joining them into an
-		// ARGUMENT — never into the format string — costs nothing and keeps the
-		// habit intact for the day one of them is not.
-		logger.Info("%s", output.Sprintf(output.Info,
-			"No package matches %s.", strings.Join(filters, " ")))
-		return
-	}
-	logger.Info("%s", output.Sprintf(output.Success, "All packages are up-to-date with %s!", repoName))
-}
-
 // activeCompareFilters names the presentation filters in play, in the order
 // they are declared, so an empty report can say which question returned nothing
 // instead of claiming the overlay is healthy.
@@ -823,44 +743,6 @@ func truncatePkgName(name string, maxLen int) string {
 		return name + strings.Repeat(" ", maxLen-len(name))
 	}
 	return name[:maxLen-3] + "..."
-}
-
-// printComparisonSummary emits the summary the operator reads after the report.
-//
-// The decision of WHAT to print lives in the pure builders below and the
-// emission is all that stays here, because logger binds its io.Writer once at
-// first use and exposes no setter (`func Default` in logger.go) — so a test
-// can reach the
-// builders and cannot reach this. That split is not decoration: these three
-// lines are the half of UB3 that used to be guaranteed by "no task modifies this
-// function", and adding the verdict counts spends that guarantee. It is replaced
-// by overlay_compare_summary_test.go pinning the lines directly, which is the
-// stronger of the two and was simply not reachable before.
-//
-// Each line is emitted with a "%s" format so the rendered bytes are identical to
-// the per-line Printf form this replaced.
-func printComparisonSummary(report *overlay.CompareReport, repoName string) {
-	for _, line := range comparisonSummaryLines(report) {
-		logger.Info("%s", line)
-	}
-
-	// Stays on Warn and stays in this position: it is a different level, and
-	// moving it would change what a --quiet run shows.
-	if report.ErrorCount > 0 {
-		logger.Warn("  Errors (API issues): %d", report.ErrorCount)
-	}
-
-	for _, line := range verdictSummaryLines(report) {
-		logger.Info("%s", line)
-	}
-
-	// Emitted BESIDE the counts, never folded into them: it qualifies what they
-	// cover, and a line that carries its own caveat is one the eye stops reading
-	// as a count. It also has to survive the counts being silent — the caveat is
-	// about the numbers above, so it prints only when they do.
-	for _, line := range verdictScopeLines(report) {
-		logger.Info("%s", line)
-	}
 }
 
 // comparisonSummaryLines builds the three pre-existing summary lines, verbatim.
