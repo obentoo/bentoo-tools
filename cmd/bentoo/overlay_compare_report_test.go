@@ -43,7 +43,7 @@ func compareFixtureResult(category, pkg string, verdict overlay.Verdict) overlay
 
 func TestBuildCompareReport(t *testing.T) {
 	t.Run("the envelope is fixed per command and not per run", func(t *testing.T) {
-		run := buildCompareReport(&overlay.CompareReport{}, "gentoo")
+		run := buildCompareReport(&overlay.CompareReport{}, "gentoo", nil)
 
 		if run.Schema != report.SchemaVersion {
 			t.Errorf("schema = %d, want %d", run.Schema, report.SchemaVersion)
@@ -74,13 +74,13 @@ func TestBuildCompareReport(t *testing.T) {
 			Results:          []overlay.CompareResult{compareFixtureResult("dev-lang", "go", overlay.VerdictKeep)},
 		}
 
-		if run := buildCompareReport(rep, "gentoo"); run.Complete {
+		if run := buildCompareReport(rep, "gentoo", nil); run.Complete {
 			t.Error("an interrupted run reports Complete true")
 		}
 	})
 
 	t.Run("a nil report is an empty run, not a crash", func(t *testing.T) {
-		run := buildCompareReport(nil, "gentoo")
+		run := buildCompareReport(nil, "gentoo", nil)
 
 		if !run.Complete {
 			t.Error("a nil report claims to have been cut short")
@@ -104,7 +104,7 @@ func TestBuildCompareReport(t *testing.T) {
 			Results: []overlay.CompareResult{compareFixtureResult("dev-lang", "go", overlay.VerdictKeep)},
 		}
 
-		assertCompareSlicesNonNil(t, compareComparePayload(t, buildCompareReport(rep, "gentoo")))
+		assertCompareSlicesNonNil(t, compareComparePayload(t, buildCompareReport(rep, "gentoo", nil)))
 	})
 
 	t.Run("each verdict lands in its own list", func(t *testing.T) {
@@ -115,7 +115,7 @@ func TestBuildCompareReport(t *testing.T) {
 			compareFixtureResult("sys-kernel", "gentoo-kernel", overlay.VerdictUnknown),
 		}}
 
-		payload := compareComparePayload(t, buildCompareReport(rep, "gentoo"))
+		payload := compareComparePayload(t, buildCompareReport(rep, "gentoo", nil))
 		for _, tc := range []struct {
 			list []report.ComparePkg
 			name string
@@ -154,7 +154,7 @@ func TestBuildCompareReport(t *testing.T) {
 			VerdictUnknownCount:     10,
 		}
 
-		payload := compareComparePayload(t, buildCompareReport(rep, "gentoo"))
+		payload := compareComparePayload(t, buildCompareReport(rep, "gentoo", nil))
 		if payload.Scanned != 279 {
 			t.Errorf("Scanned = %d, want 279", payload.Scanned)
 		}
@@ -184,7 +184,7 @@ func TestBuildCompareReport(t *testing.T) {
 			result.Reading = tc.reading
 			rep := &overlay.CompareReport{Results: []overlay.CompareResult{result}}
 
-			payload := compareComparePayload(t, buildCompareReport(rep, "gentoo"))
+			payload := compareComparePayload(t, buildCompareReport(rep, "gentoo", nil))
 			if got := payload.Keep[0].Reading; got != tc.want {
 				t.Errorf("Reading %v crossed as %q, want %q", tc.reading, got, tc.want)
 			}
@@ -199,7 +199,7 @@ func TestBuildCompareReport(t *testing.T) {
 			compareFixtureResultReading("a-cat", "four", overlay.ReadingNotRequested),
 		}}
 
-		if got := compareComparePayload(t, buildCompareReport(rep, "gentoo")).Unread; got != 3 {
+		if got := compareComparePayload(t, buildCompareReport(rep, "gentoo", nil)).Unread; got != 3 {
 			t.Errorf("Unread = %d, want 3", got)
 		}
 	})
@@ -220,7 +220,7 @@ func TestBuildCompareReport(t *testing.T) {
 			result.Verified, result.DiffAdded, result.DiffRemoved = tc.verified, tc.added, tc.removed
 			rep := &overlay.CompareReport{Results: []overlay.CompareResult{result}}
 
-			if got := compareComparePayload(t, buildCompareReport(rep, "gentoo")).Keep[0].Diff; got != tc.want {
+			if got := compareComparePayload(t, buildCompareReport(rep, "gentoo", nil)).Keep[0].Diff; got != tc.want {
 				t.Errorf("%s: Diff = %q, want %q", tc.name, got, tc.want)
 			}
 		}
@@ -231,7 +231,7 @@ func TestBuildCompareReport(t *testing.T) {
 		result.Status = overlay.StatusOutdated
 		rep := &overlay.CompareReport{Results: []overlay.CompareResult{result}}
 
-		if got := compareComparePayload(t, buildCompareReport(rep, "gentoo")).Keep[0].Status; got != "outdated" {
+		if got := compareComparePayload(t, buildCompareReport(rep, "gentoo", nil)).Keep[0].Status; got != "outdated" {
 			t.Errorf("Status = %q, want %q", got, "outdated")
 		}
 	})
@@ -251,7 +251,7 @@ func TestBuildCompareReport(t *testing.T) {
 			},
 		}
 
-		payload := compareComparePayload(t, buildCompareReport(rep, "gentoo"))
+		payload := compareComparePayload(t, buildCompareReport(rep, "gentoo", nil))
 		if got, want := payload.Redundant[0].Reason, "undeclared divergence (+24/-0)"; got != want {
 			t.Errorf("Reason = %q, want %q", got, want)
 		}
@@ -268,7 +268,7 @@ func TestBuildCompareReport(t *testing.T) {
 			},
 		}
 
-		if got := compareComparePayload(t, buildCompareReport(rep, "gentoo")).Keep[0].Reason; got != "" {
+		if got := compareComparePayload(t, buildCompareReport(rep, "gentoo", nil)).Keep[0].Reason; got != "" {
 			t.Errorf("Reason = %q, want empty", got)
 		}
 	})
@@ -290,7 +290,7 @@ func TestBuildCompareReport(t *testing.T) {
 			keep("gst-plugins-ugly", "1.28.6"),
 		}}
 
-		payload := compareComparePayload(t, buildCompareReport(rep, "gentoo"))
+		payload := compareComparePayload(t, buildCompareReport(rep, "gentoo", nil))
 		if len(payload.Keep) != 3 {
 			t.Fatalf("Keep holds %d package(s), want 3 — a group is a view over the list, never a replacement for it", len(payload.Keep))
 		}
@@ -378,7 +378,7 @@ func TestCompareComplete(t *testing.T) {
 			},
 		}
 
-		run := buildCompareReport(rep, "gentoo")
+		run := buildCompareReport(rep, "gentoo", nil)
 
 		if !run.Complete {
 			t.Error("a run that reached every package and read every difference reports itself cut short (S047-R5.1)")
@@ -401,7 +401,7 @@ func TestCompareComplete(t *testing.T) {
 			},
 		}
 
-		run := buildCompareReport(rep, "gentoo")
+		run := buildCompareReport(rep, "gentoo", nil)
 
 		if run.Complete {
 			t.Error("an interrupted run whose last package happened to finish reports Complete true (S047-R5.1)")
@@ -423,7 +423,7 @@ func TestCompareComplete(t *testing.T) {
 			},
 		}
 
-		run := buildCompareReport(rep, "gentoo")
+		run := buildCompareReport(rep, "gentoo", nil)
 
 		if run.Complete {
 			t.Error("a run whose review was killed reports Complete true, so a machine reader trusts a recommendation nobody backed (S047-R5.1)")
@@ -442,7 +442,7 @@ func TestCompareComplete(t *testing.T) {
 			},
 		}
 
-		run := buildCompareReport(rep, "gentoo")
+		run := buildCompareReport(rep, "gentoo", nil)
 
 		if run.Complete {
 			t.Error("a run whose content check refused the pair reports Complete true (S047-R5.1)")
@@ -463,7 +463,7 @@ func TestCompareComplete(t *testing.T) {
 			},
 		}
 
-		run := buildCompareReport(rep, "gentoo")
+		run := buildCompareReport(rep, "gentoo", nil)
 
 		if run.Complete {
 			t.Error("a run whose API lookup errored reports Complete true (S047-R5.1)")
@@ -488,7 +488,7 @@ func TestCompareComplete(t *testing.T) {
 			},
 		}
 
-		run := buildCompareReport(rep, "gentoo")
+		run := buildCompareReport(rep, "gentoo", nil)
 
 		if !run.Complete {
 			t.Error("a --no-review run reports itself incomplete, so a choice the operator made reads as a shortfall (S047-R5.3)")
@@ -511,7 +511,7 @@ func TestCompareComplete(t *testing.T) {
 			},
 		}
 
-		run := buildCompareReport(rep, "gentoo")
+		run := buildCompareReport(rep, "gentoo", nil)
 
 		if !run.Complete {
 			t.Error("a run narrowed by a filter flag reports itself cut short, so the operator's own choice reads as a shortfall (S047-R5.3)")
@@ -522,7 +522,7 @@ func TestCompareComplete(t *testing.T) {
 	})
 
 	t.Run("a nil report is complete, not cut short", func(t *testing.T) {
-		run := buildCompareReport(nil, "gentoo")
+		run := buildCompareReport(nil, "gentoo", nil)
 
 		if !run.Complete {
 			t.Error("a nil report claims to have been cut short (S047-R5.1)")
@@ -547,7 +547,7 @@ func TestCompareNotEvaluated(t *testing.T) {
 			},
 		}
 
-		run := buildCompareReport(rep, "gentoo")
+		run := buildCompareReport(rep, "gentoo", nil)
 
 		if run.NotEvaluated != 6 {
 			t.Errorf("NotEvaluated = %d over ten planned and four reached, want 6 (S047-R5.2)", run.NotEvaluated)
@@ -568,7 +568,7 @@ func TestCompareNotEvaluated(t *testing.T) {
 			},
 		}
 
-		run := buildCompareReport(rep, "gentoo")
+		run := buildCompareReport(rep, "gentoo", nil)
 
 		if run.NotEvaluated != 3 {
 			t.Errorf("NotEvaluated = %d over a gap of 2 plus 1 killed review, want 3 (S047-R5.2)", run.NotEvaluated)
@@ -594,7 +594,7 @@ func TestCompareNotEvaluated(t *testing.T) {
 			},
 		}
 
-		run := buildCompareReport(rep, "gentoo")
+		run := buildCompareReport(rep, "gentoo", nil)
 
 		if run.NotEvaluated != 1 {
 			t.Errorf("NotEvaluated = %d over ONE package that errored and was therefore also unreadable, want 1 (S047-R5.2)", run.NotEvaluated)
@@ -614,7 +614,7 @@ func TestCompareNotEvaluated(t *testing.T) {
 			},
 		}
 
-		run := buildCompareReport(rep, "gentoo")
+		run := buildCompareReport(rep, "gentoo", nil)
 
 		if run.NotEvaluated != 3 {
 			t.Errorf("NotEvaluated = %d over a killed review, a refused pair and an errored lookup, want 3 (S047-R4.3, S047-R5.2)", run.NotEvaluated)
@@ -636,7 +636,7 @@ func TestCompareNotEvaluated(t *testing.T) {
 			},
 		}
 
-		run := buildCompareReport(rep, "gentoo")
+		run := buildCompareReport(rep, "gentoo", nil)
 
 		if run.NotEvaluated != 1 {
 			t.Errorf("NotEvaluated = %d over a negative gap and one killed review, want 1 (S047-R5.2)", run.NotEvaluated)
@@ -656,7 +656,7 @@ func TestCompareNotEvaluated(t *testing.T) {
 			},
 		}
 
-		if run := buildCompareReport(rep, "gentoo"); run.NotEvaluated != 0 {
+		if run := buildCompareReport(rep, "gentoo", nil); run.NotEvaluated != 0 {
 			t.Errorf("NotEvaluated = %d over a run that read every difference, want 0 (S047-R5.2)", run.NotEvaluated)
 		}
 	})

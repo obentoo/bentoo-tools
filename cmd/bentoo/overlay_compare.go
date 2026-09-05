@@ -525,40 +525,70 @@ func runCompare(cmd *cobra.Command, args []string) {
 	// inside CompareOptions above and has already removed its rows, so the
 	// filters compose by intersection without anyone arranging it — each stage
 	// only ever removes.
+	//
+	// The WHOLE run's rows are KEPT before the narrowing replaces them
+	// (S047-R5.2). Every counter on the report survives the filter because it is
+	// a field; the two answers taken by walking the rows do not, so
+	// `func buildCompareReport` in overlay_compare_report.go is handed this
+	// slice and takes them over the whole run. Without it a --only-patched run
+	// that removed a row whose reading failed would report a smaller gap than
+	// the same run unfiltered, and narrowing the view would have made a holed
+	// run look whole.
+	unfiltered := report.Results
 	report.Results = filterCompareResults(report.Results, compareOnlyRedundant, compareOnlyPatched)
 
-	// Display results. Nothing left to show is reported BEFORE FormatReport, so
-	// the report never has to explain an emptiness it cannot see the cause of.
-	if len(report.Results) == 0 {
-		// The run-level SKIPPED line, said here because this path returns before
-		// FormatReport — which opens with it precisely to correct the "All packages
-		// are up-to-date" claim reportEmptyCompare is about to make.
-		reportSkippedBaseline(report)
-		reportEmptyCompare(repoInfo.Name, compareOnlyRedundant, compareOnlyPatched)
-		printFilteredOutFindings(report.Findings)
-		printComparisonSummary(report, repoInfo.Name)
-		exitOnSkippedBaseline(report)
-		return
-	}
-
-	// Print the formatted report
-	fmt.Print(overlay.FormatReport(report))
-
-	// What a review run adds beside the report: that no verdict was produced when
-	// no model was reachable (R4.4), and the candidate declarations a maintainer is
-	// invited to paste (R3.5). Both are printed HERE rather than by the renderer,
-	// which takes a *CompareReport and never learns which flags were passed, and
-	// both render nothing when there is nothing to say.
+	// Present the comparison as the report every other command presents: the
+	// terminal first, then the export (S047-R1.5, S047-R7.2).
+	//
+	// ONE tail now serves the full run and the empty one. The branch that stood
+	// here announced an empty result set BEFORE the renderer, because the
+	// renderer could not explain an emptiness it could not see the cause of; the
+	// report states its own scope in its first section and its own counts in its
+	// last, so an empty run says it in the same words a full one uses, and the
+	// two paths can no longer disagree about what a run reports.
+	//
+	// It runs AFTER the progress region is down — the cleared line above is that
+	// teardown — because both write to stdout, and a report drawn into a live
+	// region is a report the UI redraws over.
+	//
+	// The candidate declarations a review proposes, PRINTED and deliberately not
+	// carried as notes (R3.5).
+	//
+	// Every other fact this command has left the terminal for the report, and
+	// this one must not: a candidate is a multi-line declaration block a
+	// maintainer COPIES back into an ebuild or a registry, and a note is wrapped
+	// to the device by the renderer. Wrapping a declaration re-flows it into
+	// something that no longer pastes back as one well-formed entry, which is the
+	// only thing `--realign` exists to produce. It is not a sentence about the
+	// run, so it does not belong where sentences about the run go.
+	//
+	// It is called DIRECTLY rather than through `func realignAddendum` in
+	// overlay_compare_realign.go, whose other half — the "no verdict was
+	// produced" notice — now crosses as a run note; going through the wrapper
+	// would print that fact twice.
+	//
+	// It follows the VIEW, as it did before the report: it is per-package output
+	// standing beside rows the operator asked to see, so proposing a declaration
+	// for a package `--only-redundant` removed would put a paste block under a
+	// package with no row. That is the opposite direction from the counters
+	// above, and for the opposite reason — a count answers what the run did,
+	// a proposal answers what is on screen.
 	if realignRan {
-		fmt.Print(realignAddendum(report, realignJudged, compareNoReview))
+		fmt.Print(realignCandidateSection(report.Results))
 	}
 
-	// Print summary
-	printComparisonSummary(report, repoInfo.Name)
+	// What no row can carry crosses as NOTES, built by `func compareNotes` in
+	// overlay_compare_report.go: the two run-level facts — that no ::gentoo tree
+	// was reached, and that a review produced no verdict at all — and every
+	// finding beyond the first a package has, which a one-line reason cell has no
+	// room for (S047-R6.1).
+	presentCompareReport(cfg, buildCompareReport(report, repoInfo.Name, unfiltered),
+		compareNotes(report, realignRan, realignJudged, compareNoReview)...)
 
 	// The ONE non-zero condition (R7.5, D9): the review could not locate a
-	// ::gentoo tree, so nothing was examined. It is last because the report is
-	// still worth printing — `compare` did its job — and osExit does not return.
+	// ::gentoo tree, so nothing was examined. It is LAST — after the render and
+	// after the export — because the report is still worth printing and worth
+	// exporting, `compare` did its job, and osExit does not return.
 	exitOnSkippedBaseline(report)
 }
 

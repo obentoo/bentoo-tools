@@ -116,6 +116,28 @@ func compareEnvelope(payload report.CompareRun, complete bool, notEvaluated int)
 // internal/overlay/compare.go fixes that slice onto the report before the
 // filter runs, so every surviving row still finds the finding that explains it.
 //
+// # unfiltered is the WHOLE run's rows, and it is a parameter for one reason
+//
+// Being called after the narrowing costs this function the only population it
+// cannot reconstruct: the rows the filter removed. Every other count is a field
+// the producer maintained and survives untouched, but the two answers taken by
+// walking the rows — `CompareRun.Unread` and the shortfall
+// `func compareNotEvaluated` counts — would be taken over the narrowed view and
+// would then shrink because the operator chose to look at less. A
+// `--only-patched` run whose removed rows carried a failed reading would state
+// a smaller gap than the same run unfiltered, and a filter would have made a
+// holed run look whole — the one direction S047-R5.2 exists to forbid.
+//
+// So the caller keeps the slice before `func filterCompareResults` in
+// overlay_compare.go replaces it, and hands it over here: the LISTS follow
+// rep.Results and show what was asked for, the COUNTS follow this slice and
+// state what the run did.
+//
+// It is a required parameter rather than an optional one because omitting it is
+// exactly the defect above, and an omission that compiles is an omission that
+// ships. A nil says something different and true: this report was never
+// narrowed, so its own rows are the whole run.
+//
 // # The counters are taken from the producer, never subtracted from each other
 //
 // `CompareRun.Scanned`, `InBoth` and `OnlyLocal` each come from a counter
@@ -131,7 +153,7 @@ func compareEnvelope(payload report.CompareRun, complete bool, notEvaluated int)
 // struct that carries five slices per result to pass it by value would be a
 // copy nothing needs. A report is the thing an operator gets INSTEAD of a
 // crash, so building one must not be the moment the crash arrives.
-func buildCompareReport(rep *overlay.CompareReport, repository string) report.Run {
+func buildCompareReport(rep *overlay.CompareReport, repository string, unfiltered []overlay.CompareResult) report.Run {
 	payload := report.CompareRun{
 		Repository:  repository,
 		Redundant:   []report.ComparePkg{},
@@ -163,7 +185,15 @@ func buildCompareReport(rep *overlay.CompareReport, repository string) report.Ru
 		Unknown:     rep.VerdictUnknownCount,
 	}
 
-	reasons := compareReasons(rep.Findings)
+	// The whole run's rows, whatever the operator asked to see. A caller that
+	// never narrowed anything passes nil, and the report's own rows are then
+	// already the whole run.
+	whole := unfiltered
+	if whole == nil {
+		whole = rep.Results
+	}
+
+	reasons, _ := comparePackageFindings(rep.Findings)
 	for _, result := range rep.Results {
 		pkg := comparePkgFacts(result, reasons)
 		switch result.Verdict {
@@ -180,12 +210,19 @@ func buildCompareReport(rep *overlay.CompareReport, repository string) report.Ru
 			// that recommends deleting it.
 			payload.Unknown = append(payload.Unknown, pkg)
 		}
+	}
 
-		// Unread counts every comparison nobody read, which is every reading
-		// state except ReadingDone: a review nobody requested, one the content
-		// check made impossible, and one that was attempted and failed all leave
-		// an operator with a recommendation and no evidence behind it
-		// (S047-R3.1).
+	// Unread counts every comparison nobody read, which is every reading state
+	// except ReadingDone: a review nobody requested, one the content check made
+	// impossible, and one that was attempted and failed all leave an operator
+	// with a recommendation and no evidence behind it (S047-R3.1).
+	//
+	// It is walked over the WHOLE run rather than over the rows above, because
+	// it is a count and it sits in the payload beside counts the producer
+	// maintained over every package. One of the two shrinking under
+	// `--only-patched` while the others did not would put two populations in one
+	// section under one heading (S047-R5.2).
+	for _, result := range whole {
 		if result.Reading != overlay.ReadingDone {
 			payload.Unread++
 		}
@@ -214,7 +251,7 @@ func buildCompareReport(rep *overlay.CompareReport, repository string) report.Ru
 	// Interruption stays a recorded FACT rather than a count — a run cut short
 	// after its last package has a gap of zero and was still cut short — so it
 	// is OR-ed in and never inferred (S047-R5.1).
-	notEvaluated := compareNotEvaluated(rep)
+	notEvaluated := compareNotEvaluated(rep, whole)
 	return compareEnvelope(payload, !rep.Interrupted && notEvaluated == 0, notEvaluated)
 }
 
@@ -269,16 +306,20 @@ func buildCompareReport(rep *overlay.CompareReport, repository string) report.Ru
 // answers "did anybody read this difference", and "nobody was asked to" is a
 // true answer to that question and a false one to this one.
 //
-// # A narrowed view can only lower this number, never raise it
+// # The rows are an ARGUMENT, so the count follows the run and not the view
 //
-// The call site filters Results before this runs, so a row `--only-redundant`
-// removed takes its shortfall with it. That direction is the safe one:
-// dropping rows can only move a run TOWARD complete, so a filter can never be
-// the reason a run reports itself cut short (S047-R5.3). The cost is that a
-// narrowed run can understate a shortfall among rows it was not asked to show;
-// recovering it would take a counter maintained by the producer beside
-// ErrorCount, which no field carries today.
-func compareNotEvaluated(rep *overlay.CompareReport) int {
+// The call site narrows `CompareReport.Results` before this runs, so reading
+// rep.Results here would count only the rows the operator asked to see: a
+// `--only-patched` run would lose the shortfall of every row the filter removed
+// and report itself closer to complete than it was. A choice about what to LOOK
+// AT must not change what the run says it ESTABLISHED (S047-R5.2, S047-R5.3),
+// so the population to walk is passed in and the caller passes the whole run's
+// rows.
+//
+// The report is still the first parameter because the other population — the
+// packages never dispatched — is a pair of counters on it, and those are not
+// narrowed by anything.
+func compareNotEvaluated(rep *overlay.CompareReport, results []overlay.CompareResult) int {
 	// Population one: dispatched never, so established nothing.
 	unreached := rep.TotalPackages - rep.ComparedPackages
 	if unreached < 0 {
@@ -287,7 +328,7 @@ func compareNotEvaluated(rep *overlay.CompareReport) int {
 
 	// Population two: reached, and still short of an answer.
 	unestablished := 0
-	for _, result := range rep.Results {
+	for _, result := range results {
 		switch {
 		case result.Status == overlay.StatusError:
 			// The lookup itself did not come back, so nothing downstream of it
@@ -435,8 +476,26 @@ func compareDiffCell(result overlay.CompareResult) string {
 	}
 }
 
-// compareReasons indexes the findings by atom, keeping the FIRST finding each
-// package has of its own.
+// comparePackageFindings splits the per-package findings in two: the FIRST
+// finding each package has of its own, which becomes its row's reason, and
+// every further finding, which becomes a note naming that package
+// (S047-R6.1).
+//
+// # One walk, so the two halves cannot disagree
+//
+// They are returned together rather than by two functions because they are one
+// partition: the same three exclusions decide both, and a second walk applying
+// them again would be free to drift, in the direction where a finding is either
+// stated twice or stated nowhere.
+//
+// # The second half exists because a ROW can hold one reason
+//
+// `ComparePkg.Reason` is one line and one record per package, so a package with
+// three findings had two of them dropped here — measured on this repo, 11 of the
+// 12 finding kinds are per-atom, so that is the normal case rather than an edge
+// one. A note has no such budget: notes are wrapped by the renderer rather than
+// cut to a column, which is why S047-R6.1 puts an explanation that does not fit
+// a cell there.
 //
 // # FindingCompared is skipped, and skipping it is the whole rule
 //
@@ -468,21 +527,23 @@ func compareDiffCell(result overlay.CompareResult) string {
 // it; the complement is one entry and cannot go stale.
 //
 // A finding with an empty Atom is run-scoped — FindingBaselineSkipped is the
-// one — and is skipped rather than filed under an empty key: no package is
-// named by the empty string, so an entry there could only ever be read by
-// accident.
-func compareReasons(findings []overlay.Finding) map[string]string {
+// one — and is skipped by BOTH halves rather than filed under an empty key: no
+// package is named by the empty string, so an entry there could only ever be
+// read by accident. `func compareRunNotes` is where those are picked up.
+func comparePackageFindings(findings []overlay.Finding) (map[string]string, map[string][]string) {
 	reasons := make(map[string]string, len(findings))
+	extra := make(map[string][]string)
 	for _, finding := range findings {
 		if finding.Kind == overlay.FindingCompared || finding.Atom == "" {
 			continue
 		}
-		if _, seen := reasons[finding.Atom]; seen {
+		if _, seen := reasons[finding.Atom]; !seen {
+			reasons[finding.Atom] = finding.Detail
 			continue
 		}
-		reasons[finding.Atom] = finding.Detail
+		extra[finding.Atom] = append(extra[finding.Atom], finding.Detail)
 	}
-	return reasons
+	return reasons, extra
 }
 
 // compareOneLine collapses every run of whitespace in s to a single space.
@@ -566,11 +627,287 @@ func compareOneLine(s string) string {
 // The two are independent answers to the same report. A terminal that went away
 // mid-write is no reason to also withhold the file, which may be the only copy
 // of the comparison left.
-func presentCompareReport(cfg *config.Config, run report.Run) {
+//
+// # notes are what the RUN has to say about itself, and they are variadic
+//
+// `func compareNotes` builds them; a run with nothing extra to say passes
+// none, and that is why the parameter is variadic where
+// `func buildCompareReport`'s third one is required: passing no note is a true
+// and complete answer, while passing no population would silently understate a
+// gap. They reach the render and NOT the export — they are attached to the
+// sections built here, and `func exportReport` in report_export.go serializes
+// the run's payload, which by decision gains no field for them (S047-R1.5).
+func presentCompareReport(cfg *config.Config, run report.Run, notes ...compareNote) {
 	mode := reportModeOrPlain(cfg)
 	content := report.SectionOptions{ShowAll: autoupdateAll}
-	if err := renderCheckReportIn(mode, run.Sections(content), render.Options{}); err != nil {
+	sections := appendCompareNotes(run.Sections(content), notes)
+	if err := renderCheckReportIn(mode, sections, render.Options{}); err != nil {
 		logger.Warn("the report could not be rendered: %v", err)
 	}
 	exportReport(run)
+}
+
+// appendCompareNotes puts every note where it is read: a note about a package
+// under the section holding that package's rows, a run-scoped one last.
+//
+// # A package's section is found by its ROWS, never by its title
+//
+// `type Section` in internal/common/report/section.go carries no identifier, so
+// the only two ways to recognise a block are its Title and what is in it. A
+// Title is prose — the model's own doc says a consumer matching on one is
+// matching on prose — and it is written in another package, where a reworded
+// heading would silently send every note somewhere else. A row's first cells are
+// this file's own output: `func comparePkgFacts` writes the atom into
+// ComparePkg.Package, and the table carries it verbatim. So the search asks the
+// question the placement actually depends on — which block shows this package —
+// and it cannot be answered wrongly by an edit to a heading.
+//
+// # Last is the fallback, and it is the safe direction
+//
+// A package with no row anywhere — a Keep row not listed without --all, a run
+// whose rows are all counted rather than shown — still has something said about
+// it, and the note names its package, so the association survives the move. A
+// note dropped for want of a home would be the report quietly losing a finding,
+// which is the one outcome S047-R6.1 exists to prevent.
+//
+// # Run-scoped notes go last for the reason they always did
+//
+// `func (r Run) Sections` in internal/common/report/run.go PREPENDS an
+// interruption block when a run is incomplete, so the FIRST block is not a fixed
+// position: filing "no ::gentoo tree was reached" under "Run Interrupted" would
+// explain one gap with another gap's sentence. The last block is the summary the
+// payload always ends with.
+//
+// Writing into the slice is safe because `func (r CompareRun) Sections` in
+// internal/common/report/compare_run.go builds fresh sections on every call, so
+// nothing here reaches back into the payload. A run with no sections at all —
+// reachable only through a nil payload — gets a section of its own rather than a
+// lost note or a panic on an empty slice.
+func appendCompareNotes(sections []report.Section, notes []compareNote) []report.Section {
+	if len(notes) == 0 {
+		return sections
+	}
+	if len(sections) == 0 {
+		texts := make([]string, 0, len(notes))
+		for _, note := range notes {
+			texts = append(texts, note.text)
+		}
+		return []report.Section{{Title: "Run Notes", Notes: texts}}
+	}
+
+	last := len(sections) - 1
+	introduced := make([]bool, len(sections))
+	for _, note := range notes {
+		target := last
+		if note.atom != "" {
+			if at := compareSectionOf(sections, note.atom); at >= 0 {
+				target = at
+			}
+			if !introduced[target] {
+				sections[target].Notes = append(sections[target].Notes, compareNotesLead)
+				introduced[target] = true
+			}
+		}
+		sections[target].Notes = append(sections[target].Notes, note.text)
+	}
+	return sections
+}
+
+// compareSectionOf is the index of the section showing atom, or -1 when no
+// section shows it.
+//
+// It compares against every cell rather than only the first: the package column
+// leads every table this payload builds, but a row is a slice and a table that
+// later leads with something else would otherwise stop being searchable with no
+// test able to see it. No other cell can hold an atom — the rest are versions, a
+// status, a reading and a diff — so widening the search cannot match by accident.
+func compareSectionOf(sections []report.Section, atom string) int {
+	for i, section := range sections {
+		for _, row := range section.Rows.Rows {
+			for _, cell := range row.Cells {
+				if cell == atom {
+					return i
+				}
+			}
+		}
+	}
+	return -1
+}
+
+// compareNote is one sentence the report says beside its tables, and the atom
+// that decides WHERE it is said.
+//
+// The empty atom means run-scoped, which is the producer's own rule: a
+// `type Finding` in internal/overlay/finding.go with no Atom is a fact about the
+// run rather than about a package, and reusing that convention here means one
+// idea is spelled one way on both sides of the seam. A note that names a package
+// is placed with that package's rows by `func appendCompareNotes`; a run-scoped
+// one goes last.
+type compareNote struct {
+	atom string
+	text string
+}
+
+// compareNotesLead introduces a section's package notes once, so a reader meets
+// a sentence rather than a list of loose strings under a table. It is only ever
+// emitted where at least one such note follows it.
+const compareNotesLead = "Beside the reason on each row, the run established more about these packages:"
+
+// compareNotes is everything this run says outside its tables: what it has to
+// say about ITSELF, then what it has to say about individual packages
+// (S047-R1.5, S047-R6.1).
+//
+// The two are built by two functions and concatenated in that order, because
+// that is the order they are read in: the run's own state qualifies everything
+// under it, and a package's extra finding qualifies one row.
+func compareNotes(rep *overlay.CompareReport, realignRan, judged, noReview bool) []compareNote {
+	return append(compareRunNotes(rep, realignRan, judged, noReview), comparePackageNotes(rep)...)
+}
+
+// comparePackageNotes is what a package's row could not carry (S047-R6.1).
+//
+// # It walks the RESULTS, and that is what makes the order deterministic
+//
+// `func CompareWithProvider` in internal/overlay/compare.go sorts its results by
+// category and then package, and `func EstablishFindings` builds the findings by
+// walking those same results in that order. Iterating the results here — rather
+// than the findings, or the map below — therefore produces the same sentences in
+// the same order on every run over one overlay, which is the property S047-R2.4
+// states for groups and which a note list needs for exactly the same reason: two
+// runs a maintainer diffs must differ only where the overlay did.
+//
+// # It walks the NARROWED results, on purpose
+//
+// A note names a package a reader can see, so the population here is the rows
+// the operator asked for and not the whole run. A note about a package
+// `--only-redundant` removed would name a package with no row to be beside — the
+// mirror of the counts, which follow the run precisely because they are NOT
+// beside anything.
+func comparePackageNotes(rep *overlay.CompareReport) []compareNote {
+	if rep == nil {
+		return nil
+	}
+
+	_, extra := comparePackageFindings(rep.Findings)
+	if len(extra) == 0 {
+		return nil
+	}
+
+	var notes []compareNote
+	for _, result := range rep.Results {
+		atom := result.Category + "/" + result.Package
+		for _, detail := range extra[atom] {
+			notes = append(notes, compareNote{
+				atom: atom,
+				// The package is NAMED in the sentence and not only used to
+				// place it: a note is read as prose, several may sit under one
+				// table, and a reader must not have to count rows to learn
+				// which package a sentence is about.
+				text: fmt.Sprintf("%s: %s", atom, compareOneLine(detail)),
+			})
+		}
+	}
+	return notes
+}
+
+// compareRunNotes is what a comparison run has to say about ITSELF: the two
+// run-level facts the terminal output printed beside the table, which no row
+// carries and `type CompareRun` in internal/common/report/compare_run.go has no
+// field for (S047-R1.5).
+//
+// # The baseline fact is HARVESTED from the findings, not re-derived
+//
+// `func baselineRunFindings` in internal/overlay/annotate_baseline.go emits
+// FindingBaselineSkipped with `CompareReport.BaselineSkipped` verbatim as its
+// Detail — the producer has already turned the field into the sentence that
+// names the tree it looked for and the marker it looked for in it. Reading the
+// field here instead would be a second spelling of one fact, free to drift from
+// the one the library publishes.
+//
+// It is RUN-scoped: its Atom is empty, and `func comparePackageFindings` skips exactly
+// those, so no row carries it and it would be lost with nothing to say so. That
+// skip and this harvest are two halves of one decision.
+//
+// # FindingRealignVerdict is NOT harvested here, and that is measured
+//
+// `func baselineResultsFindings` in internal/overlay/annotate_baseline.go writes
+// it WITH an atom, so a realignment verdict is a fact about one package rather
+// than about the run: `func comparePackageFindings` already files it as that package's
+// Reason and the row carries it. Repeating it here would print every verdict
+// twice, once against its package and once against the whole report.
+//
+// # The "no verdict at all" notice is derived from the flags, because nothing
+// records it
+//
+// No finding is written when a review reaches no model — both realign counters
+// simply stay zero — so the report renders silence, and silence there reads as
+// "every divergence was judged and none objected". `func realignAddendum` in
+// overlay_compare_realign.go derives the sentence from the same two flags this
+// takes, for the reason stated there: the renderer never learns which flags were
+// passed.
+//
+// # The baseline review's COVERAGE is rebuilt here, from the producer's counters
+//
+// `func formatBaselineSummary` in internal/overlay/annotate_baseline.go writes
+// the same sentence today and is reached only from the renderer this story
+// retires. The FACTS are read from the report; the SENTENCE is written here,
+// because a library that formats a report line is the boundary story 046 closed
+// (S047-D1) — internal/overlay establishes what is true, this file decides how a
+// reader is told.
+//
+// The denominator is `CompareReport.ComparedPackages` and it may never be a len:
+// Results is the VIEW, narrowed after the review has already run, so a share
+// taken over it could print a fraction larger than one — and, worse, a
+// believable one. `--only-outdated` is what separates the two, comparing three
+// packages and showing two rows, and a report that answered "1 of the 2" there
+// would be claiming it examined everything it was able to. It is the rule the
+// counts in `func buildCompareReport` already follow, said once more because
+// this sentence states a ratio and a ratio has two ways to go wrong (R6.4).
+//
+// It says what was FOUND rather than asserting anything about the packages the
+// review never reached, which is the producer's own wording and the reason it is
+// kept: with a status filter in play the review ranges over fewer packages than
+// were compared. It renders nothing at zero, which is every run that asked for
+// no review.
+//
+// ::gentoo is spelled here rather than taken from the producer's `baselineRepo`,
+// which is unexported: the report's own vocabulary already names that tree in
+// the section titles a reader meets above this note, and exporting a constant to
+// save a word would publish one package's spelling as another's API.
+//
+// # What it deliberately does NOT carry
+//
+// The candidate declarations a `--realign` run proposes are per-package,
+// multi-line paste blocks a maintainer copies, and every note is wrapped to the
+// device by the renderer. They are printed by the run itself, beside the report,
+// and the call site says why.
+func compareRunNotes(rep *overlay.CompareReport, realignRan, judged, noReview bool) []compareNote {
+	if rep == nil {
+		return nil
+	}
+
+	var notes []compareNote
+	for _, finding := range rep.Findings {
+		if finding.Kind == overlay.FindingBaselineSkipped && finding.Atom == "" {
+			notes = append(notes, compareNote{text: compareOneLine(finding.Detail)})
+		}
+	}
+
+	if rep.NoBaselineCount > 0 {
+		notes = append(notes, compareNote{text: fmt.Sprintf(
+			"%d of the %d packages compared were found to have no ::gentoo counterpart — those are the overlay's own work rather than a divergence from anyone's, and no realignment is proposed for them.",
+			rep.NoBaselineCount, rep.ComparedPackages)})
+	}
+
+	if realignRan && !judged {
+		reason := "no model was reachable"
+		if noReview {
+			reason = "--no-review contacted no model"
+		}
+		notes = append(notes, compareNote{text: "Realignment verdicts: none was produced — " + reason +
+			", so every divergence above carries no verdict, and an unjudged divergence is not a justified one. " +
+			"Everything above was established by reading files and stands without a model."})
+	}
+
+	return notes
 }
