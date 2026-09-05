@@ -74,16 +74,70 @@ const (
 	// run establishes live in internal/autoupdate/validate, which
 	// boundary_test.go forbids this package from importing, so the type that
 	// puts them in the payload position sits at the adapter
-	// (cmd/bentoo/overlay_validate_report.go). Story 047 gives it a model of
-	// its own here, with sections; until then only the JSON export carries it,
-	// because that renderer reaches a payload's fields through encoding/json
-	// rather than through Sections.
+	// (cmd/bentoo/overlay_validate_report.go), and it stays there. Only the
+	// JSON export carries that payload's fields, because that renderer reaches
+	// them through encoding/json rather than through Sections.
+	//
+	// # Corrected by story 047's sub-task 2.4
+	//
+	// The sentence above used to read "Story 047 gives it a model of its own
+	// here, with sections; until then only the JSON export carries it". That
+	// was written during story 046, when "047" was the name of whatever came
+	// next, and it is not what 047 turned out to be: 047 declares
+	// KindOverlayCompare below and gives this kind nothing. The dependency
+	// direction stated one paragraph up is unchanged, and it is still the
+	// reason this payload sits at the adapter.
+	//
+	// It is corrected rather than deleted because the prediction was
+	// load-bearing: render/contract_test.go's payloadTypes was told, on the
+	// strength of it, that the entry to add for this kind would be
+	// report.ValidateRun. A prediction left standing after the story it names
+	// has landed reads as a plan rather than as a miss, and the next person to
+	// widen that list would have widened it with the wrong name.
 	//
 	// It is on run_test.go's collision sweep as of 8.1. That was the condition
 	// stated when it was reserved: a kind nothing produces is not yet part of
 	// the contract a consumer filters on, and the change that starts emitting
 	// it is the change that owes the mechanical check.
 	KindOverlayValidate Kind = "overlay.validate"
+	// KindOverlayCompare is `overlay compare`: the run that holds every
+	// package the overlay carries against the copy a chosen repository ships,
+	// and reaches a recommendation about each one. Its payload carries the
+	// repository that was compared against, how much was scanned and how much
+	// the two trees have in common, the packages themselves, and the
+	// four-column verdict tally (S047-R1.1).
+	//
+	// # Its payload is the only one whose lists PARTITION what the run found
+	//
+	// The autoupdate check carries several slices too, and they are three
+	// STAGES over one set of packages — what was scanned, what was planned,
+	// what was validated — so one package appears in all three. The four lists
+	// here are four DISJOINT sets, one per recommendation: remove ours,
+	// re-apply ours, keep ours, and no opinion at all. They are four fields
+	// rather than one list with a verdict column because the advice differs in
+	// kind and not in degree — folding the rebase list into the redundant one
+	// would recommend deleting an ebuild that carries changes the compared
+	// repository has no copy of, which is the most expensive mistake this
+	// report exists to prevent.
+	//
+	// # Declaring it cost no renderer edit, which is the claim it exists to test
+	//
+	// A kind is a discriminator and a payload is an implementation of
+	// Sections, and those two are the whole of what render consumes. The only
+	// files under internal/common/report/render that the sub-task declaring
+	// this constant touched are that package's own guards, which had to learn
+	// that a fifth kind exists; no renderer changed (S047-R1.2).
+	//
+	// # The value is FLAT, and stays flat as the command grows sub-flows
+	//
+	// A later `overlay.compare.realign` would answer true to a consumer
+	// matching `.kind | startswith("overlay.compare")`, which is exactly the
+	// collision the prefix rule above forbids — so every sub-flow shares this
+	// one kind and says which flow it was in through the payload, never
+	// through the discriminator. `overlay.manifest` and `overlay.validate`
+	// beside it are SIBLINGS rather than prefixes, and sharing a domain that
+	// way is what the dotted form is for (S046-R4.4).
+	KindOverlayCompare Kind = "overlay.compare"
 )
 
 // Run is what every report carries, whatever produced it: the envelope.

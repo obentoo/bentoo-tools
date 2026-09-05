@@ -137,14 +137,15 @@ import (
 // SELECTOR a renderer would have to spell to name one — package AND type, not a
 // bare type name.
 //
-// The four payloads this CLI ships, and the entry each contributes:
+// The five payloads this CLI ships, and the entry each contributes:
 //
 //	autoupdate.check   report.AutoupdateCheck
 //	overlay.manifest   report.ManifestRun
 //	snapshot.run       report.SnapshotRun
 //	overlay.validate   validate.Report
+//	overlay.compare    report.CompareRun
 //
-// report.Report is the fifth entry and not a fifth payload: it is the first one
+// report.Report is the sixth entry and not a sixth payload: it is the first one
 // under its previous name. D1 renames it to AutoupdateCheck and moves it into
 // the payload position, so a renderer still holding a Report is holding a
 // payload the rename has not caught up with yet.
@@ -176,10 +177,21 @@ import (
 // would be needed; this catches the reference, with the payload's own remedy
 // attached rather than the import rule's.
 //
-// When story 047 gives the validate run a model of its own in the report
-// package, the entry to ADD here is `report.ValidateRun` — named now so the
-// move does not leave this list short again, which is exactly how it reached
-// four audits covering three payloads.
+// The paragraph above used to close by predicting the next entry: "When story
+// 047 gives the validate run a model of its own in the report package, the
+// entry to ADD here is `report.ValidateRun`". Story 047 gave `overlay validate`
+// no model. It added a FIFTH KIND instead — `overlay.compare`, whose payload is
+// report.CompareRun, declared in the report package and listed below — and this
+// list was widened for that rather than for the name it had been told to
+// expect. run.go carries the correction in full, on KindOverlayValidate; the
+// entry naming validate.Report stays exactly as it was, because that payload is
+// still in `package main` and still unspellable by any renderer.
+//
+// The point the prediction was making survives it, and is worth restating: the
+// name that belongs here is whatever a renderer could actually SPELL. It is the
+// payload type when the payload is in the report package (report.CompareRun),
+// and the reachable half when it is not (validate.Report). Naming the wrong one
+// is how this list reached four audits covering three payloads.
 // It is not derivable from everyKind and everyKind is not derivable from it —
 // payloadKindCount's doc, in contract_payload_matrix_test.go, says why, and the
 // count both lists are censused against is declared there.
@@ -189,6 +201,11 @@ var payloadTypes = []string{
 	"report.ManifestRun",
 	"report.SnapshotRun",
 	"validate.Report",
+	// The fifth payload, added by story 047's sub-task 2.4. Like the three
+	// report.* entries above it, and unlike validate.Report, it names the
+	// payload type ITSELF: CompareRun is declared in the report package, so a
+	// renderer really could spell it and this entry really can fire.
+	"report.CompareRun",
 }
 
 // forbiddenPayloadSelectors is the set the two sweeps match against: every

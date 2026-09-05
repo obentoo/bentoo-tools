@@ -210,6 +210,18 @@ func TestNoThirdKindCollidesWithAnother(t *testing.T) {
 		// `overlay.manifest`, so the two are neighbours in exactly the way a
 		// `.kind | startswith("overlay.")` consumer would notice.
 		"KindOverlayValidate": KindOverlayValidate,
+		// Added by story 047's sub-task 2.4, the change that declares it —
+		// same condition the entry above was held to, applied one story later.
+		//
+		// It is the first kind whose own command has SUB-FLOWS in prospect,
+		// which makes it the first real test of the PREFIX rule rather than a
+		// hypothetical one: `overlay.compare.realign` would answer true to a
+		// consumer matching startswith("overlay.compare"), so the sub-flows
+		// share this one kind and the check below is what keeps that decision
+		// from being quietly reversed. `overlay.manifest` and
+		// `overlay.validate` beside it are siblings and not prefixes, which is
+		// the case the rule must NOT fire on (S046-R4.4, S047-R1.1).
+		"KindOverlayCompare": KindOverlayCompare,
 	}
 
 	for aName, a := range declared {

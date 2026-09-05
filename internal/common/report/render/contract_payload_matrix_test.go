@@ -182,8 +182,8 @@ import (
 )
 
 // payloadKindCount is how many payloads this CLI ships, and therefore how many
-// runs everyKind must build: FOUR — autoupdate.check, overlay.manifest,
-// snapshot.run and overlay.validate.
+// runs everyKind must build: FIVE — autoupdate.check, overlay.manifest,
+// snapshot.run, overlay.validate and overlay.compare.
 //
 // The number is written down because it is the one this file got wrong.
 // everyKind held THREE of the four from sub-task 8.1 — the change that started
@@ -198,9 +198,19 @@ import (
 // self-consistent; the derivation alone would not say what the number IS, and a
 // reviewer would have nothing to check the diff against.
 //
-// Story 047 adds the fifth kind. When it does, this constant, everyKind and
-// payloadTypes change together in one reviewable diff — which is the point of
-// stating the number rather than trusting the literal.
+// Story 047 adds the fifth kind. It did, in sub-task 2.4, and the paragraph
+// above is the record that it cost exactly what was predicted: this constant,
+// everyKind and payloadTypes changed together in one reviewable diff, which is
+// the point of stating the number rather than trusting the literal. A partial
+// edit fails the census loudly — that is the design, not an obstacle, and it is
+// why the three were not staged separately.
+//
+// The fifth kind is `overlay.compare`, and NOT the model for `overlay.validate`
+// that validateDeclaration below predicts a few lines further on. That
+// prediction was written during story 046 when "047" meant "the next story";
+// internal/common/report/run.go carries the correction in full, on
+// KindOverlayValidate. The stand-in stays, because the payload it stands in for
+// is still in `package main`.
 //
 // # Why everyKind and payloadTypes stay two lists, censused against one number
 //
@@ -217,7 +227,7 @@ import (
 // a generated zero value is exactly the vacuous fixture 5.5 ruled out.
 //
 // payloadTypes holds SELECTORS a renderer must not spell — text, matched
-// against source — and two of its five entries have no run here at all, by
+// against source — and two of its six entries have no run here at all, by
 // design. report.Report is a name no type carries any more, kept so the pre-D1
 // spelling cannot come back; validate.Report is a producer type that is not a
 // payload, only the half of one a renderer could reach. A derivation would have
@@ -235,7 +245,7 @@ import (
 // and now derives its set from it through forbiddenPayloadSelectors. That is
 // the drift that actually happened, rather than the one that merely looks
 // untidy.
-const payloadKindCount = 4
+const payloadKindCount = 5
 
 // validateDeclaration stands in for cmd/bentoo's `validatePayload`, the fourth
 // payload — and it is a STAND-IN because the real one cannot be reached from
@@ -383,8 +393,88 @@ func declaredKinds(t *testing.T) []report.Kind {
 	return kinds
 }
 
-// everyKind is one run per payload this story ships. A fifth command adds a
-// line here and changes nothing else — which is the claim being checked.
+// compareFixture is the fifth payload as a run that actually established
+// something: two packages recommended for removal, one owing a rebase, four
+// worth keeping — two of which share a version pair and collapse into a group —
+// and one the run reached no recommendation about.
+//
+// # It is a FUNCTION where the other four entries are literals
+//
+// The groups have to come from report.GroupKeep rather than from a hand-written
+// KeepGroup literal. A group is what the shipped rule produces over the Keep
+// list beside it, so a fixture that typed one by hand could disagree with the
+// rule and every renderer would faithfully draw the disagreement. Building it
+// through the exported rule is also what the adapter does — the one line
+// GroupKeep's own doc writes out — so this fixture exercises the seam rather
+// than imitating its output.
+//
+// # Why it carries ROWS, which is sub-task 5.5's finding restated
+//
+// A fixture carrying counts and no rows renders prose and no table, and a
+// matrix over it would check that five renderers agree about a sentence while
+// never reaching the thing they differ on. Every list below is therefore
+// non-empty, and the keep list is shaped so all three arms of the grouping rule
+// are live: a version pair with two members that becomes a group, a package
+// whose finding keeps it out of that group even though its pair matches
+// (S047-R2.2), and a pair with a single member that stays an ordinary row
+// rather than becoming a group of one (S047-R2.5).
+//
+// The counts are consistent with the lists without being derived from them —
+// nine scanned, eight carried by both trees and one only here, which is exactly
+// the eight rows below plus the package that has nothing to compare against.
+// The payload derives no count from any list and neither does this fixture; the
+// agreement is what makes the rendered summary readable rather than a set of
+// numbers that contradict the tables above them.
+//
+// # The vocabularies are the payload's own, not invented here
+//
+// Reading is one of the four words ComparePkg.Reading documents and Diff one of
+// the four ComparePkg.Diff documents. A fixture spelling either differently
+// would still render — every cell is printed exactly as it is carried — and
+// would silently stop standing in for what the adapter produces.
+//
+// What this does NOT prove is the same thing validateDeclaration disclaims: it
+// is a fact about the RENDERERS over a payload of this shape, not a claim that
+// cmd/bentoo builds one. The adapter's own tests are where that is pinned.
+func compareFixture() report.CompareRun {
+	run := report.CompareRun{
+		Repository: "gentoo",
+		Scanned:    9,
+		InBoth:     8,
+		OnlyLocal:  1,
+		Redundant: []report.ComparePkg{
+			{Package: "app-misc/jq", Local: "1.7.1", Remote: "1.7.1", Status: "up to date", Reading: "not requested", Diff: "identical"},
+			{Package: "app-shells/fish", Local: "3.7.0", Remote: "3.7.1", Status: "outdated", Reading: "failed", Diff: "+12/-4", Reason: "the review died before it read the delta"},
+		},
+		NeedsRebase: []report.ComparePkg{
+			{Package: "dev-lang/rust", Local: "1.79.0-r1", Remote: "1.80.0", Status: "outdated", Reading: "read", Diff: "+41/-3", Reason: "our bootstrap-path patch has no copy in the compared tree"},
+		},
+		Keep: []report.ComparePkg{
+			// These two share a pair and carry no finding: the group.
+			{Package: "media-libs/gst-plugins-base", Local: "1.24.7", Remote: "1.24.6", Status: "newer", Reading: "read", Diff: "not compared"},
+			{Package: "media-plugins/gst-plugins-good", Local: "1.24.7", Remote: "1.24.6", Status: "newer", Reading: "read", Diff: "not compared"},
+			// Same pair, but it has something of its own to say, so grouping
+			// must leave it alone (S047-R2.2).
+			{Package: "dev-python/gst-python", Local: "1.24.7", Remote: "1.24.6", Status: "newer", Reading: "read", Diff: "not compared", Reason: "carries a Bentoo-only patch, so it is not repetition"},
+			// A pair of one, which is a row and never a group (S047-R2.5).
+			{Package: "sys-apps/portage", Local: "3.0.66-r1", Remote: "3.0.66", Status: "newer", Reading: "not requested", Diff: "not compared"},
+		},
+		Unknown: []report.ComparePkg{
+			{Package: "app-crypt/gnupg", Local: "2.4.5", Remote: "2.4.5", Status: "up to date", Reading: "failed", Diff: "unreadable", Reason: "the upstream lookup errored, so no recommendation follows"},
+		},
+		Verdicts: report.VerdictTally{Keep: 5, Redundant: 2, NeedsRebase: 1, Unknown: 1},
+		Unread:   4,
+	}
+
+	// The adapter's own line, and the reason this fixture is a function.
+	run.KeepGroups = report.GroupKeep(run.Keep)
+
+	return run
+}
+
+// everyKind is one run per payload this CLI ships. A sixth command adds a line
+// here and changes nothing else — which is the claim being checked, and which
+// story 047's fifth kind is the first arrival to have tested.
 //
 // "One run per payload" is now ASSERTED by its caller rather than stated here
 // and believed: see payloadKindCount, and the census at the top of
@@ -456,15 +546,31 @@ func everyKind() []report.Run {
 			// and no Go file can import main.
 			Payload: validateDeclaration{},
 		},
+		{
+			Schema: report.SchemaVersion, Kind: report.KindOverlayCompare, Title: "overlay compare",
+			Complete: true,
+			// The fifth payload, added by story 047's sub-task 2.4 — the kind
+			// that payloadKindCount above was written in advance to make
+			// impossible to add without landing here in the same diff.
+			//
+			// Unlike the fourth, this one is the REAL type: CompareRun is
+			// declared in the report package, so no stand-in is needed and none
+			// is used. It is also the widest fixture in this list — four
+			// package lists, a tally, a group produced by the shipped grouping
+			// rule, and six sections — which is exactly what makes it worth
+			// driving through five renderers. compareFixture, above, says why
+			// each list is non-empty.
+			Payload: compareFixture(),
+		},
 	}
 }
 
-// TestEveryPayloadEveryRenderer drives the whole matrix: four payloads by five
+// TestEveryPayloadEveryRenderer drives the whole matrix: five payloads by five
 // renderers, each of which must produce output the payload can be recognised
 // in.
 //
 // "Produced output" is asserted as non-empty AND as naming the run — a renderer
-// that answered "" for every payload would otherwise pass twenty times.
+// that answered "" for every payload would otherwise pass twenty-five times.
 //
 // # The census comes first, and it is what 16.3 added
 //
@@ -494,8 +600,8 @@ func TestEveryPayloadEveryRenderer(t *testing.T) {
 			len(declared), declared, payloadKindCount)
 	}
 
-	// Not just the count: the same four. A run duplicated and a run missing
-	// keep the count at four between them, and that is the arithmetic a bare
+	// Not just the count: the same set. A run duplicated and a run missing
+	// keep the total unchanged between them, and that is the arithmetic a bare
 	// len() cannot see.
 	built := make(map[report.Kind]int, len(runs))
 	for _, run := range runs {
@@ -570,7 +676,7 @@ func TestEveryPayloadEveryRenderer(t *testing.T) {
 }
 
 // TestNoRendererSwitchesOnAPayloadType is the failure mode a matrix alone would
-// miss. Twenty passing combinations are perfectly compatible with a renderer
+// miss. Twenty-five passing combinations are compatible with a renderer
 // that gets there by asking which payload it holds — and that renderer is
 // edited by every command added after it, which is precisely the cost R7.4
 // exists to prevent.
@@ -595,7 +701,7 @@ func TestNoRendererSwitchesOnAPayloadType(t *testing.T) {
 	// TestEveryPayloadEveryRenderer counts its own: a subject list that
 	// silently lost an entry is a sweep that passes by looking for less. The
 	// +1 is report.Report, the pre-D1 name of AutoupdateCheck — the one entry
-	// that is a second spelling of a payload rather than a fourth payload.
+	// that is a second spelling of a payload rather than a payload of its own.
 	if want := payloadKindCount + 1; len(payloadTypes) != want {
 		t.Fatalf("payloadTypes holds %d entries (%v), want %d — one per payload this CLI ships, plus report.Report for the pre-D1 name of the first.\n"+
 			"    A payload with no entry is a payload no renderer is stopped from naming, and both sweeps over this list pass anyway (S046-R7.4, S046-R8.3).",
