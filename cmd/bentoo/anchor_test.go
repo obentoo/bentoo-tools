@@ -34,6 +34,14 @@ import (
 // shallow clone — the guard SKIPS with a named reason, the shape
 // width_debt_subject_test.go already uses.
 //
+// Story 047 NARROWED the first rule rather than repealing it: a `file.go:NN`
+// inside a transcript — pasted command output, recorded as the evidence that a
+// guard bites — is exempt, because it is a record of what a commit printed and
+// not a claim about where something lives. Nothing else about the sweep moved,
+// and the exempted lines are counted and logged. The subject the rule keeps is
+// unchanged; what changed is that it no longer reads evidence as a citation.
+// The reasoning and the recorded proof are on TestAnchorCitationsResolve.
+//
 // Every name carries the TestAnchor prefix.
 
 var (
@@ -56,7 +64,51 @@ var (
 	// citation, so it strengthens the rule without reinterpreting anything
 	// already written.
 	identDecl = regexp.MustCompile("`(?:func|type|var|const)\\s+([A-Za-z_][A-Za-z0-9_]*)")
+
+	// transcriptPrompt opens a TRANSCRIPT: an indented comment line whose text
+	// begins at a shell prompt. Both halves are required, and each rules out a
+	// different way of getting in by accident — a sentence that merely mentions
+	// a dollar sign is not indented, and an indented block of ordinary prose
+	// does not open at a prompt.
+	//
+	// See the "A transcript is not a citation" section on
+	// TestAnchorCitationsResolve for why the exemption exists at all.
+	transcriptPrompt = regexp.MustCompile(`^[\t ]+\$ `)
 )
+
+// commentBody strips a comment's markers, leaving the text a reader sees. The
+// indentation that survives is what godoc reads as a code block, and it is the
+// signal transcriptState runs on — so it must be measured after the `//`, never
+// before it.
+func commentBody(text string) string {
+	if rest, ok := strings.CutPrefix(text, "//"); ok {
+		return rest
+	}
+	if rest, ok := strings.CutPrefix(text, "/*"); ok {
+		return strings.TrimSuffix(rest, "*/")
+	}
+	return strings.TrimSuffix(text, "*/")
+}
+
+// transcriptState advances the in-a-transcript flag by one comment line.
+//
+// A transcript opens at an indented prompt and closes at the first line that is
+// both non-blank and NOT indented — the point ordinary prose resumes. A blank
+// line does not close it, because godoc reads a blank line inside an indented
+// run as part of one code block, and a real `go test` transcript has blank
+// lines in it.
+func transcriptState(inTranscript bool, body string) bool {
+	switch {
+	case transcriptPrompt.MatchString(body):
+		return true
+	case !inTranscript:
+		return false
+	case strings.TrimSpace(body) == "":
+		return true
+	default:
+		return strings.HasPrefix(body, "\t") || strings.HasPrefix(body, "    ")
+	}
+}
 
 // anchorSubjects lists the non-test .go files story 046 touched.
 func anchorSubjects(t *testing.T) []string {
@@ -180,8 +232,14 @@ func declaredNames(t *testing.T, path string) map[string]bool {
 	return names
 }
 
-// eachCommentLine visits every line of every comment in a file.
-func eachCommentLine(t *testing.T, rel string, visit func(line int, text string)) {
+// eachCommentLine visits every line of every comment in a file, telling the
+// visitor whether the line sits inside a transcript.
+//
+// The flag is carried per COMMENT GROUP, because that is the unit a transcript
+// lives in: a doc comment is one group with one *ast.Comment per line, so a
+// block opened on one line has to stay open across the lines that follow it.
+// Resetting per line would close every transcript on the line after its prompt.
+func eachCommentLine(t *testing.T, rel string, visit func(line int, text string, inTranscript bool)) {
 	t.Helper()
 
 	fileSet := token.NewFileSet()
@@ -190,10 +248,12 @@ func eachCommentLine(t *testing.T, rel string, visit func(line int, text string)
 		t.Fatalf("parsing %s: %v", rel, err)
 	}
 	for _, group := range file.Comments {
+		inTranscript := false
 		for _, comment := range group.List {
 			base := fileSet.Position(comment.Pos()).Line
 			for offset, text := range strings.Split(comment.Text, "\n") {
-				visit(base+offset, text)
+				inTranscript = transcriptState(inTranscript, commentBody(text))
+				visit(base+offset, text, inTranscript)
 			}
 		}
 	}
@@ -222,14 +282,74 @@ func unresolvedIdentifier(rel string, line int, named, identifier string) string
 // first form and none of the second, so counting them separately would let the
 // half that is not written yet report a clean zero — and a sweep that reads
 // nothing looks exactly like a sweep that found nothing wrong.
+//
+// # A transcript is not a citation (S047, narrowing this guard)
+//
+// Both rules exempt lines inside a transcript — an indented block opening at a
+// `$ ` prompt, which is how this project records the evidence that a guard
+// fails when its rule is broken (S047-R8.1).
+//
+// The exemption is not a softening: the two rules answer DIFFERENT questions
+// about a `file.go:NN` string, and only one of them applies to pasted output. A
+// citation is a claim a human wrote about where something lives, and it rots
+// because the thing moves and the claim does not. A transcript is a record of
+// what a command printed on a stated commit; its line number is part of the
+// record, and "fixing" it would falsify the evidence rather than refresh it.
+// Nobody is meant to keep it resolving, which is exactly what this guard exists
+// to require of everything else.
+//
+// It stayed invisible until story 047 because anchorSubjects skips `_test.go`
+// and every transcript this project had written lived in a test file. The first
+// one in a non-test file — compare_run.go's, recording the mutation that proves
+// TestPackageDeclaresNoPresentationField bites — met a rule that had never seen
+// its shape and read it as an anchor to keep true.
+//
+// The exempted count is LOGGED beside the swept one, so an exemption that
+// starts eating ordinary citations shows up as a number that grew rather than
+// as a guard that quietly stopped looking.
+//
+// # Recorded evidence that the narrowed guard still bites (S047-R8.1)
+//
+// Measured 2026-09-05 against HEAD 5bd5f92. Two mutations, each applied alone
+// to internal/common/report/compare_run.go, run, and reverted immediately; both
+// restores verified by md5sum against a digest taken beforehand.
+//
+// M1 — the anchor written as PROSE, unindented, outside any transcript. Refused,
+// naming the file, the line and the target:
+//
+//	internal/common/report/compare_run.go:70 anchors compare_run.go to line 42.
+//	swept 19 anchors across 65 non-test files ...; 1 line-number anchors, 0 unresolved
+//	identifiers, 1 exempted inside transcripts
+//	--- FAIL: TestAnchorCitationsResolve (0.69s)
+//
+// M2 — the SAME anchor, moved inside the transcript block and changed in no
+// other way. Exempted, and the exemption is visible in the count rather than
+// silent:
+//
+//	swept 18 anchors across 65 non-test files ...; 0 line-number anchors, 0 unresolved
+//	identifiers, 2 exempted inside transcripts
+//	--- PASS: TestAnchorCitationsResolve (0.73s)
+//
+// The pair is what makes the claim, and neither half makes it alone. M1 shows
+// the rule is still enforced; M2 shows that what changed the verdict is the
+// TRANSCRIPT and not the anchor, since the anchor is the same string in both.
+// The exempted count moving 1 -> 2 is the third fact: the branch is reached and
+// counted, so an exemption that widened would be read off this line instead of
+// having to be inferred from a guard that went quiet.
 func TestAnchorCitationsResolve(t *testing.T) {
 	subjects := anchorSubjects(t)
 	index := goFileIndex(t)
 	declared := map[string]map[string]bool{}
 
-	swept, offRepo, stale, unresolved := 0, 0, 0, 0
+	swept, offRepo, stale, unresolved, transcribed := 0, 0, 0, 0, 0
 	for _, rel := range subjects {
-		eachCommentLine(t, rel, func(line int, text string) {
+		eachCommentLine(t, rel, func(line int, text string, inTranscript bool) {
+			if inTranscript {
+				// Counted, never checked. A transcript's anchors are evidence,
+				// and the count is what keeps this branch honest.
+				transcribed += len(lineAnchor.FindAllStringSubmatch(text, -1))
+				return
+			}
 			for _, hit := range lineAnchor.FindAllStringSubmatch(text, -1) {
 				swept++
 				if resolveAnchoredFile(index, hit[1]) == "" {
@@ -271,7 +391,8 @@ func TestAnchorCitationsResolve(t *testing.T) {
 	}
 
 	t.Logf("swept %d anchors across %d non-test files this story touched (%d name no single file in this "+
-		"tree); %d line-number anchors, %d unresolved identifiers", swept, len(subjects), offRepo, stale, unresolved)
+		"tree); %d line-number anchors, %d unresolved identifiers, %d exempted inside transcripts",
+		swept, len(subjects), offRepo, stale, unresolved, transcribed)
 
 	if swept == 0 {
 		t.Fatal("0 anchors swept: a guard that reads nothing cannot fail, so a zero count is a broken " +
@@ -308,5 +429,48 @@ func TestAnchorCanFail(t *testing.T) {
 			t.Errorf("the failure message does not name %q; it must name both halves, since which one is wrong "+
 				"is the question.\n%s", want, message)
 		}
+	}
+}
+
+// TestAnchorTranscriptClassifier is the hostile case for the S047 exemption.
+//
+// The exemption's whole risk is breadth: a classifier that says "transcript" to
+// everything would turn the guard off while leaving it green, which is the
+// vacuous pass goFileIndex's `.claude` skip was written about. So this walks a
+// comment whose shape is the one compare_run.go actually carries — prose, a
+// prompt, transcript lines, a blank, more transcript, then prose again — and
+// pins the flag at every step. A classifier stuck on either answer fails here.
+func TestAnchorTranscriptClassifier(t *testing.T) {
+	lines := []struct {
+		body string
+		want bool
+		why  string
+	}{
+		{" Mutation: ByCategory renamed, see report.go:311 for the shape.", false, "prose, even naming an anchor"},
+		{"", false, "a blank line outside a transcript opens nothing"},
+		{"\t$ go test ./internal/common/report/ -run TestX -v", true, "an indented prompt opens the block"},
+		{"", true, "a blank line INSIDE the block does not close it"},
+		{"\t=== RUN   TestX", true, "an indented line continues it"},
+		{"\t    boundary_fields_test.go:311: the anchor this guard must not read", true, "the line the exemption exists for"},
+		{"\t--- FAIL: TestX (0.02s)", true, "still inside"},
+		{" The failure names the FILE and the FIELD, which is what a reader needs.", false, "unindented prose closes it"},
+		{"\t    an indented line with no prompt above it", false, "indentation ALONE must not open a transcript"},
+		{" a sentence mentioning $ 5 and a price, unindented", false, "a bare prompt character is not a prompt"},
+	}
+
+	inTranscript := false
+	for i, line := range lines {
+		inTranscript = transcriptState(inTranscript, line.body)
+		if inTranscript != line.want {
+			t.Errorf("line %d (%s): transcriptState = %v, want %v\n    body: %q",
+				i, line.why, inTranscript, line.want, line.body)
+		}
+	}
+
+	if body := commentBody("//\t$ go test ./x"); body != "\t$ go test ./x" {
+		t.Errorf("commentBody kept or ate the wrong prefix: %q", body)
+	}
+	if !transcriptPrompt.MatchString(commentBody("//\t$ go test ./x")) {
+		t.Error("the prompt is not recognised through commentBody, so no transcript in a //-comment can ever open")
 	}
 }
