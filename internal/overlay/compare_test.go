@@ -444,6 +444,10 @@ func TestFormatSummaryZeroCounts(t *testing.T) {
 type fakeProvider struct {
 	delay    time.Duration
 	versions map[string][]string // keyed by "category/pkg"
+	// errs makes a package fail with something other than provider.ErrNotFound,
+	// which is how a caller reaches StatusError. It is keyed like versions and
+	// consulted first; a nil map (the usual case) changes nothing.
+	errs map[string]error
 
 	inFlight    atomic.Int64
 	maxInFlight atomic.Int64
@@ -463,6 +467,9 @@ func (f *fakeProvider) GetPackageVersions(category, pkg string) ([]string, error
 	}
 	if f.delay > 0 {
 		time.Sleep(f.delay)
+	}
+	if err, ok := f.errs[category+"/"+pkg]; ok {
+		return nil, err
 	}
 	v, ok := f.versions[category+"/"+pkg]
 	if !ok {

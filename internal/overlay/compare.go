@@ -93,6 +93,19 @@ type CompareResult struct {
 	// finding that is not an undeclared divergence — carries it, and the renderer
 	// prints nothing for it.
 	Review ReviewNote
+	// Reading is WHETHER ANYBODY READ this result, and when nobody did, why
+	// not. It is a FOURTH field rather than something derived from the three
+	// above for the reason the doc on Review just gave: the zero ReviewNote
+	// covers four unrelated causes at once, so "is Review empty?" answers "no
+	// review reached this" and cannot answer "did anybody read this?" — a
+	// package nobody asked about and a package whose reviewer was killed both
+	// carry the zero note, and only this field tells them apart (S047-R3.1).
+	//
+	// It is filled by AnnotateReviews (review.go), the same pass that fills
+	// Review (S047-R4.1). Its zero value, ReadingNotRequested, is what every
+	// result that pass never reached already carries, so a run with no review
+	// is correct without anything being set.
+	Reading Reading
 
 	// The fields below carry the BASELINE REVIEW: what our ebuild was measured
 	// against, and what that measurement found. They are filled by one pass,
@@ -281,6 +294,56 @@ const (
 	// upstream never had cannot have been inherited from upstream, which is the
 	// one thing two ebuilds and two directories can prove between them (R2.1).
 	AuthorshipOverlay
+)
+
+// Reading is WHETHER ANYBODY EXPLAINED the difference — a third question again,
+// and separate from both its neighbours above on purpose. Verification says
+// whether the two ebuilds DIFFER; Authorship says what the content proves about
+// who wrote the difference; Reading says whether a reading of it was even
+// attempted, and when it was not, why not.
+//
+// It is a type of its own because CompareResult.Review cannot answer that
+// question. The zero ReviewNote covers four unrelated causes at once — a
+// `--no-review` run, no `claude` on PATH, a reviewer that errored, and a
+// finding that is not an undeclared divergence — so reading "Review is empty"
+// as "nobody looked" reports the same thing for a package nobody was ever asked
+// about and for one whose review was killed mid-flight. That conflation is the
+// defect this vocabulary exists to remove (S047-R3.1), and collapsing Reading
+// back into Verification or into Review would reproduce it exactly.
+//
+// The vocabulary lives here with the rest of the compare types, exactly as
+// Verification and Authorship do, while the pass that fills it is wired in
+// separately (AnnotateReviews, review.go).
+type Reading int
+
+const (
+	// ReadingNotRequested means no reading was ever asked for: no reviewer was
+	// configured, or the run passed `--no-review`.
+	//
+	// It is the ZERO VALUE by construction, the same way AuthorshipUnproved is,
+	// so every result no annotation pass reached reads as "not requested"
+	// without anyone setting it. That is what keeps "nobody asked" to ONE
+	// spelling: were it placed anywhere but first, an untouched result and an
+	// annotated one would disagree about the same fact, and a consumer counting
+	// unread packages would be right about some of them and silently wrong
+	// about the rest.
+	ReadingNotRequested Reading = iota
+	// ReadingNotComparable means the content check refused the pair, so there
+	// was never a difference to hand a reader in the first place — one of the
+	// causes NotVerified above lists. It is NOT a failure: nothing was asked of
+	// anybody, and nobody let anybody down.
+	ReadingNotComparable
+	// ReadingFailed means a reading WAS attempted and did not come back — the
+	// reviewer errored, timed out, or was killed.
+	//
+	// Holding it apart from ReadingNotComparable is the point of the type. Both
+	// end with no note on the result, so anything that reports only that
+	// absence says the same thing about a pair nothing could compare and about
+	// a review that died mid-flight — and only the second is a run worth
+	// repeating.
+	ReadingFailed
+	// ReadingDone means a reading returned a usable note.
+	ReadingDone
 )
 
 // deriveVerdict maps the two axes — the version comparison and what the
@@ -475,6 +538,42 @@ type CompareReport struct {
 	// render nothing at 0 (R7.2).
 	RealignAsked     int
 	RealignNoVerdict int
+
+	// Interrupted reports that the run stopped dispatching before it reached the
+	// end of the package list it was handed: the context fired mid-scan, so some
+	// packages were never compared at all.
+	//
+	// It is the one RUN-level fact CompareWithProvider writes itself. The three
+	// above are written by annotation passes that run after it returns; this one
+	// is knowable only inside the dispatch loop, the only code that sees the
+	// difference between "the list ended" and "we stopped".
+	//
+	// # Complete is !Interrupted, and NEVER NotEvaluated == 0
+	//
+	// A run cut short in the instant after its LAST package completed lost
+	// nothing to look at: the gap below is zero and the run was still cut short.
+	// Deriving completeness from that gap would tell the operator who pressed
+	// ctrl+c that their scan ended normally. ManifestResult.Interrupted carries
+	// the same fact for the same reason, and the report envelope negates this
+	// field rather than reading any count (S047-R5.1).
+	//
+	// # The unreached gap is TotalPackages - ComparedPackages, exactly
+	//
+	// ComparedPackages++ runs once per result reaching the collector: before the
+	// switch that splits results by Status, and outside the include filter that
+	// decides what lands in Results. So StatusNotInRemote and StatusError are
+	// counted like any other status, and a row filtered out of Results is
+	// counted too. A package missing from that number is therefore a package
+	// whose worker never ran, and the subtraction has nothing else in it
+	// (S047-R5.2).
+	//
+	// # False is the safe zero value, which is why the field is not named Complete
+	//
+	// A CompareReport built by hand — in a test, or by a caller assembling one —
+	// gets false, and false here means "not interrupted". A Complete bool would
+	// default to "this run was cut short" and quietly draw the interrupted block
+	// over every such report.
+	Interrupted bool
 }
 
 // githubProviderAdapter adapts a *github.Client to the provider.Provider interface,
@@ -513,10 +612,12 @@ func Compare(localPackages []PackageInfo, client *github.Client, opts CompareOpt
 // is treated as DefaultCompareConcurrency). The semaphore is acquired with a
 // context-cancellable select: when opts.Ctx is cancelled the remaining packages
 // are not dispatched and the comparison returns the partial report together
-// with the context error, so a SIGINT aborts a long scan. All writes to the
-// shared report are mutex-guarded, and results are sorted by category/package
-// before returning so the output is deterministic regardless of completion
-// order.
+// with the context error, so a SIGINT aborts a long scan. That stop is also
+// recorded on the report itself, as Interrupted, so a caller reading the report
+// alone can tell a partial scan from a complete one. All writes to the shared
+// report from the worker goroutines are mutex-guarded, and results are sorted by
+// category/package before returning so the output is deterministic regardless of
+// completion order.
 func CompareWithProvider(localPackages []PackageInfo, prov provider.Provider, opts CompareOptions) (*CompareReport, error) {
 	report := &CompareReport{
 		TotalPackages: len(localPackages),
@@ -542,28 +643,34 @@ func CompareWithProvider(localPackages []PackageInfo, prov provider.Provider, op
 		mu       sync.Mutex
 		progress atomic.Uint64
 		total    = uint64(len(localPackages))
-		// cancelled records whether the context fired while packages were
-		// still being dispatched, so the partial report is returned with the
-		// context error (preserving the T9 early-cancellation contract).
-		cancelled bool
 	)
 
+	// report.Interrupted records whether the context fired while packages were
+	// still being dispatched. It is both the loop's own flag and the fact the
+	// report carries away, deliberately kept as ONE variable: a local `cancelled`
+	// copied into the field afterwards is two places to state one thing, and the
+	// error return below could then disagree with what the report says.
+	//
+	// No lock: it is written only by this loop, on the goroutine that called
+	// CompareWithProvider, and read only after wg.Wait(). The workers never touch
+	// it, and it is a distinct memory location from the sibling fields they do
+	// write under mu.
 	for _, pkg := range localPackages {
 		// A select with both cases ready picks at random, so check the context
 		// deterministically first: a context cancelled before (or during) the
 		// call must stop dispatch on EVERY iteration, not just roughly half.
 		if ctx.Err() != nil {
-			cancelled = true
+			report.Interrupted = true
 			break
 		}
 		// Cancellable semaphore acquisition: also stop dispatching if the
 		// caller's context is cancelled while waiting for a free slot.
 		select {
 		case <-ctx.Done():
-			cancelled = true
+			report.Interrupted = true
 		case sem <- struct{}{}:
 		}
-		if cancelled {
+		if report.Interrupted {
 			break
 		}
 
@@ -641,7 +748,7 @@ func CompareWithProvider(localPackages []PackageInfo, prov provider.Provider, op
 	// cost more than the packages it did not get to.
 	EstablishFindings(report)
 
-	if cancelled {
+	if report.Interrupted {
 		return report, ctx.Err()
 	}
 	return report, nil

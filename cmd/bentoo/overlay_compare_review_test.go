@@ -625,10 +625,20 @@ func TestReviewAnnotationEndToEnd(t *testing.T) {
 		if got := report.Results[0].Review; got != want {
 			t.Errorf("the finding carries %+v, want %+v", got, want)
 		}
-		// R5.8: one field changed and nothing else. Clearing it must restore the
+		if got := report.Results[0].Reading; got != overlay.ReadingDone {
+			t.Errorf("the finding carries Reading %d, want ReadingDone (%d): the note landed, so somebody read it (S047-R4.1)",
+				got, overlay.ReadingDone)
+		}
+		// R5.8: only the commentary fields changed. Clearing them must restore the
 		// result the comparison produced, byte for byte.
+		//
+		// TWO fields are cleared since S047-R4.1: Review, the model's words, and
+		// Reading, whether anybody produced any. Both are written by this pass and
+		// neither is anything the report decides — R5.8 is about Verdicts, counts
+		// and grouping, and those are asserted below and unmoved.
 		after := report.Results[0]
 		after.Review = overlay.ReviewNote{}
+		after.Reading = overlay.ReadingNotRequested
 		// DeepEqual rather than ==: CompareResult stopped being comparable when
 		// the baseline review's slice fields (Axes, Declarations, Others) landed
 		// on it. The assertion is unchanged and now reaches further — it is still

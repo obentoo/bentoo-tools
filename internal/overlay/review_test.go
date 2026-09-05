@@ -556,14 +556,47 @@ func cloneReport(report *CompareReport) *CompareReport {
 
 // withoutReviews returns a copy with every commentary field cleared, so two runs
 // can be compared on EVERYTHING ELSE — the grouping, every Verdict, every count
-// (R5.8). Zeroing the one field the pass writes is what makes the comparison an
+// (R5.8). Zeroing the fields the pass writes is what makes the comparison an
 // assertion about the other twenty rather than a tautology.
+//
+// It clears TWO fields since S047-R4.1: Review, the model's words, and Reading,
+// whether anybody produced any. Both are what AnnotateReviews writes and neither
+// is anything the report decides — a Verdict, a count and a table are the same
+// whether a reading happened, failed or was never possible. Leaving Reading in
+// would make this compare an annotated run against an un-annotated one and call
+// the difference a changed Verdict.
 func withoutReviews(report *CompareReport) *CompareReport {
 	clone := cloneReport(report)
 	for i := range clone.Results {
 		clone.Results[i].Review = ReviewNote{}
+		clone.Results[i].Reading = ReadingNotRequested
 	}
 	return clone
+}
+
+// readingsOf returns the reading state of each named package, so an assertion
+// can name a whole set in one line and report every one that is wrong.
+//
+// It exists because the four cases below assert a state PER PACKAGE rather than
+// a count of warnings: the warning said only HOW MANY reviews came back with
+// nothing, and the field says WHICH ONES — which is what the operator needs and
+// what a count could never give.
+func readingsOf(t *testing.T, report *CompareReport, atoms []string) map[string]Reading {
+	t.Helper()
+	got := make(map[string]Reading, len(atoms))
+	for _, atom := range atoms {
+		got[atom] = resultFor(t, report, atom).Reading
+	}
+	return got
+}
+
+// wantReadings builds the expected map: every atom at the same state.
+func wantReadings(atoms []string, state Reading) map[string]Reading {
+	want := make(map[string]Reading, len(atoms))
+	for _, atom := range atoms {
+		want[atom] = state
+	}
+	return want
 }
 
 // warningsNaming returns the captured warnings that name atom.
@@ -588,15 +621,21 @@ func noteFor(atom string) ReviewNote {
 }
 
 // TestAnnotateReviews is 6.3: every undeclared divergence carries the model's
-// reading, nothing else is submitted at all, and every way of not getting one
-// costs a warning and nothing more.
+// reading, nothing else is submitted at all, and every way of not getting one is
+// recorded on the row it happened to and nowhere else.
+//
+// That last clause changed with S047-R4.2. Until then each of those outcomes
+// cost a warning above the report; four sub-tests below counted those warnings,
+// and they now assert CompareResult.Reading instead — which is strictly stronger,
+// because a count says how many reviews came back with nothing and the field says
+// which packages they were.
 //
 // The load-bearing property is the one asserted last and again in 6.6: NOTHING a
 // reviewer returns can change what the report decides (R5.8). Commentary is
 // commentary — the grouping, the Verdicts and the counts are the same whether a
 // model spoke or not.
 //
-// _Requirements: R5.1, R5.5, R5.8_
+// _Requirements: R5.1, R5.5, R5.8, S047-R4.1, S047-R4.2_
 func TestAnnotateReviews(t *testing.T) {
 	t.Run("every undeclared divergence carries the model's reading, and nothing else is asked", func(t *testing.T) {
 		warnings := captureReviewWarnings(t)
@@ -695,7 +734,13 @@ func TestAnnotateReviews(t *testing.T) {
 		}
 	})
 
-	t.Run("an erroring reviewer yields today's report plus one warning per package", func(t *testing.T) {
+	t.Run("an erroring reviewer yields today's report, with ReadingFailed on each package it could not read", func(t *testing.T) {
+		// REWRITTEN BY S047-R4.2, which moved this outcome off the log and onto the
+		// result. It used to assert one warning naming each package; it now asserts
+		// the state those warnings described, on the rows that carry it. The new
+		// assertion is strictly stronger — a count says how many reviews failed,
+		// the field says WHICH — and the warning it replaces was noise printed
+		// above the very rows it duplicated.
 		warnings := captureReviewWarnings(t)
 		report, prov, opts := reviewFixture(t)
 		reference := cloneReport(report)
@@ -704,27 +749,40 @@ func TestAnnotateReviews(t *testing.T) {
 		AnnotateReviews(report, rev, prov, opts)
 
 		// R5.5: the report the operator asked for is already complete without the
-		// commentary, so a failed review leaves it byte for byte as it was.
-		if !reflect.DeepEqual(report, reference) {
-			t.Errorf("an erroring reviewer changed the report.\n got %+v\nwant %+v", report, reference)
+		// commentary, so a failed review leaves everything but the commentary
+		// fields byte for byte as it was. withoutReviews clears exactly those.
+		if !reflect.DeepEqual(withoutReviews(report), reference) {
+			t.Errorf("an erroring reviewer changed the report beyond its commentary fields.\n got %+v\nwant %+v",
+				withoutReviews(report), reference)
 		}
-		// One warning NAMING THE PACKAGE, per package. It is not once per run: two
-		// packages that failed for two reasons are two things the operator may want
-		// to look at, and warnLogf carries no once-guard of its own.
-		if lines := warnings(); len(lines) != len(reviewedAtoms) {
-			t.Errorf("two failed reviews produced %d warnings, want %d: %v", len(lines), len(reviewedAtoms), lines)
+		// PER PACKAGE, not once per run: two packages that failed are two things
+		// the operator may want to look at, and each one's row says so itself.
+		got := readingsOf(t, report, reviewedAtoms)
+		if want := wantReadings(reviewedAtoms, ReadingFailed); !reflect.DeepEqual(got, want) {
+			t.Errorf("after an erroring reviewer the readings are %v, want %v (ReadingFailed is %d)", got, want, ReadingFailed)
 		}
+		// And the note is still empty: a failed review attaches nothing.
 		for _, atom := range reviewedAtoms {
-			if n := len(warningsNaming(warnings(), atom)); n != 1 {
-				t.Errorf("%s is named by %d warnings, want exactly 1: %v", atom, n, warnings())
+			if note := resultFor(t, report, atom).Review; note != (ReviewNote{}) {
+				t.Errorf("%s carries %+v after its review errored, want the zero note", atom, note)
 			}
+		}
+		// S047-R4.2: the outcome travels on the row and nowhere else.
+		if lines := warnings(); len(lines) != 0 {
+			t.Errorf("an erroring reviewer warned %d times: %v; the outcome is on the result now", len(lines), lines)
 		}
 	})
 
-	t.Run("a timeout and an unusable answer fail exactly like an error", func(t *testing.T) {
+	t.Run("a timeout and an unusable answer are read as ReadingFailed, exactly like an error", func(t *testing.T) {
+		// REWRITTEN BY S047-R4.2: the shared outcome used to be "the deterministic
+		// report and one warning per package", and it is now "the deterministic
+		// report and ReadingFailed on each package's row". Same property, asserted
+		// where the operator will actually read it.
+		//
 		// R5.5 lists four failures and gives them one answer. They are asserted
 		// together because they must be indistinguishable in the report: the
-		// operator gets the deterministic report and one warning, whichever it was.
+		// operator gets the deterministic report and the same state, whichever it
+		// was.
 		//
 		// "Unusable" is the shape a model reply takes when it parsed but said
 		// nothing: no classification (R5.2 unanswered) or no summary (R5.3
@@ -749,11 +807,15 @@ func TestAnnotateReviews(t *testing.T) {
 
 				AnnotateReviews(report, rev, prov, opts)
 
-				if !reflect.DeepEqual(report, reference) {
-					t.Errorf("the report changed.\n got %+v\nwant %+v", report, reference)
+				if !reflect.DeepEqual(withoutReviews(report), reference) {
+					t.Errorf("the report changed beyond its commentary fields.\n got %+v\nwant %+v", withoutReviews(report), reference)
 				}
-				if lines := warnings(); len(lines) != len(reviewedAtoms) {
-					t.Errorf("produced %d warnings, want %d (one per package): %v", len(lines), len(reviewedAtoms), lines)
+				got := readingsOf(t, report, reviewedAtoms)
+				if want := wantReadings(reviewedAtoms, ReadingFailed); !reflect.DeepEqual(got, want) {
+					t.Errorf("the readings are %v, want %v (ReadingFailed is %d, one per package)", got, want, ReadingFailed)
+				}
+				if lines := warnings(); len(lines) != 0 {
+					t.Errorf("this failure warned %d times: %v; S047-R4.2 puts the outcome on the row instead", len(lines), lines)
 				}
 
 				// AND IT IS NOT CACHED. A cache has no expiry — the key is the two
@@ -877,7 +939,15 @@ func TestAnnotateReviews(t *testing.T) {
 		}
 	})
 
-	t.Run("an ebuild that cannot be re-read is left un-annotated, with one warning", func(t *testing.T) {
+	t.Run("an ebuild that cannot be re-read is left un-annotated, and its own row reads ReadingFailed", func(t *testing.T) {
+		// REWRITTEN BY S047-R4.2, which took away the warning that used to name the
+		// package. The row names it now — which is the point: the warning said "one
+		// finding carries no reading" above a report in which nothing said which.
+		//
+		// It is ReadingFailed and NOT ReadingNotComparable. The content check did
+		// not refuse this pair — it compared both files and found a difference, and
+		// the row still says VerifiedDiffers. What failed is the re-read for the
+		// review, which is a reading that was requested and did not happen.
 		warnings := captureReviewWarnings(t)
 		report, prov, opts := reviewFixture(t)
 		gone := filepath.Join(opts.OverlayPath, "kde-plasma", "spectacle", "spectacle-6.7.4.ebuild")
@@ -891,16 +961,30 @@ func TestAnnotateReviews(t *testing.T) {
 		if atoms := rev.atoms(); !reflect.DeepEqual(atoms, []string{"kde-plasma/kwin"}) {
 			t.Errorf("the pass submitted %v, want only kde-plasma/kwin; a package whose files cannot be read has no difference to submit", atoms)
 		}
-		if got := resultFor(t, report, "kde-plasma/spectacle").Review; got != (ReviewNote{}) {
-			t.Errorf("spectacle carries %+v after its ebuild vanished, want the zero note", got)
+		spectacle := resultFor(t, report, "kde-plasma/spectacle")
+		if spectacle.Review != (ReviewNote{}) {
+			t.Errorf("spectacle carries %+v after its ebuild vanished, want the zero note", spectacle.Review)
 		}
-		if n := len(warningsNaming(warnings(), "kde-plasma/spectacle")); n != 1 {
-			t.Errorf("the vanished ebuild produced %d warnings naming the package, want exactly 1: %v", n, warnings())
+		if spectacle.Verified != VerifiedDiffers {
+			t.Fatalf("the fixture is wrong: spectacle is Verified %d, and this case needs a pair the content check DID compare", spectacle.Verified)
+		}
+		if spectacle.Reading != ReadingFailed {
+			t.Errorf("the vanished ebuild left spectacle at Reading %d, want ReadingFailed (%d): a review was requested for it "+
+				"and could not be made, which is not the same as nobody asking (%d) and not the same as a pair nothing could "+
+				"compare (%d)", spectacle.Reading, ReadingFailed, ReadingNotRequested, ReadingNotComparable)
+		}
+		if n := len(warningsNaming(warnings(), "kde-plasma/spectacle")); n != 0 {
+			t.Errorf("the vanished ebuild produced %d warnings naming the package, want 0: %v", n, warnings())
 		}
 		// The rest of the report is unaffected: one package's missing file is not
 		// the run's problem.
-		if got := resultFor(t, report, "kde-plasma/kwin").Review; got != reviewFixtureNote() {
-			t.Errorf("kwin carries %+v, want the reviewer's note; one unreadable package stopped the pass", got)
+		kwin := resultFor(t, report, "kde-plasma/kwin")
+		if kwin.Review != reviewFixtureNote() {
+			t.Errorf("kwin carries %+v, want the reviewer's note; one unreadable package stopped the pass", kwin.Review)
+		}
+		if kwin.Reading != ReadingDone {
+			t.Errorf("kwin carries Reading %d, want ReadingDone (%d); one unreadable package must not change its neighbour's state",
+				kwin.Reading, ReadingDone)
 		}
 	})
 
@@ -930,10 +1014,23 @@ func TestAnnotateReviews(t *testing.T) {
 		}
 	})
 
-	t.Run("a cancelled run stops asking and says so once", func(t *testing.T) {
+	t.Run("a cancelled run stops asking, and every review it abandoned reads ReadingFailed", func(t *testing.T) {
 		// Ctrl-C during a compare. Every remaining reviewer call would fail on the
-		// same cancelled context, so eight identical warnings would bury the report
-		// the operator is about to get: the pass stops and states it once.
+		// same cancelled context, so the pass stops.
+		//
+		// REWRITTEN BY S047-R4.2, which removed the single warning that used to say
+		// so — and the rewrite is what forced the decision this asserts. The
+		// warning was once per RUN ("n of m carry no reading"), while S047-R4.1
+		// records the state on EACH result, so every abandoned package must be
+		// marked and not only the one the loop stopped on. Leaving the rest at
+		// ReadingNotRequested would say "nobody asked" about reviews this run did
+		// ask for and then dropped, which is the conflation the field exists to
+		// remove; ReadingFailed is "a reading was attempted and did not come
+		// back", and a cancellation is exactly that.
+		//
+		// The cancellation fires before the FIRST call here, so this asserts the
+		// whole pending set — which is the case a per-iteration marking would get
+		// wrong.
 		warnings := captureReviewWarnings(t)
 		report, prov, opts := reviewFixture(t)
 		ctx, cancel := context.WithCancel(context.Background())
@@ -946,8 +1043,13 @@ func TestAnnotateReviews(t *testing.T) {
 		if len(rev.calls) != 0 {
 			t.Errorf("a cancelled run still submitted %v", rev.atoms())
 		}
-		if lines := warnings(); len(lines) != 1 {
-			t.Errorf("a cancelled run warned %d times, want exactly 1: %v", len(lines), lines)
+		if lines := warnings(); len(lines) != 0 {
+			t.Errorf("a cancelled run warned %d times, want 0: %v; the abandoned reviews are on their own rows now", len(lines), lines)
+		}
+		got := readingsOf(t, report, reviewedAtoms)
+		if want := wantReadings(reviewedAtoms, ReadingFailed); !reflect.DeepEqual(got, want) {
+			t.Errorf("a cancelled run left the readings at %v, want %v (ReadingFailed is %d): every review it abandoned was "+
+				"asked for, so none of them may read as ReadingNotRequested (%d)", got, want, ReadingFailed, ReadingNotRequested)
 		}
 		for _, atom := range reviewedAtoms {
 			if got := resultFor(t, report, atom).Review; got != (ReviewNote{}) {
