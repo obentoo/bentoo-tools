@@ -80,6 +80,33 @@ import (
 	"github.com/obentoo/bentoolkit/internal/common/report"
 )
 
+// compareSeededRun is the payload an ADAPTER hands a renderer: every list
+// non-nil, whether or not it has members.
+//
+// `func buildCompareReport` in cmd/bentoo/overlay_compare_report.go seeds each
+// of them before it fills it, because render/json.go normalises nothing — a nil
+// reaches the wire as null and says "the producer established nothing" where
+// the run established an empty list (S046-R4.2). The fixtures below go through
+// this rather than repeat an empty literal on eighteen entries, which would
+// bury the two entries that DO carry a further finding — and those are what
+// these goldens were regenerated to show.
+func compareSeededRun(r report.CompareRun) report.CompareRun {
+	seed := func(pkgs []report.ComparePkg) []report.ComparePkg {
+		for i := range pkgs {
+			if pkgs[i].FurtherFindings == nil {
+				pkgs[i].FurtherFindings = []string{}
+			}
+		}
+		return pkgs
+	}
+	r.Redundant, r.NeedsRebase = seed(r.Redundant), seed(r.NeedsRebase)
+	r.Keep, r.Unknown = seed(r.Keep), seed(r.Unknown)
+	if r.Notes == nil {
+		r.Notes = []string{}
+	}
+	return r
+}
+
 // comparePopulatedRun is a finished comparison over 20 packages, 15 of which
 // exist in both repositories and are listed.
 //
@@ -88,16 +115,25 @@ import (
 // and which refuse to — and not merely a table this fixture typed in.
 func comparePopulatedRun() report.Run {
 	keep := []report.ComparePkg{
-		{Package: "media-plugins/gst-plugins-base", Local: "1.29.2", Remote: "1.26.11", Status: "newer", Reading: "not requested"},
-		{Package: "media-plugins/gst-plugins-good", Local: "1.29.2", Remote: "1.26.11", Status: "newer", Reading: "not requested"},
-		{Package: "media-libs/gst-libav", Local: "1.29.2", Remote: "1.26.11", Status: "newer", Reading: "not requested"},
+		{Package: "media-plugins/gst-plugins-base", Local: "1.29.2", Remote: "1.26.11", Status: "newer", Reading: "not requested", Diff: "not compared"},
+		{Package: "media-plugins/gst-plugins-good", Local: "1.29.2", Remote: "1.26.11", Status: "newer", Reading: "not requested", Diff: "not compared"},
+		{Package: "media-libs/gst-libav", Local: "1.29.2", Remote: "1.26.11", Status: "newer", Reading: "not requested", Diff: "not compared"},
 		{
 			Package: "media-plugins/gst-plugins-ugly", Local: "1.29.2", Remote: "1.26.11", Status: "newer", Reading: "read",
+			// A read package whose content check found a difference: the producer
+			// emits "+N/-M" here, never the empty string. compareDiffCell has a
+			// default arm and returns one of three words on every path, so a golden
+			// showing "" would pin a value no run can produce (S047-R3.2).
+			Diff:   "+12/-3",
 			Reason: "patched: applies files/gst-ugly-x264.patch, which ::gentoo does not ship",
+			// The row keeps the FIRST finding and this is the second: the shape
+			// that produced issue #33, where a package had more established
+			// about it than a one-line cell could hold.
+			FurtherFindings: []string{"inherit differs from ::gentoo — ours adds gstreamer-meson"},
 		},
-		{Package: "dev-lang/rust", Local: "1.98.0", Remote: "1.97.1", Status: "newer", Reading: "not requested"},
-		{Package: "dev-lang/rust-bin", Local: "1.98.0", Remote: "1.97.1", Status: "newer", Reading: "not requested"},
-		{Package: "app-admin/ansible", Local: "14.3.1", Remote: "14.1.0", Status: "newer", Reading: "not requested"},
+		{Package: "dev-lang/rust", Local: "1.98.0", Remote: "1.97.1", Status: "newer", Reading: "not requested", Diff: "not compared"},
+		{Package: "dev-lang/rust-bin", Local: "1.98.0", Remote: "1.97.1", Status: "newer", Reading: "not requested", Diff: "not compared"},
+		{Package: "app-admin/ansible", Local: "14.3.1", Remote: "14.1.0", Status: "newer", Reading: "not requested", Diff: "not compared"},
 	}
 
 	return report.Run{
@@ -105,17 +141,29 @@ func comparePopulatedRun() report.Run {
 		Kind:     report.KindOverlayCompare,
 		Title:    "overlay comparison",
 		Complete: true,
-		Payload: report.CompareRun{
+		Payload: compareSeededRun(report.CompareRun{
 			Repository: "gentoo",
-			Scanned:    20,
-			InBoth:     15,
-			OnlyLocal:  5,
-			Unread:     12,
+			// What the run has to say about ITSELF, under the tally that closes
+			// the report. These reached the terminal and no export at all until
+			// they were carried in the payload (S047-R1.3, S047-R6.3).
+			Notes: []string{
+				"3 of the 15 packages compared were found to have no ::gentoo counterpart — those are the overlay's own work rather than a divergence from anyone's, and no realignment is proposed for them.",
+				"Classification: 9 of the 12 differences examined across 7 packages are version moves, 2 are ours, 1 could not be classified.",
+				"Some packages are recommended for removal. Run `bentoo overlay prune` to act on them.",
+			},
+			Scanned:   20,
+			InBoth:    15,
+			OnlyLocal: 5,
+			Unread:    12,
 			Redundant: []report.ComparePkg{
 				{
 					Package: "dev-lang/go", Local: "1.27.0", Remote: "1.27.0", Status: "up-to-date",
 					Reading: "failed", Diff: "+24/-0",
 					Reason: "differs, and no entry declares why",
+					// A second block with a further finding, so the goldens
+					// show that each lands under the table holding its own row
+					// rather than all of them under one.
+					FurtherFindings: []string{"KEYWORDS differs from ::gentoo — ours drops ~arm64"},
 				},
 				{
 					Package: "kde-plasma/breeze-gtk", Local: "6.7.4", Remote: "6.7.4-r1", Status: "outdated",
@@ -145,11 +193,11 @@ func comparePopulatedRun() report.Run {
 			Keep:       keep,
 			KeepGroups: report.GroupKeep(keep),
 			Unknown: []report.ComparePkg{
-				{Package: "sys-kernel/gentoo-kernel", Local: "7.2.2", Remote: "7.1.12", Status: "newer", Reading: "not requested"},
-				{Package: "virtual/dist-kernel", Local: "7.2.2", Remote: "7.1.12", Status: "newer", Reading: "not requested"},
+				{Package: "sys-kernel/gentoo-kernel", Local: "7.2.2", Remote: "7.1.12", Status: "newer", Reading: "not requested", Diff: "not compared"},
+				{Package: "virtual/dist-kernel", Local: "7.2.2", Remote: "7.1.12", Status: "newer", Reading: "not requested", Diff: "not compared"},
 			},
 			Verdicts: report.VerdictTally{Keep: 7, Redundant: 4, NeedsRebase: 2, Unknown: 7},
-		},
+		}),
 	}
 }
 
@@ -168,7 +216,7 @@ func compareUnreadRun() report.Run {
 		Kind:     report.KindOverlayCompare,
 		Title:    "overlay comparison",
 		Complete: true,
-		Payload: report.CompareRun{
+		Payload: compareSeededRun(report.CompareRun{
 			Repository: "gentoo",
 			Scanned:    4,
 			InBoth:     3,
@@ -190,7 +238,7 @@ func compareUnreadRun() report.Run {
 				},
 			},
 			Verdicts: report.VerdictTally{Redundant: 3, Unknown: 1},
-		},
+		}),
 	}
 }
 

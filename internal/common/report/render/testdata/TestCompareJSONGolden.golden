@@ -17,7 +17,10 @@
         "status": "up-to-date",
         "reading": "failed",
         "diff": "+24/-0",
-        "reason": "differs, and no entry declares why"
+        "reason": "differs, and no entry declares why",
+        "further_findings": [
+          "KEYWORDS differs from ::gentoo — ours drops ~arm64"
+        ]
       },
       {
         "package": "kde-plasma/breeze-gtk",
@@ -26,7 +29,8 @@
         "status": "outdated",
         "reading": "not comparable",
         "diff": "not compared",
-        "reason": ""
+        "reason": "",
+        "further_findings": []
       },
       {
         "package": "net-libs/nodejs",
@@ -35,7 +39,8 @@
         "status": "up-to-date",
         "reading": "read",
         "diff": "identical",
-        "reason": "identical to the ::gentoo copy, line for line"
+        "reason": "identical to the ::gentoo copy, line for line",
+        "further_findings": []
       },
       {
         "package": "sys-apps/fwupd",
@@ -44,7 +49,8 @@
         "status": "up-to-date",
         "reading": "not requested",
         "diff": "+8/-29",
-        "reason": ""
+        "reason": "",
+        "further_findings": []
       }
     ],
     "needs_rebase": [
@@ -55,7 +61,8 @@
         "status": "outdated",
         "reading": "read",
         "diff": "+3/-1",
-        "reason": "ours: adds files/kwin-wayland-crash.patch on top of a version ::gentoo has moved past"
+        "reason": "ours: adds files/kwin-wayland-crash.patch on top of a version ::gentoo has moved past",
+        "further_findings": []
       },
       {
         "package": "x11-base/xwayland",
@@ -64,7 +71,8 @@
         "status": "outdated",
         "reading": "failed",
         "diff": "+11/-4",
-        "reason": ""
+        "reason": "",
+        "further_findings": []
       }
     ],
     "keep": [
@@ -74,8 +82,9 @@
         "remote_version": "1.26.11",
         "status": "newer",
         "reading": "not requested",
-        "diff": "",
-        "reason": ""
+        "diff": "not compared",
+        "reason": "",
+        "further_findings": []
       },
       {
         "package": "media-plugins/gst-plugins-good",
@@ -83,8 +92,9 @@
         "remote_version": "1.26.11",
         "status": "newer",
         "reading": "not requested",
-        "diff": "",
-        "reason": ""
+        "diff": "not compared",
+        "reason": "",
+        "further_findings": []
       },
       {
         "package": "media-libs/gst-libav",
@@ -92,8 +102,9 @@
         "remote_version": "1.26.11",
         "status": "newer",
         "reading": "not requested",
-        "diff": "",
-        "reason": ""
+        "diff": "not compared",
+        "reason": "",
+        "further_findings": []
       },
       {
         "package": "media-plugins/gst-plugins-ugly",
@@ -101,8 +112,11 @@
         "remote_version": "1.26.11",
         "status": "newer",
         "reading": "read",
-        "diff": "",
-        "reason": "patched: applies files/gst-ugly-x264.patch, which ::gentoo does not ship"
+        "diff": "+12/-3",
+        "reason": "patched: applies files/gst-ugly-x264.patch, which ::gentoo does not ship",
+        "further_findings": [
+          "inherit differs from ::gentoo — ours adds gstreamer-meson"
+        ]
       },
       {
         "package": "dev-lang/rust",
@@ -110,8 +124,9 @@
         "remote_version": "1.97.1",
         "status": "newer",
         "reading": "not requested",
-        "diff": "",
-        "reason": ""
+        "diff": "not compared",
+        "reason": "",
+        "further_findings": []
       },
       {
         "package": "dev-lang/rust-bin",
@@ -119,8 +134,9 @@
         "remote_version": "1.97.1",
         "status": "newer",
         "reading": "not requested",
-        "diff": "",
-        "reason": ""
+        "diff": "not compared",
+        "reason": "",
+        "further_findings": []
       },
       {
         "package": "app-admin/ansible",
@@ -128,8 +144,9 @@
         "remote_version": "14.1.0",
         "status": "newer",
         "reading": "not requested",
-        "diff": "",
-        "reason": ""
+        "diff": "not compared",
+        "reason": "",
+        "further_findings": []
       }
     ],
     "keep_groups": [
@@ -176,8 +193,9 @@
         "remote_version": "7.1.12",
         "status": "newer",
         "reading": "not requested",
-        "diff": "",
-        "reason": ""
+        "diff": "not compared",
+        "reason": "",
+        "further_findings": []
       },
       {
         "package": "virtual/dist-kernel",
@@ -185,8 +203,9 @@
         "remote_version": "7.1.12",
         "status": "newer",
         "reading": "not requested",
-        "diff": "",
-        "reason": ""
+        "diff": "not compared",
+        "reason": "",
+        "further_findings": []
       }
     ],
     "verdicts": {
@@ -195,6 +214,11 @@
       "needs_rebase": 2,
       "unknown": 7
     },
-    "unread": 12
+    "unread": 12,
+    "notes": [
+      "3 of the 15 packages compared were found to have no ::gentoo counterpart — those are the overlay's own work rather than a divergence from anyone's, and no realignment is proposed for them.",
+      "Classification: 9 of the 12 differences examined across 7 packages are version moves, 2 are ours, 1 could not be classified.",
+      "Some packages are recommended for removal. Run `bentoo overlay prune` to act on them."
+    ]
   }
 }

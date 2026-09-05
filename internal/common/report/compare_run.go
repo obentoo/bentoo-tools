@@ -311,6 +311,36 @@ type CompareRun struct {
 	// run in which everything WAS read is the good case, and the good case is
 	// the one that would lose its zero.
 	Unread int `json:"unread"`
+	// Notes is what the run has to say about ITSELF: the sentences no row
+	// carries and no count states — the classification share, the baseline
+	// review's coverage, a review that reached no model at all, the advice to
+	// prune what is redundant.
+	//
+	// # Why they are DATA, and not something the command prints beside the report
+	//
+	// They were exactly that until this field existed, and the cost was
+	// structural rather than cosmetic. The command attached them to the
+	// sections it had just built FOR THE TERMINAL, while an export re-derives
+	// its own blocks from this payload — so every one of these sentences
+	// reached the screen and not one of them reached any export, in any format.
+	// That inverts S047-R1.3 and S047-R6.3, which ask the exported document to
+	// be the COMPLETE report, and it inverts them silently: the file is shorter
+	// than the screen and nothing in it says what is missing. Carried here, the
+	// two paths are identical by construction, because both of them read
+	// Sections and Sections reads this.
+	//
+	// They are SENTENCES, which is the choice ComparePkg.Reason already makes
+	// and for the same reason: a run-level summary names no package, so there
+	// is no atom for it to travel on, and no set of counts reconstitutes it —
+	// the producer's words are the fact. What this type forbids is a sentence
+	// about the DEVICE, and nothing in this list mentions one.
+	//
+	// A nil slice reaches the JSON export as null and an empty one as [], and
+	// the two say different things: null is a producer that never considered
+	// the question, [] a run that considered it and had nothing to add. The
+	// adapter fills it either way, and no omitempty drops it — a run with
+	// nothing to say still has to say so (S047-D8).
+	Notes []string `json:"notes"`
 }
 
 // ComparePkg is what the run established about one package: which package, the
@@ -420,6 +450,32 @@ type ComparePkg struct {
 	// string at no width budget: the export carries every explanation in full,
 	// whatever the terminal it was rendered at was able to show (S047-R6.3).
 	Reason string `json:"reason"`
+	// FurtherFindings is everything ELSE the run established about this
+	// package: the second finding and every one after it, in the producer's own
+	// words and at full length.
+	//
+	// Reason holds the FIRST and this holds the rest, and the split is a
+	// property of the ROW rather than of the finding. A row detail is one line
+	// that a narrow device cuts, so a package the run has three things to say
+	// about would lose two of them to the table it is printed in. What does not
+	// fit a cell is said beside it, in prose that wraps (S047-R6.1), and
+	// `func (r CompareRun) Sections` puts each of these under the block holding
+	// this package's row.
+	//
+	// The package is NOT named in the text — the block names it when it writes
+	// the sentence, because it knows which entry it is reading. An atom stored
+	// in here would be a second spelling of ComparePkg.Package, free to
+	// disagree with the row printed beside it.
+	//
+	// Every entry is ONE LINE, folded by the adapter for the reason Reason's
+	// own doc gives, and nothing is shortened: the exported document carries
+	// every explanation in full (S047-R6.3).
+	//
+	// A nil slice reaches the export as null and an empty one as [], and only
+	// the second says "the run established nothing further". No omitempty: a
+	// package with a single finding is the common case, and the common case is
+	// the one that would lose its empty list (S047-D8).
+	FurtherFindings []string `json:"further_findings"`
 }
 
 // KeepGroup is a set of packages that share one version pair.
@@ -1079,6 +1135,7 @@ func compareRedundantSection(r CompareRun) Section {
 	s.Notes = []string{fmt.Sprintf(
 		"A difference is not proof of authorship: %s also revises ebuilds in place, without a revbump, so a small diff is often our copy having fallen behind rather than work of ours. Diff before removing or declaring.",
 		compareRepository(r))}
+	s.Notes = append(s.Notes, comparePkgNotes(r.Redundant)...)
 
 	return s
 }
@@ -1228,6 +1285,7 @@ func compareNeedsRebaseSection(r CompareRun) Section {
 		"%d package(s) listed: each carries changes of ours on top of a version %s has since moved past, so both a bump and a re-application are owed.",
 		len(r.NeedsRebase), compareRepository(r))}
 	s.Rows = comparePkgTable(r, r.NeedsRebase, true)
+	s.Notes = comparePkgNotes(r.NeedsRebase)
 
 	return s
 }
@@ -1259,7 +1317,7 @@ func compareKeepSection(r CompareRun, listEvery bool) Section {
 
 	s.Lead = []string{fmt.Sprintf("%d package(s) listed, and the run recommends keeping every one of them.", len(r.Keep))}
 	s.Rows = compareKeepTable(r, listEvery)
-	s.Notes = compareKeepNotes(r, listEvery)
+	s.Notes = append(compareKeepNotes(r, listEvery), comparePkgNotes(r.Keep)...)
 
 	return s
 }
@@ -1427,6 +1485,7 @@ func compareUnknownSection(r CompareRun) Section {
 	s.Lead = []string{fmt.Sprintf(
 		"%d package(s) listed. Nothing on record describes them, so neither advice is supported.", len(r.Unknown))}
 	s.Rows = comparePkgTable(r, r.Unknown, false)
+	s.Notes = comparePkgNotes(r.Unknown)
 
 	return s
 }
@@ -1464,7 +1523,54 @@ func compareSummarySection(r CompareRun) Section {
 				r.Verdicts.Keep, r.Verdicts.Redundant, r.Verdicts.NeedsRebase, r.Verdicts.Unknown),
 			fmt.Sprintf("Verdicts count every package scanned; %d of %d have no row above.", r.OnlyLocal, r.Scanned),
 		},
+		// The run's own sentences go LAST, under the tally, and the last block
+		// is the only fixed position this payload has: `func (r Run) Sections`
+		// in run.go PREPENDS an interruption block to an incomplete run, so
+		// filing "no ::gentoo tree was reached" under the first block would
+		// explain one gap with another gap's heading.
+		//
+		// The slice is copied rather than handed over. Sections builds fresh
+		// blocks on every call, and a renderer that appended to what it was
+		// given would otherwise write back into the payload it is rendering.
+		Notes: append([]string(nil), r.Notes...),
 	}
+}
+
+// compareFindingsLead introduces a block's package findings once, so a reader
+// meets a sentence rather than a list of loose strings under a table. It is
+// only ever emitted where at least one such finding follows it.
+const compareFindingsLead = "Beside the reason on each row, the run established more about these packages:"
+
+// comparePkgNotes is every further finding the packages of ONE block carry,
+// each said under a lead that explains what it is doing there.
+//
+// # Placement is by CONSTRUCTION, and that is the gain
+//
+// These sentences used to be built by the command and then filed into a section
+// by searching every rendered row for the package's atom — `type Section` in
+// section.go carries no identifier and a Title is prose, so the rows were the
+// only honest handle on "which block shows this package". Here the question
+// never arises: a block is built from ONE list, so the findings under it are
+// the findings of the packages in it, and no search can put one under the wrong
+// table.
+//
+// The package is named in every sentence and not merely used to place it: a
+// note is read as prose, several may sit under one table, and a reader must not
+// have to count rows to learn which package a sentence is about.
+//
+// It returns nil when no package in the list has anything further, which is
+// most runs. A lead introducing an empty list would be a heading over nothing.
+func comparePkgNotes(pkgs []ComparePkg) []string {
+	var notes []string
+	for _, p := range pkgs {
+		for _, finding := range p.FurtherFindings {
+			if notes == nil {
+				notes = []string{compareFindingsLead}
+			}
+			notes = append(notes, p.Package+": "+finding)
+		}
+	}
+	return notes
 }
 
 // comparePkgTable is a list of packages as a table, with the DIFF column only

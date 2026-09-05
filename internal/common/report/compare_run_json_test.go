@@ -25,6 +25,24 @@ package report
 // "the producer never said", which is the conflation the fields exist to
 // remove. This file is the check that fails when it happens.
 //
+// # Recorded evidence that it fails when its rule is broken (S047-R8.1)
+//
+// Measured against HEAD ab5a471 during sub-task 2.1, and re-stated here in
+// sub-task 6.3's quality-gate pass because the evidence had been recorded in
+// the story's deviation register rather than beside the guard it describes —
+// and a guard whose proof lives somewhere a reader will not look is a guard
+// nobody can check.
+//
+// Mutation: `needs_rebase` removed from compareRunKeys, run, reverted, the
+// revert verified byte-identical by md5sum. The failure names the type and the
+// key, which is the whole of what a maintainer meeting it needs:
+//
+//	report.CompareRun published the key "needs_rebase", which this contract does not list
+//
+// The contract is taken at the ZERO value, and that is where it has to be
+// taken: a populated fixture publishes every key whether or not a tag carries
+// omitempty, so it would agree with the very change this exists to catch.
+//
 // # What is deliberately NOT here
 //
 // Nothing asserts what a section says or how a group is built. Sections is
@@ -114,12 +132,12 @@ func assertKeys(t *testing.T, value any, want []string) {
 // says, which is agreement rather than a check.
 var (
 	compareRunKeys = []string{
-		"in_both", "keep", "keep_groups", "needs_rebase", "only_local",
+		"in_both", "keep", "keep_groups", "needs_rebase", "notes", "only_local",
 		"redundant", "repository", "scanned", "unknown", "unread", "verdicts",
 	}
 	comparePkgKeys = []string{
-		"diff", "local_version", "package", "reading", "reason",
-		"remote_version", "status",
+		"diff", "further_findings", "local_version", "package", "reading",
+		"reason", "remote_version", "status",
 	}
 	keepGroupKeys     = []string{"by_category", "label", "local_version", "members", "remote_version"}
 	categoryCountKeys = []string{"category", "count"}
@@ -170,6 +188,7 @@ func TestComparePayloadPublishesEveryKeyAtItsZeroValue(t *testing.T) {
 func TestComparePayloadNestsItsListsUnderTheirOwnKeys(t *testing.T) {
 	run := CompareRun{
 		Repository: "gentoo",
+		Notes:      []string{"3 of the 3 packages compared were examined for divergences."},
 		Scanned:    3,
 		InBoth:     2,
 		OnlyLocal:  1,
@@ -181,6 +200,10 @@ func TestComparePayloadNestsItsListsUnderTheirOwnKeys(t *testing.T) {
 			Reading: "read",
 			Diff:    "identical",
 			Reason:  "the overlay copy matches the repository byte for byte",
+			// The second finding and every one after it: a row holds one
+			// reason, and what will not fit a cell is said beside the table
+			// rather than dropped (S047-R6.1).
+			FurtherFindings: []string{"the metadata differs on one axis: KEYWORDS"},
 		}},
 		Keep: []ComparePkg{{
 			Package: "dev-lang/go",

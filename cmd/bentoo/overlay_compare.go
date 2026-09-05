@@ -577,13 +577,17 @@ func runCompare(cmd *cobra.Command, args []string) {
 		fmt.Print(realignCandidateSection(report.Results))
 	}
 
-	// What no row can carry crosses as NOTES, built by `func compareNotes` in
-	// overlay_compare_report.go: the two run-level facts — that no ::gentoo tree
-	// was reached, and that a review produced no verdict at all — and every
-	// finding beyond the first a package has, which a one-line reason cell has no
-	// room for (S047-R6.1).
-	presentCompareReport(cfg, buildCompareReport(report, repoInfo.Name, unfiltered),
-		compareNotes(report, realignRan, realignJudged, compareNoReview)...)
+	// What no row can carry crosses in the PAYLOAD, not beside it. The run-level
+	// sentences — no ::gentoo tree was reached, a review produced no verdict at
+	// all, the classification share, the prune advice — are built here because
+	// they are derived in part from flags the adapter never sees, and handed to
+	// `func buildCompareReport` as CompareRun.Notes. Every finding beyond the
+	// first a package has, which a one-line reason cell has no room for, travels
+	// on that package's own entry (S047-R6.1). Both reach the terminal and every
+	// export through one code path, which is what they did not do while they were
+	// appended to the sections after the fact.
+	presentCompareReport(cfg, buildCompareReport(report, repoInfo.Name, unfiltered,
+		compareRunNotes(report, realignRan, realignJudged, compareNoReview)...))
 
 	// The ONE non-zero condition (R7.5, D9): the review could not locate a
 	// ::gentoo tree, so nothing was examined. It is LAST — after the render and

@@ -16,6 +16,8 @@
 | sys-apps/fwupd | 2.1.7 | 2.1.7 | up-to-date | +8/-29 |  |
 
 A difference is not proof of authorship: ::gentoo also revises ebuilds in place, without a revbump, so a small diff is often our copy having fallen behind rather than work of ours. Diff before removing or declaring.
+Beside the reason on each row, the run established more about these packages:
+dev-lang/go: KEYWORDS differs from ::gentoo — ours drops ~arm64
 
 ## Needs Rebase — ::gentoo moved ahead of changes of ours, which must be re-applied
 
@@ -41,6 +43,8 @@ A difference is not proof of authorship: ::gentoo also revises ebuilds in place,
 | app-admin/ansible | 14.3.1 | 14.1.0 | newer |  |
 
 5 of the 7 share a version pair and would collapse into 2 group(s); --all listed every member above instead.
+Beside the reason on each row, the run established more about these packages:
+media-plugins/gst-plugins-ugly: inherit differs from ::gentoo — ours adds gstreamer-meson
 
 ## Unknown — no recommendation
 
@@ -56,3 +60,7 @@ A difference is not proof of authorship: ::gentoo also revises ebuilds in place,
 20 scanned · 15 in both · 5 only here
 keep 7 · redundant 4 · needs rebase 2 · unknown 7
 Verdicts count every package scanned; 5 of 20 have no row above.
+
+3 of the 15 packages compared were found to have no ::gentoo counterpart — those are the overlay's own work rather than a divergence from anyone's, and no realignment is proposed for them.
+Classification: 9 of the 12 differences examined across 7 packages are version moves, 2 are ours, 1 could not be classified.
+Some packages are recommended for removal. Run `bentoo overlay prune` to act on them.

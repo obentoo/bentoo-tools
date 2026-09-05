@@ -306,8 +306,9 @@ func TestClassificationEstablishesNothingAtItsZeroValue(t *testing.T) {
 // actually leave this package now: `func classificationFinding` in
 // annotate_baseline.go builds a FindingClassification carrying Classified as
 // three integers, EstablishFindings composes it into CompareReport.Findings,
-// and `func comparePackageNotes` in cmd/bentoo turns every finding beyond a
-// package's first into a note under that package's section. The counts are
+// and `func comparePkgFacts` in cmd/bentoo carries every finding beyond a
+// package's first on ComparePkg.FurtherFindings, which
+// `func (r CompareRun) Sections` says under that package's own block. The counts are
 // therefore READ as numbers rather than matched as digits in a sentence, which
 // is the stronger form of the same claim — `strings.Contains(rendered, "22")`
 // passed on any line that happened to contain a 2 and a 2.
@@ -356,7 +357,7 @@ func TestClassificationReachesTheRenderedReport(t *testing.T) {
 	// Story 047, sub-task 4.2 addendum (S047-R8.1): this asked
 	// renderClassificationLines, which had no production caller left after 4.2, for
 	// a non-empty slice. Detail is the field that sentence is now rendered from —
-	// by `func comparePackageNotes` in cmd/bentoo — so the claim is made there.
+	// by `func comparePkgFacts` in cmd/bentoo — so the claim is made there.
 	if found.Detail == "" {
 		t.Error("the classification finding carries no sentence; the counts reach a consumer and no reader")
 	}

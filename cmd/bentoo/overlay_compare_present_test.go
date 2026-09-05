@@ -13,6 +13,7 @@ package main
 // owns.
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -87,7 +88,7 @@ func TestCompareRunNotesCarryTheRunLevelFacts(t *testing.T) {
 
 	t.Run("the run-scoped baseline finding becomes a note", func(t *testing.T) {
 		notes := compareRunNotes(rep, false, false, false)
-		if len(notes) != 1 || notes[0].text != skipped || notes[0].atom != "" {
+		if len(notes) != 1 || notes[0] != skipped {
 			t.Fatalf("notes are %+v, want the baseline sentence the producer wrote, scoped to the run", notes)
 		}
 	})
@@ -97,8 +98,8 @@ func TestCompareRunNotesCarryTheRunLevelFacts(t *testing.T) {
 		// `func comparePackageFindings` in overlay_compare_report.go. Repeating it here
 		// would state one package's fact about the whole run.
 		for _, note := range compareRunNotes(rep, true, true, false) {
-			if strings.Contains(note.text, "justified") {
-				t.Errorf("a per-package realignment verdict reached the run notes: %q", note.text)
+			if strings.Contains(note, "justified") {
+				t.Errorf("a per-package realignment verdict reached the run notes: %q", note)
 			}
 		}
 	})
@@ -108,8 +109,8 @@ func TestCompareRunNotesCarryTheRunLevelFacts(t *testing.T) {
 		if len(notes) != 1 {
 			t.Fatalf("notes are %+v, want exactly the no-verdict notice", notes)
 		}
-		if !strings.Contains(notes[0].text, "no verdict") || !strings.Contains(notes[0].text, "--no-review") {
-			t.Errorf("the notice is %q; it must say that no verdict was produced and why, or silence reads as every divergence judged", notes[0].text)
+		if !strings.Contains(notes[0], "no verdict") || !strings.Contains(notes[0], "--no-review") {
+			t.Errorf("the notice is %q; it must say that no verdict was produced and why, or silence reads as every divergence judged", notes[0])
 		}
 	})
 
@@ -127,11 +128,11 @@ func TestCompareRunNotesCarryTheRunLevelFacts(t *testing.T) {
 		}
 
 		notes := compareRunNotes(coverage, true, true, false)
-		if len(notes) != 1 || notes[0].atom != "" {
+		if len(notes) != 1 {
 			t.Fatalf("notes are %+v, want one run-scoped coverage note", notes)
 		}
-		if !strings.Contains(notes[0].text, "1 of the 3 packages compared") {
-			t.Errorf("the coverage note reads %q; R6.4 asks for the count as a share of the packages EXAMINED, and a denominator taken from the rows on screen would shrink with every filter", notes[0].text)
+		if !strings.Contains(notes[0], "1 of the 3 packages compared") {
+			t.Errorf("the coverage note reads %q; R6.4 asks for the count as a share of the packages EXAMINED, and a denominator taken from the rows on screen would shrink with every filter", notes[0])
 		}
 
 		none := compareRunNotes(&overlay.CompareReport{ComparedPackages: 3}, true, true, false)
@@ -150,31 +151,34 @@ func TestCompareRunNotesCarryTheRunLevelFacts(t *testing.T) {
 	})
 }
 
-// TestAppendCompareNotesGoesOnTheLastSection pins where a RUN-scoped note
-// lands. The first block is not a fixed position — `func (r Run) Sections` in
-// internal/common/report/run.go prepends an interruption block to an incomplete
-// run — and a note filed under "Run Interrupted" would explain one gap with
-// another gap's sentence.
-func TestAppendCompareNotesGoesOnTheLastSection(t *testing.T) {
-	sections := []report.Section{{Title: "Scope"}, {Title: "Summary", Notes: []string{"kept"}}}
+// TestCompareRunNotesGoOnTheLastSection pins where a run's own sentences land
+// once they are carried in the payload: under the summary, which is the only
+// fixed position this report has. `func (r Run) Sections` in
+// internal/common/report/run.go PREPENDS an interruption block to an incomplete
+// run, so a note filed under the FIRST block would explain one gap with another
+// gap's heading.
+func TestCompareRunNotesGoOnTheLastSection(t *testing.T) {
+	run := buildCompareReport(&overlay.CompareReport{TotalPackages: 1}, "gentoo", nil, "said")
 
-	got := appendCompareNotes(sections, []compareNote{{text: "said"}})
+	sections := run.Sections(report.SectionOptions{})
+	if len(sections) < 2 {
+		t.Fatalf("the report built %d section(s), want the payload's blocks", len(sections))
+	}
+	for i, section := range sections[:len(sections)-1] {
+		for _, note := range section.Notes {
+			if note == "said" {
+				t.Errorf("section %d (%q) carries the run's note; it belongs under the tally that closes the report", i, section.Title)
+			}
+		}
+	}
+	last := sections[len(sections)-1].Notes
+	if len(last) != 1 || last[0] != "said" {
+		t.Errorf("the last section's notes are %q, want the run's own sentence", last)
+	}
 
-	if len(got) != 2 {
-		t.Fatalf("the section count changed to %d, want 2", len(got))
-	}
-	if len(got[0].Notes) != 0 {
-		t.Errorf("the first section gained %q", got[0].Notes)
-	}
-	if len(got[1].Notes) != 2 || got[1].Notes[0] != "kept" || got[1].Notes[1] != "said" {
-		t.Errorf("the last section's notes are %q, want the section's own note followed by the run's", got[1].Notes)
-	}
-
-	if unchanged := appendCompareNotes(sections, nil); len(unchanged) != 2 {
-		t.Errorf("a run with no note changed the sections")
-	}
-	if orphan := appendCompareNotes(nil, []compareNote{{text: "said"}}); len(orphan) != 1 || len(orphan[0].Notes) != 1 {
-		t.Errorf("a note with nowhere to go was lost: %v", orphan)
+	quiet := buildCompareReport(&overlay.CompareReport{TotalPackages: 1}, "gentoo", nil).Sections(report.SectionOptions{})
+	if notes := quiet[len(quiet)-1].Notes; len(notes) != 0 {
+		t.Errorf("a run with nothing to add said %q", notes)
 	}
 }
 
@@ -202,21 +206,25 @@ func comparePkgWithFindings(category, pkg string, details ...string) (overlay.Co
 	return result, findings
 }
 
-// TestComparePackageNotesCarryWhatTheRowCannot is S047-R6.1 at the seam: a row
-// holds ONE reason, so every further finding a package has is said as a note
-// that names it, and a package with a single finding says nothing twice.
-func TestComparePackageNotesCarryWhatTheRowCannot(t *testing.T) {
+// TestComparePackageFindingsCarryWhatTheRowCannot is S047-R6.1 at the seam: a
+// row holds ONE reason, so every further finding a package has travels on that
+// package's own entry, and a package with a single finding says nothing twice.
+//
+// It asserts on the PAYLOAD rather than on a list the command builds for the
+// screen, which is the whole of sub-task 7.1: a sentence that exists only
+// beside the terminal's sections is a sentence no export can reach.
+func TestComparePackageFindingsCarryWhatTheRowCannot(t *testing.T) {
 	twoA, findingsA := comparePkgWithFindings("dev-libs", "foo", "undeclared divergence — ours differs", "inherit differs from ::gentoo — gstreamer-meson")
 	oneB, findingsB := comparePkgWithFindings("app-editors", "zed", "undeclared divergence — ours differs")
 	rep := &overlay.CompareReport{
 		TotalPackages: 2, ComparedPackages: 2,
 		Results: []overlay.CompareResult{oneB, twoA}, // the producer's order: category, then package
 		// Interleaved on purpose: the findings arrive in pass order, and the
-		// notes must still come out in the results' order.
+		// entries must still carry them in the results' order.
 		Findings: []overlay.Finding{findingsB[0], findingsA[0], findingsA[1]},
 	}
 
-	t.Run("the first finding stays on the row and the rest become notes", func(t *testing.T) {
+	t.Run("the first finding stays on the row and the rest travel beside it", func(t *testing.T) {
 		payload := compareComparePayload(t, buildCompareReport(rep, "gentoo", nil))
 		if len(payload.Keep) != 2 {
 			t.Fatalf("the payload holds %d row(s), want 2", len(payload.Keep))
@@ -227,83 +235,114 @@ func TestComparePackageNotesCarryWhatTheRowCannot(t *testing.T) {
 			}
 		}
 
-		notes := comparePackageNotes(rep)
-		if len(notes) != 1 {
-			t.Fatalf("notes are %+v, want exactly the one finding no row could hold", notes)
+		byAtom := map[string][]string{}
+		for _, pkg := range payload.Keep {
+			if pkg.FurtherFindings == nil {
+				t.Errorf("%s carries a nil FurtherFindings; null and [] say different things in the exported document", pkg.Package)
+			}
+			byAtom[pkg.Package] = pkg.FurtherFindings
 		}
-		if notes[0].atom != "dev-libs/foo" || !strings.HasPrefix(notes[0].text, "dev-libs/foo: ") {
-			t.Errorf("the note is %+v; it must name its package, or a reader cannot tell which row it belongs to", notes[0])
+		if got := byAtom["app-editors/zed"]; len(got) != 0 {
+			t.Errorf("app-editors/zed carries %q; its one finding is already on its row", got)
 		}
-		if !strings.Contains(notes[0].text, "gstreamer-meson") {
-			t.Errorf("the note is %q, want the finding the row had no room for", notes[0].text)
+		further := byAtom["dev-libs/foo"]
+		if len(further) != 1 {
+			t.Fatalf("dev-libs/foo carries %q, want exactly the finding no row could hold", further)
 		}
-		if strings.Contains(notes[0].text, "undeclared divergence") {
-			t.Error("the note repeats the reason already printed on the row")
+		if !strings.Contains(further[0], "gstreamer-meson") {
+			t.Errorf("the finding reads %q, want the one the row had no room for", further[0])
+		}
+		if strings.Contains(further[0], "undeclared divergence") {
+			t.Error("the entry repeats the reason already printed on its row")
+		}
+		if strings.Contains(further[0], "dev-libs/foo") {
+			t.Errorf("the finding names its own package: %q. The block writes the name when it writes the sentence, and a copy here is free to disagree with the row beside it", further[0])
 		}
 	})
 
 	t.Run("the order follows the results and is stable", func(t *testing.T) {
 		extraB := overlay.Finding{Kind: overlay.FindingAxisDivergence, Atom: "app-editors/zed", Detail: "also differs on RDEPEND"}
 		ordered := &overlay.CompareReport{
+			TotalPackages: 2, ComparedPackages: 2,
 			Results:  rep.Results,
 			Findings: append(append([]overlay.Finding{}, rep.Findings...), extraB),
 		}
 
-		first := comparePackageNotes(ordered)
-		second := comparePackageNotes(ordered)
+		first := compareComparePayload(t, buildCompareReport(ordered, "gentoo", nil)).Keep
+		second := compareComparePayload(t, buildCompareReport(ordered, "gentoo", nil)).Keep
 		if len(first) != 2 {
-			t.Fatalf("notes are %+v, want one per package beyond its row's reason", first)
+			t.Fatalf("the payload holds %d row(s), want 2", len(first))
 		}
-		if first[0].atom != "app-editors/zed" || first[1].atom != "dev-libs/foo" {
-			t.Errorf("the notes are ordered %q then %q; results are sorted by category and package, and two runs over one overlay must read identically",
-				first[0].atom, first[1].atom)
+		if first[0].Package != "app-editors/zed" || first[1].Package != "dev-libs/foo" {
+			t.Errorf("the rows are ordered %q then %q; results are sorted by category and package, and two runs over one overlay must read identically",
+				first[0].Package, first[1].Package)
 		}
 		for i := range first {
-			if first[i] != second[i] {
-				t.Errorf("note %d differs between two calls over one report: %+v vs %+v", i, first[i], second[i])
+			if !reflect.DeepEqual(first[i].FurtherFindings, second[i].FurtherFindings) {
+				t.Errorf("row %d differs between two builds over one report: %q vs %q", i, first[i].FurtherFindings, second[i].FurtherFindings)
 			}
 		}
 	})
 
-	t.Run("a run-scoped finding is never a package note", func(t *testing.T) {
+	t.Run("a run-scoped finding is never a package's", func(t *testing.T) {
 		scoped := &overlay.CompareReport{
-			Results:  rep.Results,
-			Findings: []overlay.Finding{{Kind: overlay.FindingBaselineSkipped, Detail: "no tree"}},
+			TotalPackages: 2,
+			Results:       rep.Results,
+			Findings:      []overlay.Finding{{Kind: overlay.FindingBaselineSkipped, Detail: "no tree"}},
 		}
-		if notes := comparePackageNotes(scoped); len(notes) != 0 {
-			t.Errorf("notes are %+v, want none: no package is named by the empty atom", notes)
+		for _, pkg := range compareComparePayload(t, buildCompareReport(scoped, "gentoo", nil)).Keep {
+			if len(pkg.FurtherFindings) != 0 {
+				t.Errorf("%s carries %q; no package is named by the empty atom", pkg.Package, pkg.FurtherFindings)
+			}
 		}
 	})
 }
 
-// TestAppendCompareNotesFindsThePackagesSection is placement: a note about a
-// package is said under the block that shows that package, found by the atom in
-// its rows rather than by a heading's wording.
-func TestAppendCompareNotesFindsThePackagesSection(t *testing.T) {
-	sections := []report.Section{
-		{Title: "Redundant"},
-		{Title: "Keep", Rows: report.Table{
-			Headers: []string{"PACKAGE"},
-			Rows:    []report.Row{{Cells: []string{"dev-libs/foo"}}},
-		}},
-		{Title: "Summary"},
+// TestCompareSectionsSayAPackagesFindingsUnderItsOwnBlock is placement, which
+// used to be a search over every rendered row for the package's atom and is now
+// a property of how the blocks are built: each is built from ONE list, so a
+// finding cannot land under a table that does not show its package.
+func TestCompareSectionsSayAPackagesFindingsUnderItsOwnBlock(t *testing.T) {
+	redundant := overlay.CompareResult{
+		Category: "dev-lang", Package: "go", LocalVersion: "1.0.0", RemoteVersion: "1.0.0",
+		Status: overlay.StatusUpToDate, Verdict: overlay.VerdictRedundant, Reading: overlay.ReadingDone,
+	}
+	keep, keepFindings := comparePkgWithFindings("dev-libs", "foo", "undeclared divergence — ours differs", "inherit differs from ::gentoo — gstreamer-meson")
+	rep := &overlay.CompareReport{
+		TotalPackages: 2, ComparedPackages: 2,
+		Results: []overlay.CompareResult{redundant, keep},
+		Findings: append([]overlay.Finding{
+			{Kind: overlay.FindingUndeclaredDivergence, Atom: "dev-lang/go", Detail: "differs, and no entry declares why"},
+		}, keepFindings...),
 	}
 
-	got := appendCompareNotes(sections, []compareNote{
-		{atom: "dev-libs/foo", text: "dev-libs/foo: inherit differs"},
-		{atom: "dev-libs/absent", text: "dev-libs/absent: no row anywhere"},
-		{text: "the run itself"},
-	})
+	sections := buildCompareReport(rep, "gentoo", nil, "the run itself").Sections(report.SectionOptions{ShowAll: true})
 
-	if len(got[1].Notes) != 2 || got[1].Notes[0] != compareNotesLead || got[1].Notes[1] != "dev-libs/foo: inherit differs" {
-		t.Errorf("the section showing the package holds %q, want the lead followed by its note", got[1].Notes)
+	var held []string
+	for _, section := range sections {
+		for _, note := range section.Notes {
+			if strings.Contains(note, "gstreamer-meson") {
+				held = append(held, section.Title)
+			}
+			if strings.Contains(note, "the run itself") && !strings.HasPrefix(section.Title, "Summary") {
+				t.Errorf("the run's own sentence is under %q", section.Title)
+			}
+		}
 	}
-	if len(got[0].Notes) != 0 {
-		t.Errorf("a section showing no rows gained %q", got[0].Notes)
+	if len(held) != 1 || !strings.HasPrefix(held[0], "Keep") {
+		t.Fatalf("the finding about dev-libs/foo is said under %q, want the Keep block that shows its row", held)
 	}
-	last := got[len(got)-1].Notes
-	if len(last) != 3 || last[0] != compareNotesLead || last[1] != "dev-libs/absent: no row anywhere" || last[2] != "the run itself" {
-		t.Errorf("the last section holds %q, want the homeless package note — introduced — and then the run's own", last)
+
+	for _, section := range sections {
+		if !strings.HasPrefix(section.Title, "Keep") {
+			continue
+		}
+		if len(section.Notes) == 0 || !strings.Contains(section.Notes[len(section.Notes)-2], "established more about these packages") {
+			t.Errorf("the block's notes are %q, want a lead introducing the finding that follows it", section.Notes)
+		}
+		if got := section.Notes[len(section.Notes)-1]; !strings.HasPrefix(got, "dev-libs/foo: ") {
+			t.Errorf("the note reads %q; it must name its package, or a reader cannot tell which row it belongs to", got)
+		}
 	}
 }
 
@@ -367,7 +406,10 @@ func TestRunCompareSaysWhatARowCannotHold(t *testing.T) {
 	}
 
 	flat := strings.Join(strings.Fields(got), " ")
-	lead := strings.Index(flat, strings.Join(strings.Fields(compareNotesLead), " "))
+	// Spelled out rather than imported: `const compareFindingsLead` is
+	// unexported in internal/common/report, and exporting a sentence to save a
+	// line here would publish one package's prose as another's API.
+	lead := strings.Index(flat, "Beside the reason on each row, the run established more about these packages:")
 	if lead < 0 {
 		t.Fatalf("the report introduces no package notes.\noutput:\n%s", got)
 	}

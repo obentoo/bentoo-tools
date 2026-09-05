@@ -891,8 +891,8 @@ func classificationFinding(r CompareResult) (Finding, bool) {
 // whose last caller is gone is not a renderer, and a test asserting its output
 // asserts nothing an operator can see. What they laid out — the lead sentence,
 // then the three per-class counts under it — is now built by
-// `func comparePackageNotes` in cmd/bentoo from the finding below, and rendered
-// by internal/common/report.
+// `func comparePkgFacts` in cmd/bentoo from the finding below, carried on
+// ComparePkg.FurtherFindings, and rendered by internal/common/report.
 
 // classifiedTotal is the denominator every one of the three counts is a share
 // of: the number of differences the reduction actually looked at.

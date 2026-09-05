@@ -100,10 +100,12 @@ func TestCompareJSONGolden(t *testing.T) {
 // overlay has no redundant package reads `"redundant": []`.
 //
 // That guarantee lives in the producer and cannot be re-proved here, since this
-// package holds no adapter — and the golden beside this test cannot show it
-// either: every list in comparePopulatedRun has members, so the document
-// contains no [] at all. Read it expecting none; its absence is the fixture
-// speaking, not the encoder.
+// package holds no adapter. The golden beside this test shows one half of it
+// since sub-task 7.1: every entry publishes `"further_findings": []` where the
+// run established nothing further, which is a package saying "no more" rather
+// than a producer saying nothing. Every OTHER list in comparePopulatedRun has
+// members, so no other [] appears — read it expecting exactly that one, and its
+// absence elsewhere as the fixture speaking rather than the encoder.
 //
 // What this asserts is the direction: in a document where every list HAS
 // members, no key may be null. The day a field is

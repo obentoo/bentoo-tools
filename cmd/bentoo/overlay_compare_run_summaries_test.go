@@ -1,6 +1,8 @@
 // Package main's tests for the three RUN-LEVEL summaries the report lost when it
 // stopped rendering through `func FormatReport` in internal/overlay, and which
-// `func compareRunNotes` now rebuilds.
+// `func compareRunNotes` now rebuilds. Since sub-task 7.1 each is a plain
+// sentence carried on CompareRun.Notes rather than a note with an empty atom:
+// the placement they never needed was what kept them off every export.
 //
 // # Why they were lost, and why nothing went red when they were
 //
@@ -54,11 +56,11 @@ func TestCompareRunClassificationShareReachesTheReport(t *testing.T) {
 		}}
 
 		notes := compareRunNotes(rep, false, false, false)
-		if len(notes) != 1 || notes[0].atom != "" {
+		if len(notes) != 1 {
 			t.Fatalf("notes are %+v, want exactly one RUN-scoped classification note", notes)
 		}
 
-		got := notes[0].text
+		got := notes[0]
 		for _, want := range []string{
 			"30 differences",     // 12 + 3 + 13, the total the three classes sum to
 			"across 2",           // the packages the classification actually reached
@@ -104,10 +106,10 @@ func TestComparePruneAdviceNamesTheCommandOnlyWhereRemovalIsRecommended(t *testi
 		}}
 
 		notes := compareRunNotes(rep, false, false, false)
-		if len(notes) != 1 || notes[0].atom != "" {
+		if len(notes) != 1 {
 			t.Fatalf("notes are %+v, want exactly one RUN-scoped prune-advice note", notes)
 		}
-		got := notes[0].text
+		got := notes[0]
 		if !strings.Contains(got, "bentoo overlay prune") {
 			t.Errorf("the removal advice reads %q; a report that recommends a destructive action and names no command asks an operator to invent one (S025-R3.3)", got)
 		}
@@ -152,10 +154,10 @@ func TestComparePartialRealignmentIsCountedNotInferred(t *testing.T) {
 		rep := &overlay.CompareReport{RealignAsked: 8, RealignNoVerdict: 3}
 
 		notes := compareRunNotes(rep, true, true, false)
-		if len(notes) != 1 || notes[0].atom != "" {
+		if len(notes) != 1 {
 			t.Fatalf("notes are %+v, want exactly one RUN-scoped partial-realignment note", notes)
 		}
-		got := notes[0].text
+		got := notes[0]
 		if !strings.Contains(got, "3 of the 8") {
 			t.Errorf("the partial-realignment note reads %q; it must state how many came back unjudged out of how many were asked", got)
 		}
@@ -188,8 +190,8 @@ func TestComparePartialRealignmentIsCountedNotInferred(t *testing.T) {
 		if len(notes) != 1 {
 			t.Fatalf("notes are %+v, want exactly one no-verdict notice", notes)
 		}
-		if !strings.Contains(notes[0].text, "--no-review") {
-			t.Errorf("the notice reads %q, want the flag-derived branch: no model was contacted, so no count over asked divergences applies", notes[0].text)
+		if !strings.Contains(notes[0], "--no-review") {
+			t.Errorf("the notice reads %q, want the flag-derived branch: no model was contacted, so no count over asked divergences applies", notes[0])
 		}
 	})
 }
@@ -216,11 +218,8 @@ func TestCompareRunSummariesAreOrderedForReading(t *testing.T) {
 
 	want := []string{"no ::gentoo counterpart", "Classification:", "Realignment verdicts:", "bentoo overlay prune"}
 	for i, marker := range want {
-		if !strings.Contains(notes[i].text, marker) {
-			t.Errorf("note %d reads %q, want the one carrying %q — the run's own state is read before the action it recommends", i, notes[i].text, marker)
-		}
-		if notes[i].atom != "" {
-			t.Errorf("note %d carries atom %q; a run-level summary names no package, which is why it is a note at all", i, notes[i].atom)
+		if !strings.Contains(notes[i], marker) {
+			t.Errorf("note %d reads %q, want the one carrying %q — the run's own state is read before the action it recommends", i, notes[i], marker)
 		}
 	}
 }
