@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-09-06
+
 ### Changed
 - **BREAKING — the exported JSON document gains a root envelope.** `--export`
   to a `.json` path used to write the check's view model at the document root.
@@ -4812,7 +4814,8 @@ Validated with `go test -race ./...`, `golangci-lint run`,
 - Initial release after versioning restructure. Prior history archived;
   project restarts at 0.1.0 following SemVer from this milestone forward.
 
-[Unreleased]: https://github.com/obentoo/bentoolkit/compare/v0.28.2...HEAD
+[Unreleased]: https://github.com/obentoo/bentoolkit/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/obentoo/bentoolkit/compare/v0.28.2...v0.29.0
 [0.28.2]: https://github.com/obentoo/bentoolkit/compare/v0.28.1...v0.28.2
 [0.28.1]: https://github.com/obentoo/bentoolkit/compare/v0.28.0...v0.28.1
 [0.28.0]: https://github.com/obentoo/bentoolkit/compare/v0.27.0...v0.28.0
