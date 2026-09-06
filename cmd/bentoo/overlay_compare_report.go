@@ -298,10 +298,11 @@ func buildCompareReport(rep *overlay.CompareReport, repository string, unfiltere
 //
 // `CompareReport.ErrorCount` is a field, so reading it looks like the better
 // source than a walk. It is not, because it is not disjoint from the reading
-// states: the review pass in internal/overlay/review.go writes
-// ReadingNotComparable onto EVERY result whose Verified is NotVerified, and a
-// package whose lookup errored was never content-verified, so it carries that
-// state as well. ErrorCount plus a tally of the reading states would report one
+// states: `func noteContentRefusal` in internal/overlay/compare.go writes
+// ReadingNotComparable onto EVERY result whose Verified is NotVerified — in the
+// comparison itself, so the count below does not depend on whether a reviewer
+// existed — and a package whose lookup errored was never content-verified, so
+// it carries that state as well. ErrorCount plus a tally of the reading states would report one
 // failed package as two unestablished facts, and the number a machine reads
 // would exceed the number of packages that produced it.
 //

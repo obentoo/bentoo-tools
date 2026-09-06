@@ -115,7 +115,8 @@ func TestCompareCmd_HasTokenFlag(t *testing.T) {
 // Borrowed from other test files in package main, never re-declared:
 //
 //	withExitIntercept (run_functions_test.go:50) · captureStdout (snapshot_test.go:41)
-//	comparisonSummaryLines / verdictSummaryLines (overlay_compare_summary_test.go)
+//	verdictScopeLines (overlay_compare_summary_test.go; the summary builders it
+//	named beside this one were deleted by story 047, sub-task 8.1)
 //
 // PINNED CONTRACT
 //

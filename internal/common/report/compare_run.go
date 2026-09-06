@@ -1495,18 +1495,53 @@ func compareUnknownSection(r CompareRun) Section {
 // # Three lines, and the third is the one that keeps the first two honest
 //
 // The verdict counts cover every package the run scanned, while the tables
-// above hold only the packages both trees carry — so a reader adding up the
-// rows lands on a smaller number than the tally and has nothing to tell them
-// why. The third line says it: how many scanned packages have no row above at
-// all.
+// above hold only what reached this report — the packages both trees carry,
+// less whatever a filter flag narrowed away. So a reader adding up the rows
+// lands on a smaller number than the tally and has nothing to tell them why.
+// The third line says it: how many scanned packages have no row above at all.
 //
-// That number is OnlyLocal, read from the payload, and NOT Scanned minus the
-// lengths of the four lists. A subtraction taken here would invent an answer
-// the run never gave and print it beside two the run did — the rule
-// CompareRun's own count fields state — and the two would part company the
-// moment a list is narrowed for any reason, which is precisely what a filter
-// flag does (S047-R5.3). A package exists only here exactly when the compared
-// repository carries no version of it, and that is the count the run keeps.
+// # THE ONE NUMBER HERE THAT IS MEASURED ON THE LISTS, AND WHY THAT IS NOT THE
+// # field-not-len RULE BREAKING
+//
+// Every other number in this block is a producer field: Scanned, InBoth,
+// OnlyLocal and the four Verdicts. The rule those obey — never derive a COUNTER
+// from len(rows) — is a rule about what the RUN established. A counter must not
+// move when a listing does, or "11 are redundant" quietly becomes "11 are on
+// this screen" (S047-D7, S044-R8.3). This sentence asks a question about the
+// SCREEN — how many scanned packages have no row above — and there len is the
+// only honest answer: what is on screen IS the lists.
+//
+// It used to read OnlyLocal, and on an unfiltered run the two agree, because a
+// package has no row exactly when the compared repository carries no version of
+// it. Under a filter they part company, and OnlyLocal is then the wrong number
+// printed with a straight face. Measured on the maintainer's 265-package
+// overlay: unfiltered, "101 of 265 have no row above" and OnlyLocal reads 101;
+// under --only-redundant the run printed THREE rows, so 262 have no row while
+// OnlyLocal still read 101. The sentence told an operator deciding what to
+// delete that they were seeing 161 packages they were not — on the one flag
+// whose whole purpose is to decide a deletion (S047-R2.3, S047-R1.1).
+//
+// # A COLLAPSED GROUP MEMBER HAS A ROW ABOVE, AND IT IS ITS GROUP'S
+//
+// compareKeepTable prints one row per group unless --all, so a run without the
+// flag shows fewer keep ROWS than the payload has keep ENTRIES. This counts the
+// entries: a member folded into a group is above, inside the row that stands
+// for it, and the note under that table names how many were folded and how to
+// unfold them. Counting it as unlisted would report the same collapse twice and
+// — worse — would make this number move when only the presentation moved, so
+// the same scan rendered with --all would claim to cover packages the scan
+// without it did not. That is the confusion this line exists to remove, one
+// step to the left. SectionOptions.ShowAll is therefore not read here, and the
+// sentence is a property of the run's view of the overlay rather than of the
+// device it is printed on.
+//
+// # A NEGATIVE IS FLOORED AT ZERO RATHER THAN PRINTED
+//
+// Scanned is one field and the four lists are four others; nothing in the type
+// makes them agree, which is the reason every guard in this file reads a count
+// rather than a list. A payload whose lists outrun its scan is malformed, and
+// "-3 of 265 have no row above" would state that malformation as arithmetic
+// nobody can act on. Zero says the same thing in a sentence that parses.
 //
 // # The needs-rebase column is printed even when it is zero
 //
@@ -1515,13 +1550,20 @@ func compareUnknownSection(r CompareRun) Section {
 // counted" the same line, which is the conflation every count on this payload
 // refuses omitempty to avoid.
 func compareSummarySection(r CompareRun) Section {
+	listed := len(r.Redundant) + len(r.NeedsRebase) + len(r.Keep) + len(r.Unknown)
+
+	unlisted := r.Scanned - listed
+	if unlisted < 0 {
+		unlisted = 0
+	}
+
 	return Section{
 		Title: "Summary",
 		Lead: []string{
 			fmt.Sprintf("%d scanned · %d in both · %d only here", r.Scanned, r.InBoth, r.OnlyLocal),
 			fmt.Sprintf("keep %d · redundant %d · needs rebase %d · unknown %d",
 				r.Verdicts.Keep, r.Verdicts.Redundant, r.Verdicts.NeedsRebase, r.Verdicts.Unknown),
-			fmt.Sprintf("Verdicts count every package scanned; %d of %d have no row above.", r.OnlyLocal, r.Scanned),
+			fmt.Sprintf("Verdicts count every package scanned; %d of %d have no row above.", unlisted, r.Scanned),
 		},
 		// The run's own sentences go LAST, under the tally, and the last block
 		// is the only fixed position this payload has: `func (r Run) Sections`

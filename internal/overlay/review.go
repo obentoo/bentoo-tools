@@ -71,22 +71,29 @@ func AnnotateReviews(report *CompareReport, reviewer DivergenceReviewer, prov pr
 	// knowing the set is empty here is what keeps a run with nothing to review
 	// from touching the cache at all — and therefore from warning about one.
 	//
-	// The same walk records ReadingNotComparable on the results the CONTENT
-	// CHECK REFUSED (S047-R3.3). Those are never submitted — there is no
-	// difference to hand a reader, because no content was compared — and leaving
-	// them at the zero would file them under "nobody asked", which is the
-	// conflation this vocabulary exists to remove: six of the measured run's
-	// eleven redundant packages are refused pairs, and the screen cannot
-	// currently tell them from the five whose review was killed.
+	// The same walk RE-ASSERTS ReadingNotComparable on the results the CONTENT
+	// CHECK REFUSED (S047-R3.3), by calling the one function that states that
+	// rule — noteContentRefusal, in compare.go, beside the check that refuses.
+	//
+	// It re-asserts rather than decides, because deciding here was a bug: this
+	// function returns above when the reviewer is nil, and a machine without
+	// `claude` on PATH has no reviewer without anyone having narrowed anything.
+	// Six of the measured run's eleven redundant packages are refused pairs, and
+	// on such a machine all six read as "nobody asked" — the exact conflation
+	// this vocabulary exists to remove. So the producer records them now, and
+	// the call kept here covers a report some other caller assembled; it writes
+	// the value that is already there and can write no other.
+	//
+	// It cannot collide with the pending set below. isUndeclaredDivergence
+	// requires VerifiedDiffers and noteContentRefusal acts on NotVerified, so no
+	// result is in both.
 	var pending []int
 	for i := range report.Results {
 		if isUndeclaredDivergence(report.Results[i]) {
 			pending = append(pending, i)
 			continue
 		}
-		if report.Results[i].Verified == NotVerified {
-			report.Results[i].Reading = ReadingNotComparable
-		}
+		noteContentRefusal(&report.Results[i])
 	}
 	if len(pending) == 0 {
 		return

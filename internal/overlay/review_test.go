@@ -743,7 +743,13 @@ func TestAnnotateReviews(t *testing.T) {
 		// above the very rows it duplicated.
 		warnings := captureReviewWarnings(t)
 		report, prov, opts := reviewFixture(t)
-		reference := cloneReport(report)
+		// withoutReviews and not cloneReport, so BOTH SIDES of the comparison
+		// below are normalised identically. Reading is no longer written only by
+		// this pass: `func noteContentRefusal` (compare.go) records a refused
+		// pair inside the comparison, so a fresh report already carries one and
+		// stripping it from one side alone would report the fixture's own state
+		// as a change this pass made (S047-R3.3).
+		reference := withoutReviews(report)
 		rev := &annotateReviewer{t: t, offLimits: unreviewableAtoms, err: errors.New("claude: exit status 1")}
 
 		AnnotateReviews(report, rev, prov, opts)
@@ -802,7 +808,7 @@ func TestAnnotateReviews(t *testing.T) {
 				warnings := captureReviewWarnings(t)
 				cacheDir := t.TempDir()
 				report, prov, opts := reviewFixtureIn(t, cacheDir)
-				reference := cloneReport(report)
+				reference := withoutReviews(report) // normalised like the value it is compared against; see the erroring-reviewer case above
 				rev := &annotateReviewer{t: t, offLimits: unreviewableAtoms, note: c.note, err: c.err}
 
 				AnnotateReviews(report, rev, prov, opts)
@@ -1076,9 +1082,14 @@ func TestAnnotateReviews(t *testing.T) {
 		AnnotateReviews(reviewed, rev, prov, opts)
 		AnnotateReviews(unreviewed, nil, prov, opts)
 
-		if !reflect.DeepEqual(withoutReviews(reviewed), unreviewed) {
-			t.Errorf("a review changed something other than the commentary.\nreviewed (commentary stripped): %+v\nunreviewed: %+v",
-				withoutReviews(reviewed), unreviewed)
+		// BOTH sides are stripped. A run with no reviewer keeps whatever Reading
+		// the comparison itself recorded — a refused pair reads NotComparable
+		// before this pass is ever called — so comparing a stripped report
+		// against an unstripped one would call the producer's own fact a change
+		// the reviewer made.
+		if !reflect.DeepEqual(withoutReviews(reviewed), withoutReviews(unreviewed)) {
+			t.Errorf("a review changed something other than the commentary.\nreviewed (commentary stripped): %+v\nunreviewed (commentary stripped): %+v",
+				withoutReviews(reviewed), withoutReviews(unreviewed))
 		}
 		// Spelled out as well, because DeepEqual on a struct that grew a field
 		// silently starts covering it: these four are the numbers R5.8 names.

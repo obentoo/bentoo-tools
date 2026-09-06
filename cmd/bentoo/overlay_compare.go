@@ -349,8 +349,10 @@ func runCompare(cmd *cobra.Command, args []string) {
 		//
 		// Switched on unconditionally it would be a regression rather than a
 		// feature: those packages would gain rows they do not have today, and
-		// verdictScopeLines' `counted - len(report.Results)` would change under
-		// every operator who never asked for a review (D1).
+		// the summary's "N of M have no row above" — Scanned minus what the
+		// report lists, in `func compareSummarySection` in
+		// internal/common/report — would move for every operator who never
+		// asked for a review (D1).
 		IncludeNotInRemote: compareRealign,
 		Concurrency:        compareConcurrency,
 		Ctx:                runCtx,
@@ -407,8 +409,9 @@ func runCompare(cmd *cobra.Command, args []string) {
 	// IT RUNS ONLY FOR A REVIEW RUN, and that single condition is the whole of
 	// R7.2's byte-identical promise. Every field it writes renders nothing at its
 	// zero value, so a run that never reaches this line prints exactly what
-	// `overlay compare` printed yesterday — the tables, the summary lines and
-	// verdictScopeLines' arithmetic all untouched.
+	// `overlay compare` printed yesterday — the tables and every line of the
+	// summary block untouched, the sentence counting what the report left out
+	// among them.
 	//
 	// Locating the tree comes FIRST because it is the one condition the command
 	// exits non-zero for (D9): a review with no ::gentoo repository to read
@@ -637,24 +640,6 @@ func filterCompareResults(results []overlay.CompareResult, onlyRedundant, onlyPa
 	return filtered
 }
 
-// activeCompareFilters names the presentation filters in play, in the order
-// they are declared, so an empty report can say which question returned nothing
-// instead of claiming the overlay is healthy.
-//
-// It names only the filters filterCompareResults applies. --only-outdated is
-// left out on purpose: an empty result set under that flag alone means nothing
-// is outdated, which IS the up-to-date message and must keep printing it.
-func activeCompareFilters(onlyRedundant, onlyPatched bool) []string {
-	var names []string
-	if onlyRedundant {
-		names = append(names, "--only-redundant")
-	}
-	if onlyPatched {
-		names = append(names, "--only-patched")
-	}
-	return names
-}
-
 // buildDivergenceMap turns the registry into the per-atom view compare needs:
 // one entry per bare "category/package" atom, saying whether any registry entry
 // for that atom declares a divergence from ::gentoo and which entry said so
@@ -747,105 +732,6 @@ func truncatePkgName(name string, maxLen int) string {
 		return name + strings.Repeat(" ", maxLen-len(name))
 	}
 	return name[:maxLen-3] + "..."
-}
-
-// comparisonSummaryLines builds the three pre-existing summary lines, verbatim.
-//
-// UB3 promises these bytes are what they were before the Verdict axis existed.
-func comparisonSummaryLines(report *overlay.CompareReport) []string {
-	return []string{
-		"\nSummary:",
-		fmt.Sprintf("  Total packages scanned: %d", report.TotalPackages),
-		fmt.Sprintf("  Found in both repos: %d", report.ComparedPackages-report.NotInRemoteCount-report.ErrorCount),
-		fmt.Sprintf("  Only in Bentoo: %d", report.NotInRemoteCount),
-	}
-}
-
-// verdictSummaryLines builds the per-Verdict counts (R3.9), or nothing when
-// every count is zero.
-//
-// ONE line naming the axis, rather than four bare labels, for the reason the
-// counter fields carry a Verdict prefix: a bare "Unknown: 5" sitting under
-// "Errors (API issues): 1" reads as a Status count, and keeping the two axes
-// apart is exactly what UB3 is for. Zero counts are dropped so the line states
-// what is there rather than what is not, matching the ErrorCount line above.
-//
-// The counts are read from the REPORT, never recomputed from report.Results:
-// runCompare assigns the filtered slice back to Results before rendering, and
-// this summary answers "what is in the overlay", not "what did you ask to see".
-func verdictSummaryLines(report *overlay.CompareReport) []string {
-	terms := make([]string, 0, 4)
-	for _, t := range []struct {
-		label string
-		count int
-	}{
-		{overlay.VerdictKeep.String(), report.VerdictKeepCount},
-		{overlay.VerdictRedundant.String(), report.VerdictRedundantCount},
-		{overlay.VerdictNeedsRebase.String(), report.VerdictNeedsRebaseCount},
-		{overlay.VerdictUnknown.String(), report.VerdictUnknownCount},
-	} {
-		if t.count > 0 {
-			terms = append(terms, fmt.Sprintf("%s %d", t.label, t.count))
-		}
-	}
-
-	if len(terms) == 0 {
-		return nil
-	}
-	return []string{"  Verdicts: " + strings.Join(terms, " | ")}
-}
-
-// verdictScopeLines says what the verdict counts cover and how many of the
-// packages they count have no row anywhere in the report (R4.1, R4.2), or
-// nothing when every counted package is listed.
-//
-// The counts and the tables disagree on screen, and until this line nothing said
-// why. Measured against ::gentoo on the live overlay: the verdict line reports
-// keep 231 above a keep table holding 155 rows, and `--only-outdated` reports 318
-// verdicts above no table at all, because every package is up-to-date and the
-// report is empty. Both numbers are right — the counts are computed over the
-// whole scan on purpose (D7) while Results is only the view — but a total larger
-// than what is on screen with nothing explaining it reads as a defect, and an
-// operator who counts the rows to check it concludes the tool is broken.
-//
-// The universe is the SUM OF THE COUNTERS rather than ComparedPackages or
-// TotalPackages, which is what makes the sentence checkable: the number named
-// here is the number the terms on the line above add up to. Any run that reaches
-// this point has all three equal — every compared package increments exactly one
-// verdict counter, and a scan cut short by a signal aborts before the summary
-// prints — so the choice shows up only in a report built by hand, where naming a
-// total the printed counts do not add up to would be the wrong answer. It also
-// makes the silence fall out: no verdict counts, no line to qualify them.
-//
-// What is unlisted is measured against the ROWS, never against NotInRemoteCount.
-// The two agree on a default run — runCompare never sets IncludeNotInRemote, so
-// the Bentoo-only packages are the only ones counted without a row, 84 of 318 in
-// the measurement above — and they part company the moment a filter narrows the
-// view: the same scan under --only-redundant prints 74 rows, leaving 244 packages
-// unlisted while NotInRemoteCount still reads 84. Every result does reach a table
-// (FormatReport sections every verdict and prints any leftover under "Other
-// Packages"), so len(Results) is exactly the count the operator can check by eye.
-//
-// Zero prints nothing, on the same terms as the zero verdict terms above: with
-// the counts and the tables in agreement there is nothing to reconcile. A
-// negative difference is unreachable from a real report and is silent for the
-// same reason.
-//
-// It says how many are unlisted and not WHICH: listing the Bentoo-only packages
-// is a separate decision about what a default run prints, and this line has to
-// stay true under a filter, where the missing rows are the operator's own doing.
-func verdictScopeLines(report *overlay.CompareReport) []string {
-	counted := report.VerdictKeepCount + report.VerdictRedundantCount +
-		report.VerdictNeedsRebaseCount + report.VerdictUnknownCount
-
-	unlisted := counted - len(report.Results)
-	if unlisted <= 0 {
-		return nil
-	}
-
-	return []string{fmt.Sprintf(
-		"  Verdicts count every package scanned, not the rows above: %d of %d have no row in any table.",
-		unlisted, counted)}
 }
 
 // repoTokenName maps a repository name to the environment variable / secrets key

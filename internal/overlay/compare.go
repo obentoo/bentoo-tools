@@ -829,6 +829,13 @@ func comparePackageWithProvider(pkg PackageInfo, prov provider.Provider, opts Co
 	result.Verified = check.state
 	result.DiffAdded, result.DiffRemoved = check.added, check.removed
 
+	// A REFUSAL IS RECORDED WHERE IT HAPPENS, on the line after the check that
+	// refused (S047-R3.3). Everything about this package's content is decided by
+	// the statement above, so nothing further along the run can be asked to
+	// remember it — see noteContentRefusal for the report that went out complete
+	// while six pairs had gone uncompared.
+	noteContentRefusal(&result)
+
 	// The map is keyed by the bare "category/package" atom. A miss is the
 	// unknown state — nothing is recorded about this package — and it reaches
 	// deriveVerdict as known == false, which no per-status rule can turn into a
@@ -946,6 +953,58 @@ func verifyAgainstLocalContent(result CompareResult, prov provider.Provider, opt
 	// depending on — could never turn a difference into an identity.
 	added, removed := diffLineCounts(theirs, ours)
 	return contentCheck{state: VerifiedDiffers, added: added, removed: removed}
+}
+
+// noteContentRefusal records, on one result, that the content check RAN AND
+// REFUSED the pair — as opposed to nobody having asked for a reading
+// (S047-R3.3, S047-R4.1).
+//
+// # It is called where the refusal happens, and that placement IS the fix
+//
+// It used to be written only inside AnnotateReviews (review.go), which returns
+// at its first statement when the reviewer is nil. A reviewer is nil in two
+// unrelated situations: `--no-review`, which is the operator narrowing the run,
+// and no `claude` on PATH, which is most CI and which nobody narrowed. In the
+// second one the content check had still run and still refused pairs, and
+// nothing wrote it down — so `func compareNotEvaluated`
+// (cmd/bentoo/overlay_compare_report.go) counted zero, the document went out
+// `complete: true, not_evaluated: 0`, and the same overlay reported six
+// unestablished facts with a reviewer and none without one. A fact that the
+// presence of a CLI can erase is not a fact about the run (S047-R5.1,
+// S047-R5.2) — and `CompareRun.Unread` was counting those same six packages on
+// the wire, so the document contradicted itself.
+//
+// The counterpart is Verified itself: NotVerified means "the check ran and
+// could not compare", never "no check was attempted", precisely because
+// verifyAgainstLocalContent runs on every dispatched package whatever else the
+// run was asked to do. This writes the reading in the same pass, on the same
+// condition, so the two can never come to disagree.
+//
+// # It cannot mark a run the operator merely NARROWED
+//
+// The population is exactly `Verified == NotVerified`. Every other result keeps
+// ReadingNotRequested, which `func compareNotEvaluated` deliberately does not
+// count — so `--no-review` over a run that refused nothing still reports
+// itself complete (S047-R5.3). The distinction being drawn is "nobody asked"
+// against "the check refused", and only this end of the code knows which.
+//
+// # It can never overwrite a reading
+//
+// Its population and the reviewed one are DISJOINT BY CONSTRUCTION:
+// isUndeclaredDivergence requires VerifiedDiffers, and no result is both
+// VerifiedDiffers and NotVerified. AnnotateReviews calls this same function
+// over the report it is handed — one rule, one spelling, two callers, on the
+// argument that made isUndeclaredDivergence one function — so a report a caller
+// assembled without CompareWithProvider still says which of its rows were
+// refused, and the second application writes the value the first one already
+// wrote.
+func noteContentRefusal(result *CompareResult) {
+	if result == nil {
+		return
+	}
+	if result.Verified == NotVerified {
+		result.Reading = ReadingNotComparable
+	}
 }
 
 // contentCheck is one content comparison's finding: the verification state and,

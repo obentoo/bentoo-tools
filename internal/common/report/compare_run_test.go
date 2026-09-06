@@ -562,26 +562,28 @@ func TestCompareRunTablesNameTheirColumns(t *testing.T) {
 	}
 }
 
-// TestCompareRunSummaryCountsTheRunAndNotTheLists is the coverage sentence.
+// TestCompareRunSummarySeparatesTheRunFromTheView pins all three summary lines
+// and, with them, where each number comes from.
 //
-// Verdicts count every package the run scanned; the tables hold only the
-// packages both trees carry. A reader adding up the rows therefore lands on a
-// smaller number than the tally, and the third line of the summary is what
-// tells them why.
+// It was TestCompareRunSummaryCountsTheRunAndNotTheLists until sub-task 8.3,
+// and the rename is the finding. Two of the three lines do count the run and
+// not the lists — Scanned, InBoth, OnlyLocal and the four Verdicts are producer
+// fields, and an implementation that recomputed any of them from a table would
+// print a number that moves when a filter narrows the view. The third line is
+// the exception ON PURPOSE: it asks how many scanned packages have no row
+// ABOVE, which is a question about the view, so it is Scanned minus the four
+// lists (S047-R2.3).
 //
-// The number in it is OnlyLocal, read from the payload, and not Scanned minus
-// the lengths of the four lists: a package has no row exactly when the compared
-// repository carries no version of it, which is the count the run keeps. The
-// fixture makes the two answers differ — 99 against a subtraction that lands on
-// 270 — so an implementation that derived it fails here.
-func TestCompareRunSummaryCountsTheRunAndNotTheLists(t *testing.T) {
+// The fixture makes the two candidate answers differ — 99 for OnlyLocal against
+// 270 for the subtraction — so this test tells them apart in both directions.
+func TestCompareRunSummarySeparatesTheRunFromTheView(t *testing.T) {
 	run := compareFixture()
 	summary := run.Sections(SectionOptions{})[5]
 
 	want := []string{
 		"279 scanned · 180 in both · 99 only here",
 		"keep 258 · redundant 11 · needs rebase 0 · unknown 10",
-		"Verdicts count every package scanned; 99 of 279 have no row above.",
+		"Verdicts count every package scanned; 270 of 279 have no row above.",
 	}
 
 	if len(summary.Lead) != len(want) {
@@ -596,4 +598,95 @@ func TestCompareRunSummaryCountsTheRunAndNotTheLists(t *testing.T) {
 	if len(summary.Rows.Rows) != 0 {
 		t.Errorf("the summary is prose, not a table: it carries %d row(s)", len(summary.Rows.Rows))
 	}
+}
+
+// TestCompareRunSummaryScopeIsMeasuredOnTheView is the successor to
+// TestComparisonSummaryScope in package main, which sub-task 8.1 kept alive —
+// with `func verdictScopeLines` under it — because the payload's summary got
+// this wrong and deleting a measured fact silently is the one thing that
+// sub-task refused to do (S047-R8.2, S047-R8.1).
+//
+// The fact it carried, restated on this payload: how many packages have no row
+// is measured against what is LISTED, never against OnlyLocal. The two agree on
+// an unfiltered run and part company under a filter, because a filter narrows
+// the lists while every counter stays the producer's (S047-D7). The measured
+// run behind the numbers below is the maintainer's own overlay: 265 scanned,
+// 101 only-local, and a --only-redundant run that printed three rows.
+//
+// The third and fourth subtests are this sub-task's own additions. --all
+// changes how many keep ROWS print and must not change this sentence, and a
+// malformed payload must not print arithmetic with a minus sign in it
+// (S047-R2.3).
+func TestCompareRunSummaryScopeIsMeasuredOnTheView(t *testing.T) {
+	scopeLine := func(t *testing.T, run CompareRun, opts SectionOptions) string {
+		t.Helper()
+		lead := run.Sections(opts)[5].Lead
+		if len(lead) != 3 {
+			t.Fatalf("the summary states %d line(s) %q, want exactly 3", len(lead), lead)
+		}
+		return lead[2]
+	}
+
+	t.Run("a filter narrows the rows and the sentence follows them, not OnlyLocal", func(t *testing.T) {
+		// --only-redundant on the measured run: the three redundant packages keep
+		// their rows and every other list is emptied, exactly as
+		// filterCompareResults leaves the payload, while Scanned and OnlyLocal are
+		// untouched because a filter narrows no counter.
+		run := compareFixture()
+		run.Scanned, run.OnlyLocal = 265, 101
+		run.NeedsRebase, run.Keep, run.KeepGroups, run.Unknown = nil, nil, nil, nil
+
+		line := scopeLine(t, run, SectionOptions{})
+
+		if want := "Verdicts count every package scanned; 262 of 265 have no row above."; line != want {
+			t.Errorf("scope line is %q, want %q", line, want)
+		}
+		if strings.Contains(line, "101") {
+			t.Errorf("scope line %q states OnlyLocal (101); under a filter that is not how many packages have no row", line)
+		}
+	})
+
+	t.Run("a report with no rows at all is entirely unlisted", func(t *testing.T) {
+		// --only-outdated on an overlay that is fully up to date: not one table
+		// prints, while the summary still reports the whole scan. This is the case
+		// the sentence is most needed for, and the one where reading OnlyLocal was
+		// furthest out — it would have claimed 101 of 265 rows were on a screen
+		// holding none.
+		run := compareFixture()
+		run.Scanned, run.OnlyLocal = 265, 101
+		run.Redundant, run.NeedsRebase, run.Keep, run.KeepGroups, run.Unknown = nil, nil, nil, nil, nil
+
+		line := scopeLine(t, run, SectionOptions{})
+
+		if want := "Verdicts count every package scanned; 265 of 265 have no row above."; line != want {
+			t.Errorf("scope line is %q, want %q", line, want)
+		}
+	})
+
+	t.Run("--all changes the keep rows and changes no number in this sentence", func(t *testing.T) {
+		// A collapsed member is above, inside the group row that stands for it, so
+		// it HAS a row. The proof that this is not vacuous is the row counts: the
+		// flag really does change the listing, and the sentence really does not
+		// move with it.
+		run := compareFixture()
+
+		collapsed := run.Sections(SectionOptions{})[3].Rows.Rows
+		expanded := run.Sections(SectionOptions{ShowAll: true})[3].Rows.Rows
+		if len(collapsed) == len(expanded) {
+			t.Fatalf("--all lists %d keep row(s) and no --all lists %d: the fixture collapses nothing, so this proves nothing", len(expanded), len(collapsed))
+		}
+
+		if got, want := scopeLine(t, run, SectionOptions{ShowAll: true}), scopeLine(t, run, SectionOptions{}); got != want {
+			t.Errorf("--all states %q and no --all states %q: the sentence counts the packages the report left out, which no listing flag changes", got, want)
+		}
+	})
+
+	t.Run("lists longer than the scan floor at zero rather than print a minus", func(t *testing.T) {
+		run := compareFixture()
+		run.Scanned = 2
+
+		if got, want := scopeLine(t, run, SectionOptions{}), "Verdicts count every package scanned; 0 of 2 have no row above."; got != want {
+			t.Errorf("scope line is %q, want %q", got, want)
+		}
+	})
 }
