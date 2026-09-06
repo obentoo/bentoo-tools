@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-09-06
+
 ### Fixed
 - **`overlay compare`'s prose agrees with its own numbers.** A run with one of
   something said "1 were never compared at all", "of which 1 carry a reading"
@@ -4850,7 +4852,8 @@ Validated with `go test -race ./...`, `golangci-lint run`,
 - Initial release after versioning restructure. Prior history archived;
   project restarts at 0.1.0 following SemVer from this milestone forward.
 
-[Unreleased]: https://github.com/obentoo/bentoolkit/compare/v0.29.0...HEAD
+[Unreleased]: https://github.com/obentoo/bentoolkit/compare/v0.29.1...HEAD
+[0.29.1]: https://github.com/obentoo/bentoolkit/compare/v0.29.0...v0.29.1
 [0.29.0]: https://github.com/obentoo/bentoolkit/compare/v0.28.2...v0.29.0
 [0.28.2]: https://github.com/obentoo/bentoolkit/compare/v0.28.1...v0.28.2
 [0.28.1]: https://github.com/obentoo/bentoolkit/compare/v0.28.0...v0.28.1
