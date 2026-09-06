@@ -340,7 +340,7 @@ func TestCompareRunRedundantLeadNamesTheRefusedVersionPair(t *testing.T) {
 		if !strings.Contains(lead, cause) {
 			t.Errorf("the lead does not name the version-pair refusal:\n%s", lead)
 		}
-		if !strings.Contains(lead, "1 were never compared at all") {
+		if !strings.Contains(lead, "1 was never compared at all") {
 			t.Errorf("the refusal is named without the count it applies to:\n%s", lead)
 		}
 		if !strings.Contains(lead, "the review died on the other 2") {
@@ -377,7 +377,7 @@ func TestCompareRunRedundantLeadNamesTheRefusedVersionPair(t *testing.T) {
 		if !strings.Contains(lead, cause) {
 			t.Errorf("the lead does not name the version-pair refusal:\n%s", lead)
 		}
-		if !strings.Contains(lead, "of which 1 carry a reading") {
+		if !strings.Contains(lead, "of which 1 carries a reading") {
 			t.Errorf("the lead does not count what was read:\n%s", lead)
 		}
 		if !strings.Contains(lead, "covers the 1 somebody read, and none of the rest") {
@@ -720,10 +720,10 @@ func TestCompareRunRedundantLeadRefusesToGuessTheCause(t *testing.T) {
 
 	lead := strings.Join(run.Sections(SectionOptions{})[1].Lead, "\n")
 
-	if !strings.Contains(lead, "1 were never compared at all, "+pairCause) {
+	if !strings.Contains(lead, "1 was never compared at all, "+pairCause) {
 		t.Errorf("the one refusal the row PROVES is no longer named:\n%s", lead)
 	}
-	if !strings.Contains(lead, "1 were never compared at all, "+unstated) {
+	if !strings.Contains(lead, "1 was never compared at all, "+unstated) {
 		t.Errorf("a refusal with no provable cause went unreported, so the counts an operator is "+
 			"given no longer account for the list:\n%s", lead)
 	}

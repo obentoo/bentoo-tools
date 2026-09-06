@@ -1107,17 +1107,35 @@ func (r CompareRun) Sections(opts SectionOptions) []Section {
 // question the run did not. Which cause applies to a LISTED package is
 // answerable, and the redundant block below answers it from the per-row
 // Reading values (S047-R3.3).
+// compareAgrees picks the form of a verb that agrees with n.
+//
+// The report's "package(s)" idiom sidesteps the NOUN and leaves the verb where
+// it was, so a run with one of something reads "1 were never compared at all".
+// A count is written by the same code whatever it counts and English is not,
+// which is the whole of why this exists. It is deliberately not a pluraliser:
+// it takes both forms as arguments, because the ones this report needs are
+// is/are, has/have, was/were, exists/exist and carries/carry, and a rule that
+// derived those from a stem would be wrong on four of the five.
+func compareAgrees(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
+}
+
 func compareScopeSection(r CompareRun) Section {
 	s := Section{Title: "Overlay Comparison"}
 
 	s.Lead = []string{fmt.Sprintf(
-		"%d package(s) scanned in the Bentoo overlay. %d also exist in %s and are compared below; %d exist only here and have nothing to compare against.",
-		r.Scanned, r.InBoth, compareRepository(r), r.OnlyLocal)}
+		"%d package(s) scanned in the Bentoo overlay. %d also %s in %s and %s compared below; %d %s only here and %s nothing to compare against.",
+		r.Scanned,
+		r.InBoth, compareAgrees(r.InBoth, "exists", "exist"), compareRepository(r), compareAgrees(r.InBoth, "is", "are"),
+		r.OnlyLocal, compareAgrees(r.OnlyLocal, "exists", "exist"), compareAgrees(r.OnlyLocal, "has", "have"))}
 
 	if r.Unread > 0 {
 		s.Notes = []string{fmt.Sprintf(
-			"%d comparison(s) were never read: a review nobody requested, a review that was attempted and failed, or a version pair the content check refused. A row whose review failed is marked %s — the difference is real, the explanation is missing, and no row below was quietly downgraded to hide it.",
-			r.Unread, compareReadingFailedMark)}
+			"%d comparison(s) %s never read: a review nobody requested, a review that was attempted and failed, or a version pair the content check refused. A row whose review failed is marked %s — the difference is real, the explanation is missing, and no row below was quietly downgraded to hide it.",
+			r.Unread, compareAgrees(r.Unread, "was", "were"), compareReadingFailedMark)}
 	}
 
 	return s
@@ -1259,7 +1277,8 @@ func compareRedundantLead(pkgs []ComparePkg) string {
 	var clauses []string
 	if versionsDiffer > 0 {
 		clauses = append(clauses, fmt.Sprintf(
-			"%d were never compared at all, because the check refuses to diff two different versions", versionsDiffer))
+			"%d %s never compared at all, because the check refuses to diff two different versions",
+			versionsDiffer, compareAgrees(versionsDiffer, "was", "were")))
 	}
 	if refusedUnstated > 0 {
 		// The remaining causes — no overlay path, a provider that cannot resolve
@@ -1269,7 +1288,8 @@ func compareRedundantLead(pkgs []ComparePkg) string {
 		// compareDiffCell` in cmd/bentoo/overlay_compare_report.go already makes
 		// about printing "unreadable" for a state it cannot observe.
 		clauses = append(clauses, fmt.Sprintf(
-			"%d were never compared at all, and this run did not record why", refusedUnstated))
+			"%d %s never compared at all, and this run did not record why",
+			refusedUnstated, compareAgrees(refusedUnstated, "was", "were")))
 	}
 	if failed > 0 {
 		// "the other" is only true when the two clauses account for every
@@ -1284,7 +1304,8 @@ func compareRedundantLead(pkgs []ComparePkg) string {
 		}
 	}
 	if notRequested > 0 {
-		clauses = append(clauses, fmt.Sprintf("%d were never submitted for review", notRequested))
+		clauses = append(clauses, fmt.Sprintf("%d %s never submitted for review",
+			notRequested, compareAgrees(notRequested, "was", "were")))
 	}
 
 	sentences := []string{compareReadingCount(len(pkgs), read)}
@@ -1303,7 +1324,7 @@ func compareReadingCount(listed, read int) string {
 	case listed:
 		return fmt.Sprintf("%d package(s), and every one of them carries a reading.", listed)
 	default:
-		return fmt.Sprintf("%d package(s), of which %d carry a reading.", listed, read)
+		return fmt.Sprintf("%d package(s), of which %d %s a reading.", listed, read, compareAgrees(read, "carries", "carry"))
 	}
 }
 

@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **`overlay compare`'s prose agrees with its own numbers.** A run with one of
+  something said "1 were never compared at all", "of which 1 carry a reading"
+  and "1 exist only here and have nothing to compare against". The report's
+  `package(s)` idiom sidesteps the NOUN and leaves the verb where it was, which
+  is why the disagreement survived: nothing in a count's spelling ever forced
+  the sentence around it to change.
+
+  Six sentences now take the verb form their count calls for — is/are, has/have,
+  was/were, exists/exist and carries/carry. `package(s)` itself is untouched; it
+  is this package's convention across every producer, and the defect was never
+  the noun.
+
 - **A `overlay compare` group whose stem one member spells without a separator
   is named after the stem again, not after whichever member sorted first.** The
   label is the longest package-name prefix the members share, cut back so that
