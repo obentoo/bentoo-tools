@@ -517,11 +517,6 @@ func MarkBaselineSkipped(report *CompareReport, lookedFor string) {
 	EstablishFindings(report)
 }
 
-// baselineSkippedLead opens the run-level SKIPPED line. It is a constant so a
-// test can name the word without copying the sentence, on the same argument that
-// made undeclaredDivergenceCaveat one.
-const baselineSkippedLead = "Baseline review SKIPPED: "
-
 // splitBaselineAtom splits "category/package" and refuses anything else.
 //
 // It is spelled here rather than reused from autoupdate.SplitPackageKey because

@@ -278,23 +278,6 @@ const todaysUnprovedFinding = "⚠ kde-plasma/kwin: undeclared divergence (+1/-1
 // package-relative exactly as it reaches the renderer.
 const provingFile = "files/spectacle-opencv5.patch"
 
-// divergenceFinding is one undeclared divergence as formatVerificationFindings
-// receives it: the shape comparedResult (authorship_test.go) already produces
-// for a compared package, plus the two fields AnnotateAuthorship writes onto it.
-//
-// Assembled here rather than driven through a real comparison because the
-// question is what the RENDERER does with a mixture — a section holding a proved
-// and an unproved finding at once — and reaching that through the pipeline would
-// need two overlay trees to prove one sentence.
-// TestProvedAuthorshipReachesTheRenderedReport below keeps this shape honest by
-// making the same assertions on the real pipeline's output.
-func divergenceFinding(pkg string, added, removed int, authorship Authorship, provedBy string) CompareResult {
-	r := comparedResult("kde-plasma", pkg, "6.7.4", VerifiedDiffers)
-	r.DiffAdded, r.DiffRemoved = added, removed
-	r.Authorship, r.ProvedBy = authorship, provedBy
-	return r
-}
-
 // divergenceFor is one package's undeclared-divergence finding, or a fatal.
 //
 // It replaces findingLine, which cut the rendered report into lines and demanded

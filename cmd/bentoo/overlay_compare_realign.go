@@ -25,8 +25,9 @@ import (
 // That promise needs a mechanism rather than a good intention, and the mechanism
 // is not in this file — it is in internal/overlay, where every field the review
 // writes renders nothing at its zero value. FormatReport takes a *CompareReport
-// and never learns which flags were passed (overlay_compare.go:408-413 says so
-// outright), so a gate in the renderer was never available. What this file owns
+// and never learns which flags were passed (overlay_compare.go says so outright,
+// beside the call that runs the review pass), so a gate in the renderer was never
+// available. What this file owns
 // is the other half: the passes that FILL those fields are called from exactly
 // one place, behind exactly one condition, and `IncludeNotInRemote` is switched
 // on there and nowhere else — unconditionally it would give the 84 Bentoo-only
@@ -53,9 +54,9 @@ const realignBaselineRepo = "gentoo"
 //
 // # It is a returned value, not a log line, and that is the point
 //
-// logger binds its io.Writer at first use and exposes no setter
-// (logger.go:44-52), so a refusal written there cannot be read by anything but a
-// human watching a terminal. R7.4 requires the reason to be NAMED, and a returned
+// logger binds its io.Writer at first use and exposes no setter — `func Default`
+// in logger.go does it once, under a sync.Once — so a refusal written there cannot
+// be read by anything but a human watching a terminal. R7.4 requires the reason to be NAMED, and a returned
 // error is the only shape in which the reason can be asserted, wrapped, or
 // printed by a caller that knows where its output goes.
 //
@@ -503,59 +504,6 @@ func realignReviewPayload(req overlay.RealignRequest) []byte {
 	return buf
 }
 
-// realignAddendum is what a review run prints AFTER the report: the state of the
-// verdicts when no model produced any, and the candidate declarations a
-// maintainer is invited to paste.
-//
-// It is printed beside the report rather than inside it because FormatReport
-// takes a *CompareReport and never learns which flags were passed — the same
-// constraint that put the whole `--realign` gate in this file. Both halves render
-// "" for a run with nothing to say, so a review that judged everything and
-// proposed nothing appends nothing at all.
-//
-// _Requirements: R3, R3.5, R4, R4.4_
-func realignAddendum(report *overlay.CompareReport, judged, noReview bool) string {
-	if report == nil {
-		return ""
-	}
-
-	var sb strings.Builder
-	if !judged {
-		sb.WriteString(realignNoVerdictNotice(noReview))
-	}
-	sb.WriteString(realignCandidateSection(report.Results))
-	return sb.String()
-}
-
-// realignNoVerdictNotice says that NO verdict was produced, and why (R4.4).
-//
-// It exists because the report cannot say it. formatRealignSummary states how
-// many divergences the model was ASKED about and did not judge, which is the
-// right sentence when a model answered some of them — but with no reviewer at all
-// nothing is asked, both counters stay zero, and the report renders silence.
-// Silence here reads as "every divergence was judged and none objected", which is
-// exactly the reading R4.4 exists to prevent: a divergence with no verdict and a
-// divergence judged justified look identical otherwise.
-//
-// It prints on a run that produced no verdicts even when nothing needed judging.
-// The predicate that decides who the model is asked about lives in
-// internal/overlay and is unexported on purpose, and a second spelling of it here
-// would be a second answer to one question — free to drift, and wrong in the
-// direction that hides things. The line is one sentence, it is never false, and
-// the worst it costs is a reader learning that a review they asked for reached no
-// model.
-//
-// _Requirements: R4, R4.4_
-func realignNoVerdictNotice(noReview bool) string {
-	reason := "no model was reachable"
-	if noReview {
-		reason = "--no-review contacted no model"
-	}
-	return output.Sprintf(output.Warning,
-		"\nRealignment verdicts: none was produced — %s, so every divergence above carries no verdict, and an unjudged divergence is not a justified one. Everything above was established by reading files and stands without a model.\n",
-		reason)
-}
-
 // realignCandidateSection renders the candidate declarations, or "" when there
 // are none to propose (R3.5).
 //
@@ -606,24 +554,6 @@ func realignIndentedBlock(block string) string {
 		sb.WriteString("    " + line + "\n")
 	}
 	return sb.String()
-}
-
-// reportSkippedBaseline names the run-level SKIPPED outcome on the ONE path the
-// renderer cannot reach (R1.5).
-//
-// FormatReport opens with that line precisely so it can correct the sentence
-// below it — "All packages are up-to-date!" is exactly how "we could not look"
-// must never render — but a report with no rows returns before FormatReport is
-// ever called, and reportEmptyCompare prints that same claim from here. So this
-// says it where it would otherwise be lost. It is reachable only from a
-// `--realign` run, since nothing else can set the field.
-func reportSkippedBaseline(report *overlay.CompareReport) {
-	if report == nil || report.BaselineSkipped == "" {
-		return
-	}
-	// An ARGUMENT and never a format string: the text names an operator-configured
-	// path.
-	logger.Warn("%s", report.BaselineSkipped)
 }
 
 // exitOnSkippedBaseline is R7.5 and D9 in one place: the command's exit code

@@ -1,7 +1,6 @@
 package overlay
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -152,14 +151,4 @@ func TestNilDivergenceMapIsAdditive(t *testing.T) {
 	// Divergence map must change no count, no status and no verdict. That claim
 	// never needed a renderer.
 
-}
-
-// nilMapLineContaining returns the first line of s containing sub, or "".
-func nilMapLineContaining(s, sub string) string {
-	for _, line := range strings.Split(s, "\n") {
-		if strings.Contains(line, sub) {
-			return line
-		}
-	}
-	return ""
 }

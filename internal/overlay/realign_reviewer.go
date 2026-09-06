@@ -180,11 +180,6 @@ type RealignReviewer interface {
 // the width of the whole report.
 const realignBaselineTextCap = 240
 
-// realignSummaryLead opens the run-level line that says how many divergences
-// went unjudged. It is a constant so a test can name it without copying the
-// wording, on the same argument that made undeclaredDivergenceCaveat one.
-const realignSummaryLead = "Realignment verdicts: "
-
 // realignCandidateReadingLead introduces the model's words inside a candidate
 // declaration, and SAYS WHOSE THEY ARE.
 //

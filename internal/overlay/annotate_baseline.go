@@ -577,19 +577,6 @@ func countNoBaseline(results []CompareResult) int {
 // longer prints. The indent an operator sees is decided by the renderer in
 // internal/common/report, over the notes cmd/bentoo builds from the findings.
 
-// baselineSummaryLead opens the run-level coverage line.
-const baselineSummaryLead = "Baseline coverage: "
-
-// classificationSummaryLead opens the run-level classification block: how much
-// of the whole run's diff the reduction and the model actually explained.
-//
-// It is a constant for the reason baselineSummaryLead is one — a test can name
-// the line without copying its wording — and it is a SEPARATE line from
-// realignSummaryLead on purpose. "How many divergences went unjudged" and "how
-// many differences nobody attributed" are different numbers over different
-// denominators, and one line carrying both would be read as one claim.
-const classificationSummaryLead = "Difference classification: "
-
 // baselineRunFindings is what the baseline review established about the RUN
 // rather than about any one package: today, exactly the outcome that may never
 // render as silence (R1.5).
