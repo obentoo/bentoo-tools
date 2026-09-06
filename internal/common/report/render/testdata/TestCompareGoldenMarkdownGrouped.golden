@@ -6,7 +6,7 @@
 
 ## Redundant — ::gentoo ships the version, and nothing cleared the content check
 
-4 package(s), of which 1 carry a reading. 1 were never compared at all, because the check refuses to diff two different versions; 1 had a review that was attempted and failed; 1 were never submitted for review. The recommendation to remove covers the 1 somebody read, and none of the rest.
+4 package(s), of which 1 carries a reading. 1 was never compared at all, because the check refuses to diff two different versions; 1 had a review that was attempted and failed; 1 was never submitted for review. The recommendation to remove covers the 1 somebody read, and none of the rest.
 
 | PACKAGE | BENTOO | GENTOO | STATE | DIFF | REASON |
 | --- | --- | --- | --- | --- | --- |

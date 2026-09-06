@@ -446,3 +446,32 @@ func compareFirstCells(s Section) []string {
 	}
 	return cells
 }
+
+// TestScopeLeadAgreesWithItsCounts pins the property the goldens pin by
+// accident: a lead whose verbs follow its numbers.
+//
+// The "package(s)" idiom sidesteps the NOUN and leaves the verb where it was, so
+// before this the report told an operator "1 exist only here and have nothing to
+// compare against". The goldens cover both branches — one fixture counts 1 and
+// the others count 5 — but a golden failure shows a diff and not a reason, and
+// the reason is the whole of what is being asserted here.
+func TestScopeLeadAgreesWithItsCounts(t *testing.T) {
+	lead := func(inBoth, onlyLocal int) string {
+		run := CompareRun{Scanned: inBoth + onlyLocal, InBoth: inBoth, OnlyLocal: onlyLocal}
+		return strings.Join(compareScopeSection(run).Lead, " ")
+	}
+
+	one := lead(1, 1)
+	for _, want := range []string{"1 also exists in", "and is compared below", "1 exists only here", "and has nothing"} {
+		if !strings.Contains(one, want) {
+			t.Errorf("a lead counting one of each does not say %q — a count of one takes a singular verb:\n%s", want, one)
+		}
+	}
+
+	many := lead(15, 5)
+	for _, want := range []string{"15 also exist in", "and are compared below", "5 exist only here", "and have nothing"} {
+		if !strings.Contains(many, want) {
+			t.Errorf("a lead counting several does not say %q:\n%s", want, many)
+		}
+	}
+}
