@@ -382,3 +382,69 @@ func TestProvedAuthorshipReachesTheRenderedReport(t *testing.T) {
 		t.Error("no finding is left unproved, so the section-level caveat about unproved differences would be printed over nothing")
 	}
 }
+
+// hostileProvingFile is a filename carrying every verb that would misrender if
+// it reached a format POSITION instead of an argument slot.
+const hostileProvingFile = "files/%s-%d-%%-ours.patch"
+
+// TestProvedByIsRenderedAsAnArgument is the successor story 047 owed and did not
+// leave: the deleted test of that name fed this same filename through and looked
+// for `%!s(MISSING)`, and when it went, the shape went unexercised in this
+// package.
+//
+// # The story's Auditor rated this "not worth reopening for". That was measured
+// wrong, and the measurement is the reason this test exists.
+//
+// The rating said every interpolation passes ProvedBy as an argument and that
+// go 1.26's vet printf analyzer reports a non-constant format string, so the
+// mutation the deleted test caught is caught by a gate already running. Half of
+// that is true. vet catches the DEGENERATE form -- the whole format
+// non-constant, no arguments left -- and reports "non-constant format string in
+// call to fmt.Sprintf".
+//
+// It does not catch the form this defect would actually take. Concatenating
+// ProvedBy INTO a format that still carries its other verbs and their arguments
+// -- one edit, the shape somebody reaches for when adding a clause -- leaves
+// `go vet ./...` at exit 0, golangci-lint with govet enabled at 0 issues, and
+// `go test`'s own printf pass silent. Measured on 2026-09-06 against exactly
+// that mutation of `func compareFindings`. This test failed on it, naming the
+// `%!s(MISSING)` the deleted test was written to name.
+//
+// So the two checks are not one gate and its restatement. vet reasons about a
+// CALL and only about a format it can fold to a constant; this reasons about the
+// OUTPUT and does not care how the sentence was built.
+//
+// # A filename is the right subject
+//
+// It is the one part of this sentence that comes from the filesystem rather
+// than from this package: `func ebuildFilesdirRefs` reads it out of an ebuild's
+// own text. Nothing else interpolated here can carry a percent sign that
+// somebody else chose.
+func TestProvedByIsRenderedAsAnArgument(t *testing.T) {
+	report := &CompareReport{Results: []CompareResult{{
+		Category:      "kde-plasma",
+		Package:       "spectacle",
+		LocalVersion:  "6.7.4",
+		RemoteVersion: "6.7.4",
+		Verified:      VerifiedDiffers,
+		DiffAdded:     3,
+		DiffRemoved:   1,
+		Authorship:    AuthorshipOverlay,
+		ProvedBy:      hostileProvingFile,
+	}}}
+
+	EstablishFindings(report)
+	proved := divergenceFor(t, report.Findings, "kde-plasma/spectacle")
+
+	if proved.ProvedBy != hostileProvingFile {
+		t.Errorf("the FIELD holds %q, want %q verbatim (S046-R5.1): a filename is evidence an operator confirms with one `ls`, and one that arrives altered confirms nothing",
+			proved.ProvedBy, hostileProvingFile)
+	}
+	if !strings.Contains(proved.Detail, hostileProvingFile) {
+		t.Errorf("the finding's sentence does not name the proving file literally: %q", proved.Detail)
+	}
+	if strings.Contains(proved.Detail, "%!") {
+		t.Errorf("the proving file reached a format POSITION — the sentence carries a formatting artefact instead of the filename: %q",
+			proved.Detail)
+	}
+}
