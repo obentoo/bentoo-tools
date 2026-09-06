@@ -453,6 +453,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sits under `.payload` from its first release instead of being moved there by a
   later one.
 
+  The grouping travels into the document as a VIEW and not as a partition.
+  Every atom in `.payload.keep_groups[].members` also has its own entry in
+  `.payload.keep`, exactly as the terminal's flat list keeps them, so a consumer
+  that sums the two counts every grouped package twice. Read `.payload.keep` for
+  the population and `.payload.keep_groups` for the compression over it; their
+  union is not a population of anything.
+
   **Where the work landed.** The payload and its sections are
   `internal/common/report/compare_run.go`, and `internal/common/report/run.go`
   gains `KindOverlayCompare`. The reading state is recorded where the reading
