@@ -67,8 +67,8 @@ const planReason = "depth resolved to none because the package is configured wit
 //   - one row whose reason repeats its plan entry (SameReasonAsPlan) and one
 //     whose reason differs, which is the R7.2/R7.3 pair
 //   - an atom wider than the 45-cell column this story removes
-func fixtureReport() report.Report {
-	return report.Report{
+func fixtureReport() report.AutoupdateCheck {
+	return report.AutoupdateCheck{
 		Scanned: []report.PackageResult{
 			{Package: "app-misc/jq", Type: "source", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", HasUpdate: true},
 			{Package: "dev-libs/libayatana-appindicator-glib", Type: "source", CurrentVersion: "0.5.92", CandidateVersion: "0.5.93", HasUpdate: true},
@@ -92,19 +92,71 @@ func fixtureReport() report.Report {
 			// The reason REPEATS the plan's, word for word (R7.2).
 			{Package: "sys-apps/portage", CandidateVersion: "3.0.67", Outcome: report.Skipped, Depth: "none", Reason: planReason, SameReasonAsPlan: true},
 		},
-		Tally:    report.Tally{Proved: 1, Errored: 1, Inconclusive: 1, Skipped: 1},
-		Complete: true,
+		Tally: report.Tally{Proved: 1, Errored: 1, Inconclusive: 1, Skipped: 1},
 	}
+}
+
+// finishedRun wraps a check report in the envelope a run that reached the end of
+// its plan carries — the same wrap cmd/bentoo does at its own call sites (D3).
+//
+// Complete and NotEvaluated are the ENVELOPE's since sub-task 3.1, because "the
+// run reached the end of its plan" is true of any batch. So a complete check is
+// a payload plus this wrap, and completeness is STATED here rather than read off
+// the payload, which no longer carries it. Every helper below goes through this
+// one function — screen, Markdown and JSON alike — so no test can compare two
+// modes that were handed differently-wrapped runs. The interrupted fixture is
+// the one exception and builds its own, saying false.
+func finishedRun(r report.AutoupdateCheck) report.Run {
+	return report.Run{
+		Schema:   report.SchemaVersion,
+		Kind:     report.KindAutoupdateCheck,
+		Title:    "Autoupdate check",
+		Complete: true,
+		Payload:  r,
+	}
+}
+
+// screenSections is what Plain, Inline and Fullscreen used to build for
+// themselves out of a report.Report. Story 046's Task 2 moved that out of all
+// three, so every call site below names it instead — mechanically, so the
+// goldens under testdata/ are compared against exactly the bytes they were
+// generated from.
+//
+// It takes report.SectionOptions, not Options: what the report should SAY is a
+// separate question from what the device ALLOWS, and since sub-task 2.3 the
+// renderers can only be asked the second one. The sections themselves come from
+// the live builders — report.Run.Sections, which delegates to the payload's own
+// — so every golden below is compared against output the shipping code produced
+// rather than against a copy of it.
+func screenSections(r report.AutoupdateCheck, content report.SectionOptions) []report.Section {
+	return finishedRun(r).Sections(content)
+}
+
+// exportSections is the same for the export path, where the two decisions are
+// not the caller's to make. An export lists every package the run looked at
+// whatever the terminal was asked for (S044-R9.3), and it states the plan whatever
+// the screen was told to do with it (R2.4) — a record missing the plan answers
+// no question later, because the plan is where a package's reason is stated at
+// all (R7.2).
+func exportSections(r report.AutoupdateCheck) []report.Section {
+	const (
+		everyScannedPackage = true
+		keepThePlan         = false
+	)
+	return finishedRun(r).Sections(report.SectionOptions{ShowAll: everyScannedPackage, SkipPlan: keepThePlan})
 }
 
 // renderPlain is the shorthand every test below uses. It fails the test on a
 // render error rather than returning one, because no test here is about the
 // error path.
-func renderPlain(t *testing.T, opts Options) string {
+// The two parameters are the split this story exists to hold: content is what
+// the report should SAY, opts is what the device ALLOWS. They used to be one
+// struct, which is how a renderer came to be able to decide the first.
+func renderPlain(t *testing.T, opts Options, content report.SectionOptions) string {
 	t.Helper()
 
 	var buf bytes.Buffer
-	if err := Plain(&buf, fixtureReport(), opts); err != nil {
+	if err := Plain(&buf, screenSections(fixtureReport(), content), opts); err != nil {
 		t.Fatalf("Plain returned an error: %v", err)
 	}
 	return buf.String()
@@ -113,20 +165,20 @@ func renderPlain(t *testing.T, opts Options) string {
 // TestPlainGoldenWithoutShowAll pins the default rendering: the version-check
 // section reports the up-to-date packages as a COUNT (R8.3).
 func TestPlainGoldenWithoutShowAll(t *testing.T) {
-	golden(t, "TestPlainGoldenWithoutShowAll", []byte(renderPlain(t, Options{Width: 100})))
+	golden(t, "TestPlainGoldenWithoutShowAll", []byte(renderPlain(t, Options{Width: 100}, report.SectionOptions{})))
 }
 
 // TestPlainGoldenWithShowAll pins the --all rendering: the same run, with the
 // packages behind that count listed (R8.2).
 func TestPlainGoldenWithShowAll(t *testing.T) {
-	golden(t, "TestPlainGoldenWithShowAll", []byte(renderPlain(t, Options{Width: 100, ShowAll: true})))
+	golden(t, "TestPlainGoldenWithShowAll", []byte(renderPlain(t, Options{Width: 100}, report.SectionOptions{ShowAll: true})))
 }
 
 // TestPlainGoldensDifferGuards the two goldens above against being written from
 // the same output. Identical goldens would make both tests pass while ShowAll
 // did nothing at all.
 func TestPlainGoldensDiffer(t *testing.T) {
-	if renderPlain(t, Options{Width: 100}) == renderPlain(t, Options{Width: 100, ShowAll: true}) {
+	if renderPlain(t, Options{Width: 100}, report.SectionOptions{}) == renderPlain(t, Options{Width: 100}, report.SectionOptions{ShowAll: true}) {
 		t.Fatal("ShowAll changed nothing in the output")
 	}
 }
@@ -136,7 +188,7 @@ func TestPlainGoldensDiffer(t *testing.T) {
 // nobody will read with a terminal.
 func TestPlainHasNoEscapes(t *testing.T) {
 	for _, showAll := range []bool{false, true} {
-		out := renderPlain(t, Options{Width: 100, ShowAll: showAll})
+		out := renderPlain(t, Options{Width: 100}, report.SectionOptions{ShowAll: showAll})
 
 		if i := strings.IndexByte(out, 0x1b); i >= 0 {
 			t.Errorf("plain output (ShowAll=%v) carries an escape sequence at byte %d: %q",
@@ -161,7 +213,7 @@ func TestPlainHasNoEscapes(t *testing.T) {
 // heading does not turn this into a false red. Exactly one line names both
 // "proved" and "errored" — a results row carries one outcome, never two.
 func TestPlainTallyShowsFourCounts(t *testing.T) {
-	out := renderPlain(t, Options{Width: 100})
+	out := renderPlain(t, Options{Width: 100}, report.SectionOptions{})
 
 	var tally string
 	for _, line := range strings.Split(out, "\n") {
@@ -188,7 +240,7 @@ func TestPlainNoLineExceedsTheWidth(t *testing.T) {
 	const width = 100
 
 	for _, showAll := range []bool{false, true} {
-		for i, line := range strings.Split(renderPlain(t, Options{Width: width, ShowAll: showAll}), "\n") {
+		for i, line := range strings.Split(renderPlain(t, Options{Width: width}, report.SectionOptions{ShowAll: showAll}), "\n") {
 			if w := lipgloss.Width(line); w > width {
 				t.Errorf("ShowAll=%v line %d is %d cells wide, %d over the %d asked for: %q",
 					showAll, i+1, w, w-width, width, line)
@@ -210,7 +262,7 @@ func TestPlainNoLineExceedsTheWidth(t *testing.T) {
 // its reason shortened to the available width (R7.1), so counting the full
 // string would find zero occurrences and pass vacuously.
 func TestReasonPrintedOnce(t *testing.T) {
-	out := renderPlain(t, Options{Width: 100})
+	out := renderPlain(t, Options{Width: 100}, report.SectionOptions{})
 
 	// The first 40 cells of the sentence are enough to identify it and short
 	// enough to survive any sensible shortening.
@@ -227,7 +279,7 @@ func TestReasonPrintedOnce(t *testing.T) {
 // carries NEW information — the plan asked for manifest, the host could not
 // produce one (R7.3).
 func TestDifferingReasonIsPrinted(t *testing.T) {
-	out := renderPlain(t, Options{Width: 100})
+	out := renderPlain(t, Options{Width: 100}, report.SectionOptions{})
 
 	const differing = "no Manifest could be produced"
 	if !strings.Contains(out, differing) {
@@ -257,7 +309,7 @@ func TestReasonSurvivesShortening(t *testing.T) {
 	}
 
 	// The screen's copy is not, at a width that cannot hold it.
-	out := renderPlain(t, Options{Width: 80})
+	out := renderPlain(t, Options{Width: 80}, report.SectionOptions{})
 	if strings.Contains(out, planReason) {
 		t.Errorf("the full %d-character reason was printed at width 80 — it cannot fit, so it was not shortened", len(planReason))
 	}
@@ -272,14 +324,14 @@ func TestReasonSurvivesShortening(t *testing.T) {
 
 // renderMarkdown mirrors renderPlain. Note what it CANNOT take: Markdown has no
 // Options parameter, so there is no width to shorten to and no ShowAll to
-// honour. R9.3 is enforced by the signature rather than by a branch somebody
+// honour. S044-R9.3 is enforced by the signature rather than by a branch somebody
 // has to remember — an export that mirrored screen truncation would be a
 // useless record, and this is why it cannot.
 func renderMarkdown(t *testing.T) string {
 	t.Helper()
 
 	var buf bytes.Buffer
-	if err := Markdown(&buf, fixtureReport()); err != nil {
+	if err := Markdown(&buf, exportSections(fixtureReport())); err != nil {
 		t.Fatalf("Markdown returned an error: %v", err)
 	}
 	return buf.String()
@@ -292,7 +344,7 @@ func TestMarkdownGolden(t *testing.T) {
 	golden(t, "TestMarkdownGolden", []byte(renderMarkdown(t)))
 }
 
-// TestExportIsCompleteKeepsEveryReasonWhole pins the first half of R9.3. The
+// TestExportIsCompleteKeepsEveryReasonWhole pins the first half of S044-R9.3. The
 // terminal shows 96 cells of the 232-character reason; the export shows all
 // 232. Shortening is a rendering decision, and an export is not a rendering of
 // a terminal.
@@ -300,14 +352,14 @@ func TestExportIsCompleteKeepsEveryReasonWhole(t *testing.T) {
 	out := renderMarkdown(t)
 
 	if !strings.Contains(out, planReason) {
-		t.Errorf("the %d-character reason was not exported whole (R9.3)\n--- export ---\n%s", len(planReason), out)
+		t.Errorf("the %d-character reason was not exported whole (S044-R9.3)\n--- export ---\n%s", len(planReason), out)
 	}
 	if strings.Contains(out, "…") {
-		t.Errorf("the export carries an ellipsis, so something was shortened (R9.3)")
+		t.Errorf("the export carries an ellipsis, so something was shortened (S044-R9.3)")
 	}
 }
 
-// TestExportIsCompleteListsEveryPackage pins the other half of R9.3: every
+// TestExportIsCompleteListsEveryPackage pins the other half of S044-R9.3: every
 // package, regardless of --all. The two up-to-date packages that the plain
 // render hides behind a count must be named here.
 func TestExportIsCompleteListsEveryPackage(t *testing.T) {
@@ -315,7 +367,7 @@ func TestExportIsCompleteListsEveryPackage(t *testing.T) {
 
 	for _, pkg := range fixtureReport().Scanned {
 		if !strings.Contains(out, pkg.Package) {
-			t.Errorf("the export does not name %q — an export that honoured --all would be an incomplete record (R9.3)", pkg.Package)
+			t.Errorf("the export does not name %q — an export that honoured --all would be an incomplete record (S044-R9.3)", pkg.Package)
 		}
 	}
 }
@@ -329,8 +381,8 @@ func TestExportIsCompleteRegardlessOfPlainShowAll(t *testing.T) {
 
 	// Render plain both ways in between — if any shared state leaked from the
 	// screen renderer into the export, this is where it would show.
-	renderPlain(t, Options{Width: 40})
-	renderPlain(t, Options{Width: 200, ShowAll: true})
+	renderPlain(t, Options{Width: 40}, report.SectionOptions{})
+	renderPlain(t, Options{Width: 200}, report.SectionOptions{ShowAll: true})
 
 	if second := renderMarkdown(t); first != second {
 		t.Error("the Markdown export changed after the plain renderer ran — the export is not independent of the screen")
@@ -342,7 +394,7 @@ func TestExportIsCompleteRegardlessOfPlainShowAll(t *testing.T) {
 // outputs were identical, one of the two styles would not be reaching the
 // writer at all.
 func TestMarkdownIsNotPlain(t *testing.T) {
-	if renderMarkdown(t) == renderPlain(t, Options{Width: 100}) {
+	if renderMarkdown(t) == renderPlain(t, Options{Width: 100}, report.SectionOptions{}) {
 		t.Fatal("the Markdown export is byte-identical to the plain render — the style parameter is not being applied")
 	}
 }
@@ -351,15 +403,22 @@ func TestMarkdownIsNotPlain(t *testing.T) {
 // Sub-task 5.3 — an interrupted run says so. APPENDED to text_test.go.
 // ---------------------------------------------------------------------------
 
-// interruptedFixture is the fixture as a run stopped halfway would leave it:
-// four packages planned, two evaluated, two never reached.
-func interruptedFixture() report.Report {
-	r := fixtureReport()
-	r.Results = r.Results[:2]
-	r.Tally = report.Tally{Proved: 1, Errored: 1}
-	r.Complete = false
-	r.NotEvaluated = len(r.Plan) - len(r.Results)
-	return r
+// interruptedRun is the fixture as a run stopped halfway would leave it: four
+// packages planned, two evaluated, two never reached.
+//
+// It is a report.Run rather than a payload because that is where the two facts
+// live since sub-task 3.1. The payload's sections are all short by the packages
+// the run never reached, and nothing IN the payload can say so — the envelope
+// holds Complete and NotEvaluated, so the envelope states the gap.
+func interruptedRun() report.Run {
+	check := fixtureReport()
+	check.Results = check.Results[:2]
+	check.Tally = report.Tally{Proved: 1, Errored: 1}
+
+	run := finishedRun(check)
+	run.Complete = false
+	run.NotEvaluated = len(check.Plan) - len(check.Results)
+	return run
 }
 
 // TestIncompleteIsLabelled pins R4.3 across every format that carries text. No
@@ -367,14 +426,14 @@ func interruptedFixture() report.Report {
 // NotEvaluated, which is what lets an interrupted run be reported identically
 // whether it was interrupted in fullscreen, inline or plain.
 func TestIncompleteIsLabelled(t *testing.T) {
-	r := interruptedFixture()
+	r := interruptedRun()
 
 	var plain bytes.Buffer
-	if err := Plain(&plain, r, Options{Width: 100}); err != nil {
+	if err := Plain(&plain, r.Sections(report.SectionOptions{}), Options{Width: 100}); err != nil {
 		t.Fatalf("Plain: %v", err)
 	}
 	var markdown bytes.Buffer
-	if err := Markdown(&markdown, r); err != nil {
+	if err := Markdown(&markdown, r.Sections(report.SectionOptions{ShowAll: true})); err != nil {
 		t.Fatalf("Markdown: %v", err)
 	}
 
@@ -412,14 +471,14 @@ func TestIncompleteIsLabelled(t *testing.T) {
 // meaningful. A label printed unconditionally satisfies the test above while
 // making every report look interrupted.
 func TestCompleteHasNoLabel(t *testing.T) {
-	r := fixtureReport() // Complete: true, NotEvaluated: 0
+	r := fixtureReport() // wrapped by screenSections in a run that finished
 
 	var plain bytes.Buffer
-	if err := Plain(&plain, r, Options{Width: 100}); err != nil {
+	if err := Plain(&plain, screenSections(r, report.SectionOptions{}), Options{Width: 100}); err != nil {
 		t.Fatalf("Plain: %v", err)
 	}
 	var markdown bytes.Buffer
-	if err := Markdown(&markdown, r); err != nil {
+	if err := Markdown(&markdown, exportSections(r)); err != nil {
 		t.Fatalf("Markdown: %v", err)
 	}
 
@@ -465,9 +524,8 @@ func countAppearsInTheLabel(rendered string, want int) bool {
 
 // story045PlannedReport is a report whose plan section is non-empty, which is
 // the only shape where SkipPlan can be observed at all.
-func story045PlannedReport() report.Report {
-	return report.Report{
-		Complete: true,
+func story045PlannedReport() report.AutoupdateCheck {
+	return report.AutoupdateCheck{
 		Scanned: []report.PackageResult{
 			{Package: "app-misc/jq", Type: "source", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", HasUpdate: true},
 		},
@@ -485,10 +543,11 @@ func TestSkipPlanOmitsThePlanSection(t *testing.T) {
 	r := story045PlannedReport()
 
 	var shown, skipped bytes.Buffer
-	if err := Plain(&shown, r, Options{}); err != nil {
+	statesThePlan, skipsThePlan := report.SectionOptions{}, report.SectionOptions{SkipPlan: true}
+	if err := Plain(&shown, screenSections(r, statesThePlan), Options{}); err != nil {
 		t.Fatalf("Plain(SkipPlan=false): %v", err)
 	}
-	if err := Plain(&skipped, r, Options{SkipPlan: true}); err != nil {
+	if err := Plain(&skipped, screenSections(r, skipsThePlan), Options{}); err != nil {
 		t.Fatalf("Plain(SkipPlan=true): %v", err)
 	}
 
@@ -507,10 +566,11 @@ func TestSkipPlanChangesNothingElse(t *testing.T) {
 	r := story045PlannedReport()
 
 	var shown, skipped bytes.Buffer
-	if err := Plain(&shown, r, Options{}); err != nil {
+	statesThePlan, skipsThePlan := report.SectionOptions{}, report.SectionOptions{SkipPlan: true}
+	if err := Plain(&shown, screenSections(r, statesThePlan), Options{}); err != nil {
 		t.Fatalf("Plain(SkipPlan=false): %v", err)
 	}
-	if err := Plain(&skipped, r, Options{SkipPlan: true}); err != nil {
+	if err := Plain(&skipped, screenSections(r, skipsThePlan), Options{}); err != nil {
 		t.Fatalf("Plain(SkipPlan=true): %v", err)
 	}
 
@@ -534,7 +594,8 @@ func TestExportKeepsThePlanTheScreenSkipped(t *testing.T) {
 	r := story045PlannedReport()
 
 	var screen bytes.Buffer
-	if err := Plain(&screen, r, Options{SkipPlan: true}); err != nil {
+	skipped := report.SectionOptions{SkipPlan: true}
+	if err := Plain(&screen, screenSections(r, skipped), Options{}); err != nil {
 		t.Fatalf("Plain: %v", err)
 	}
 	if strings.Contains(screen.String(), "Validation Plan") {
@@ -542,10 +603,10 @@ func TestExportKeepsThePlanTheScreenSkipped(t *testing.T) {
 	}
 
 	var md, js bytes.Buffer
-	if err := Markdown(&md, r); err != nil {
+	if err := Markdown(&md, exportSections(r)); err != nil {
 		t.Fatalf("Markdown: %v", err)
 	}
-	if err := JSON(&js, r); err != nil {
+	if err := JSON(&js, finishedRun(r)); err != nil {
 		t.Fatalf("JSON: %v", err)
 	}
 
@@ -563,7 +624,7 @@ func TestExportKeepsThePlanTheScreenSkipped(t *testing.T) {
 // "Checked N source, M bin" has to survive its deletion, and it survives inside
 // the section rather than beside it (D5).
 func TestTierCountNote(t *testing.T) {
-	r := report.Report{Complete: true, Scanned: []report.PackageResult{
+	r := report.AutoupdateCheck{Scanned: []report.PackageResult{
 		{Package: "app-misc/jq", Type: "source", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", HasUpdate: true},
 		{Package: "app-misc/yq", Type: "source", CurrentVersion: "4.44.1", CandidateVersion: "4.44.1"},
 		{Package: "app-editors/zed", Type: "bin", CurrentVersion: "0.199.4", CandidateVersion: "0.199.4"},
@@ -571,7 +632,7 @@ func TestTierCountNote(t *testing.T) {
 
 	for _, showAll := range []bool{false, true} {
 		var buf bytes.Buffer
-		if err := Plain(&buf, r, Options{ShowAll: showAll}); err != nil {
+		if err := Plain(&buf, screenSections(r, report.SectionOptions{ShowAll: showAll}), Options{}); err != nil {
 			t.Fatalf("Plain(ShowAll=%v): %v", showAll, err)
 		}
 		// The count never depends on the listing — story 044's R8.3 rule, applied
@@ -588,13 +649,13 @@ func TestTierCountNote(t *testing.T) {
 // bucketed the unresolved into either column would state a fact the scan never
 // established. The totals deliberately do NOT sum to len(Scanned).
 func TestTierCountIgnoresUnresolved(t *testing.T) {
-	r := report.Report{Complete: true, Scanned: []report.PackageResult{
+	r := report.AutoupdateCheck{Scanned: []report.PackageResult{
 		{Package: "app-misc/jq", Type: "source"},
 		{Package: "app-misc/broken", Type: "", Error: "the current ebuild could not be read"},
 	}}
 
 	var buf bytes.Buffer
-	if err := Plain(&buf, r, Options{}); err != nil {
+	if err := Plain(&buf, screenSections(r, report.SectionOptions{}), Options{}); err != nil {
 		t.Fatalf("Plain: %v", err)
 	}
 	out := buf.String()
@@ -612,8 +673,8 @@ func TestTierCountIgnoresUnresolved(t *testing.T) {
 // story045ScanOnlyReport is what runCheck now builds on a run that validated
 // nothing: the scan filled, the plan half empty, and Complete true because a run
 // that planned nothing left nothing unevaluated (R4.2).
-func story045ScanOnlyReport() report.Report {
-	return report.Report{Complete: true, Scanned: []report.PackageResult{
+func story045ScanOnlyReport() report.AutoupdateCheck {
+	return report.AutoupdateCheck{Scanned: []report.PackageResult{
 		{Package: "app-misc/jq", Type: "source", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", HasUpdate: true},
 		{Package: "app-editors/zed", Type: "bin", CurrentVersion: "0.199.4", CandidateVersion: "0.199.4"},
 	}}
@@ -632,7 +693,7 @@ func story045ScanOnlyReport() report.Report {
 // the door this story opened.
 func TestScanOnlyReportOmitsTheValidationSections(t *testing.T) {
 	var buf bytes.Buffer
-	if err := Plain(&buf, story045ScanOnlyReport(), Options{}); err != nil {
+	if err := Plain(&buf, screenSections(story045ScanOnlyReport(), report.SectionOptions{}), Options{}); err != nil {
 		t.Fatalf("Plain: %v", err)
 	}
 	out := buf.String()
@@ -659,7 +720,7 @@ func TestValidatedReportStillStatesTheValidationSections(t *testing.T) {
 	r.Tally = report.Tally{Proved: 1}
 
 	var buf bytes.Buffer
-	if err := Plain(&buf, r, Options{}); err != nil {
+	if err := Plain(&buf, screenSections(r, report.SectionOptions{}), Options{}); err != nil {
 		t.Fatalf("Plain: %v", err)
 	}
 	out := buf.String()

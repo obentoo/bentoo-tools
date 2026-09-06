@@ -159,9 +159,20 @@ func TestAnnotateBaselineReviewsAResultSetWithNoCarriedPackage(t *testing.T) {
 		t.Errorf("BaselineSkipped is %q although the ::gentoo tree is present and readable; a package ::gentoo does not carry is a per-package answer (R1.3) and must never become a failed run (R1.5, D9)", report.BaselineSkipped)
 	}
 
-	rendered := FormatReport(report)
-	if !strings.Contains(rendered, baselineSummaryLead) {
-		t.Errorf("the report carries no baseline coverage line, so a review that could not measure a single package rendered exactly like one that found nothing to say:\n--- report ---\n%s", rendered)
+	// The coverage line itself is no longer this package's to render (story 047,
+	// sub-task 5.5, S047-R8.2): NoBaselineCount is a run-level count and not a
+	// finding, so `func compareRunNotes` in cmd/bentoo pairs it with its
+	// denominator and states it as a run note — guarded there by
+	// TestCompareRunNotesCarryTheRunLevelFacts/"the baseline coverage is a share
+	// of the packages COMPARED", which pins the literal "1 of the 3 packages
+	// compared" AND the silence at zero. What this package still owes is a count
+	// that is non-zero and correctly defined, which is asserted above.
+	//
+	// The half that would otherwise go untested is that the count is not silently
+	// zero here — a review that measured nothing must not look like one that
+	// found nothing to say — so it is stated as its own claim.
+	if report.NoBaselineCount == 0 {
+		t.Error("a review that could not measure a single package reports a coverage gap of 0, which is exactly what a review that measured everything reports")
 	}
 }
 
@@ -200,7 +211,21 @@ func TestAnnotateBaselineWithNoTreeSaysSoRatherThanNothing(t *testing.T) {
 		t.Errorf("NoBaselineCount is %d although no tree was located; 'we could not look' is not '::gentoo carries none of them'", report.NoBaselineCount)
 	}
 
-	if rendered := FormatReport(report); !strings.Contains(rendered, baselineSkippedLead) {
-		t.Errorf("the SKIPPED state never reaches the operator:\n--- report ---\n%s", rendered)
+	// The SKIPPED state reaches the operator as the one finding with no atom
+	// (story 047, sub-task 5.5, S047-R8.2), which `func compareRunNotes` in
+	// cmd/bentoo turns into the report's run-scoped note and
+	// `func exitOnSkippedBaseline` reads for the exit code.
+	EstablishFindings(report)
+	skipped := false
+	for _, f := range report.Findings {
+		if f.Kind == FindingBaselineSkipped {
+			skipped = true
+			if !strings.Contains(f.Detail, portageRepoMarker) {
+				t.Errorf("the skipped finding is %q and does not name %s, so it cannot tell a mistyped path from an unsynced repository", f.Detail, portageRepoMarker)
+			}
+		}
+	}
+	if !skipped {
+		t.Errorf("the SKIPPED state never reaches the operator:\n%+v", report.Findings)
 	}
 }

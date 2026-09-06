@@ -19,21 +19,21 @@ var (
 	commitYes     bool
 )
 
-var commitCmd = &cobra.Command{
-	Use:   "commit",
-	Short: "Commit staged changes with auto-generated message",
-	Long: `Commit staged changes to the overlay repository.
+// newCommitCmd builds `overlay commit`.
+func newCommitCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "commit",
+		Short: "Commit staged changes with auto-generated message",
+		Long: `Commit staged changes to the overlay repository.
 If no message is provided with -m, an automatic commit message is generated
 based on the ebuild changes and a confirmation prompt is shown.
 Use -y to skip the confirmation prompt and commit automatically.`,
-	Run: runCommit,
-}
-
-func init() {
-	commitCmd.Flags().StringVarP(&commitMessage, "message", "m", "", "Custom commit message (bypasses auto-generation)")
-	commitCmd.Flags().BoolVarP(&commitDryRun, "dry-run", "n", false, "Show what would be committed without committing")
-	commitCmd.Flags().BoolVarP(&commitYes, "yes", "y", false, "Skip confirmation prompt and commit automatically")
-	overlayCmd.AddCommand(commitCmd)
+		Run: runCommit,
+	}
+	cmd.Flags().StringVarP(&commitMessage, "message", "m", "", "Custom commit message (bypasses auto-generation)")
+	cmd.Flags().BoolVarP(&commitDryRun, "dry-run", "n", false, "Show what would be committed without committing")
+	cmd.Flags().BoolVarP(&commitYes, "yes", "y", false, "Skip confirmation prompt and commit automatically")
+	return cmd
 }
 
 func runCommit(cmd *cobra.Command, args []string) {

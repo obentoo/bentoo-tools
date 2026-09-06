@@ -100,7 +100,7 @@ func TestExportFormatFromExtension(t *testing.T) {
 func TestExportWritesTheCompleteReport(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "report.md")
 
-	if err := writeExport(path, exportFixture()); err != nil {
+	if err := writeExport(path, exportedFixtureRun()); err != nil {
 		t.Fatalf("writeExport: %v", err)
 	}
 
@@ -126,7 +126,7 @@ func TestExportWritesTheCompleteReport(t *testing.T) {
 func TestExportFailureStillRenders(t *testing.T) {
 	unwritable := filepath.Join(t.TempDir(), "no-such-directory", "report.md")
 
-	err := writeExport(unwritable, exportFixture())
+	err := writeExport(unwritable, exportedFixtureRun())
 	if err == nil {
 		t.Fatal("writing to an unwritable path returned no error")
 	}
@@ -234,7 +234,7 @@ func TestUnwritableExportStillRendersToTheTerminal(t *testing.T) {
 	autoupdateExport = filepath.Join(t.TempDir(), "no-such-directory", "report.md")
 	t.Cleanup(func() { autoupdateExport = originalExport })
 
-	out := captureStdout(t, func() { presentCheckReport(exportFixture(), false) })
+	out := captureStdout(t, func() { presentCheckReport(exportedFixtureRun(), false) })
 
 	if !strings.Contains(out, "app-misc/jq") {
 		t.Errorf("the export failed and the terminal received no report (R9.5):\n%s", out)

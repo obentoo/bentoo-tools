@@ -16,6 +16,27 @@
 // this run found" as a value, and nothing could be rendered twice, exported,
 // counted or tested without running the command again.
 //
+// # A Section is structure, and structure is not presentation (D2)
+//
+// Section, Table and Row live here, and at first that looks like the rule above
+// being broken. It is not, and the distinction is worth stating because a later
+// reader will ask.
+//
+// R1.2 forbids the model from holding PRESENTATION: escape sequences, column
+// widths, padding, borders, terminal dimensions. A Section holds none of those.
+// It holds STRUCTURE — this block is called X, it says these sentences, it has
+// these rows, it notes these omissions (R7.1). How wide a column is, whether a
+// title is bold, what a border looks like: all still decided in
+// internal/common/report/render, from its own Options.Width and its own
+// lipgloss.Width measurement, neither of which has a field to land in here.
+//
+// The alternative preserves the letter of the rule and loses its purpose. If
+// Section stayed in render, then render would need a translator per payload, so
+// it would import every domain's types and every new kind of run would edit it
+// — the very thing R7.4 forbids. The rule exists to keep presentation out of
+// the model; keeping Section in render would instead pull every model into
+// presentation.
+//
 // # It does not depend on the producer
 //
 // The facts originate in internal/autoupdate and internal/autoupdate/validate,
@@ -28,7 +49,11 @@
 //
 // A run assembles the whole report first (R1.4), so a run that fails to render,
 // or that is interrupted, still holds a complete description of what it found.
-// Report.Complete and Report.NotEvaluated are how such a run says so.
+// Run.Complete and Run.NotEvaluated are how such a run says so, and they sit on
+// the ENVELOPE rather than on a payload: "the run reached the end of its plan"
+// and "this many planned units were never reached" are answerable for a batch of
+// packages, of subvolumes or of ebuilds alike, so a payload that carried them
+// would be carrying them a second time (D1).
 package report
 
 // Outcome is what a run managed to establish about one planned package.
@@ -38,7 +63,7 @@ package report
 // them together lets a defect in the toolkit hide behind the operator's own
 // policy (R5). Which of the four a package earns is decided from a typed cause
 // carried by the validation result, never by matching text in a human-readable
-// reason (R5.4).
+// reason (S044-R5.4).
 type Outcome string
 
 const (
@@ -53,7 +78,7 @@ const (
 	// not evaluate the package — an unsupported build system, an unpreparable
 	// tree, a missing dependency (R5.2). A package whose result records no
 	// cause at all lands here too, so an unclassified case stays visible
-	// instead of being absorbed into policy (R5.6).
+	// instead of being absorbed into policy (S044-R5.6).
 	Inconclusive Outcome = "inconclusive"
 	// Skipped means no gate was run because POLICY said not to run one — a
 	// configured depth of none, a package type the run excludes (R5.3). It is
@@ -65,9 +90,10 @@ const (
 //
 // This amends archived story 033's three-column tally (S033-R9.5) by dividing
 // its third column: proved and errored are untouched and count exactly the
-// packages they counted before (R5.7). The invariant that column set protected
+// packages they counted before (S044-R5.7). The invariant that column set protected
 // is preserved — each planned package lands in exactly one column, and the
-// columns sum to the number of planned packages (R5.5, Report.Reconciles).
+// columns sum to the number of planned packages (S044-R5.5,
+// AutoupdateCheck.Reconciles).
 type Tally struct {
 	// Proved counts the packages whose deciding gates all passed.
 	Proved int `json:"proved"`
@@ -91,11 +117,23 @@ func (t Tally) Total() int {
 	return t.Proved + t.Errored + t.Inconclusive + t.Skipped
 }
 
-// Report is everything one run found.
+// AutoupdateCheck is everything one `overlay autoupdate check` run found. It is
+// the Payload behind KindAutoupdateCheck.
 //
 // It is assembled in full before any output is produced (R1.4). A run that is
-// interrupted still produces one of these, marked incomplete.
-type Report struct {
+// interrupted still produces one of these; that it WAS interrupted, and how much
+// of its plan it never reached, is said by the Run around it and not here (D1) —
+// those two facts are true of any batch, and a payload restating them would be a
+// second place for a finished run to be described as a partial one.
+//
+// # Everything below is story 044's, unchanged
+//
+// The field names, the JSON tags and Reconciles are exactly what they were when
+// this type was called Report and sat at the document root. The rename is a move
+// into the payload position, not a redesign: a consumer's `.tally.proved` became
+// `.payload.tally.proved` when the envelope arrived, and nothing here moved it
+// again.
+type AutoupdateCheck struct {
 	// Scanned is every package the run looked at, in the order it looked at
 	// them, whether or not an update was found. It is what makes a package
 	// that is up to date distinguishable from a package that was never
@@ -111,17 +149,12 @@ type Report struct {
 	// before the interrupt, and NotEvaluated is how many of the rest there
 	// were.
 	Results []ValidationRow `json:"results"`
-	// Tally is the four counts taken over Plan.
+	// Tally is the four counts taken over Plan. It stays HERE while Complete
+	// and NotEvaluated moved up, and the asymmetry is the line between the two
+	// halves: this check counts four validation outcomes, a manifest run counts
+	// ok and failed, and one universal tally would either lose the four or
+	// invent columns the other has no answer for (D1).
 	Tally Tally `json:"tally"`
-	// Complete reports that the run reached the end of its plan. A run stopped
-	// early — by an interrupt — sets this false, and the report still holds
-	// everything it had established up to that point.
-	Complete bool `json:"complete"`
-	// NotEvaluated is how many planned packages the run never reached. It is
-	// zero for a complete run, and for an interrupted one it is the number
-	// that turns a short result list into a stated gap rather than a silent
-	// one.
-	NotEvaluated int `json:"not_evaluated"`
 	// DistfilesToFetch is how many packages this run has to hold a tarball
 	// for: an upper bound per package, not a download count, since a distfile
 	// the host already holds is not fetched again and a package with several
@@ -142,16 +175,16 @@ type Report struct {
 }
 
 // Reconciles reports whether the tally accounts for every planned package
-// exactly once (R5.5, preserving S033-R9.5).
+// exactly once (S044-R5.5, preserving S033-R9.5).
 //
 // The denominator is the plan, not the result list: a package that produced no
 // row still had to be counted somewhere, and comparing against the rows would
 // make the check pass precisely when packages went missing.
 //
 // An interrupted run does not reconcile, and that is the honest answer rather
-// than a bug — the packages it never reached are counted in no column, and
-// Complete and NotEvaluated are what say so.
-func (r Report) Reconciles() bool {
+// than a bug — the packages it never reached are counted in no column, and the
+// envelope's Complete and NotEvaluated are what say so.
+func (r AutoupdateCheck) Reconciles() bool {
 	return r.Tally.Total() == len(r.Plan)
 }
 

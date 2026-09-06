@@ -556,14 +556,47 @@ func cloneReport(report *CompareReport) *CompareReport {
 
 // withoutReviews returns a copy with every commentary field cleared, so two runs
 // can be compared on EVERYTHING ELSE — the grouping, every Verdict, every count
-// (R5.8). Zeroing the one field the pass writes is what makes the comparison an
+// (R5.8). Zeroing the fields the pass writes is what makes the comparison an
 // assertion about the other twenty rather than a tautology.
+//
+// It clears TWO fields since S047-R4.1: Review, the model's words, and Reading,
+// whether anybody produced any. Both are what AnnotateReviews writes and neither
+// is anything the report decides — a Verdict, a count and a table are the same
+// whether a reading happened, failed or was never possible. Leaving Reading in
+// would make this compare an annotated run against an un-annotated one and call
+// the difference a changed Verdict.
 func withoutReviews(report *CompareReport) *CompareReport {
 	clone := cloneReport(report)
 	for i := range clone.Results {
 		clone.Results[i].Review = ReviewNote{}
+		clone.Results[i].Reading = ReadingNotRequested
 	}
 	return clone
+}
+
+// readingsOf returns the reading state of each named package, so an assertion
+// can name a whole set in one line and report every one that is wrong.
+//
+// It exists because the four cases below assert a state PER PACKAGE rather than
+// a count of warnings: the warning said only HOW MANY reviews came back with
+// nothing, and the field says WHICH ONES — which is what the operator needs and
+// what a count could never give.
+func readingsOf(t *testing.T, report *CompareReport, atoms []string) map[string]Reading {
+	t.Helper()
+	got := make(map[string]Reading, len(atoms))
+	for _, atom := range atoms {
+		got[atom] = resultFor(t, report, atom).Reading
+	}
+	return got
+}
+
+// wantReadings builds the expected map: every atom at the same state.
+func wantReadings(atoms []string, state Reading) map[string]Reading {
+	want := make(map[string]Reading, len(atoms))
+	for _, atom := range atoms {
+		want[atom] = state
+	}
+	return want
 }
 
 // warningsNaming returns the captured warnings that name atom.
@@ -588,15 +621,21 @@ func noteFor(atom string) ReviewNote {
 }
 
 // TestAnnotateReviews is 6.3: every undeclared divergence carries the model's
-// reading, nothing else is submitted at all, and every way of not getting one
-// costs a warning and nothing more.
+// reading, nothing else is submitted at all, and every way of not getting one is
+// recorded on the row it happened to and nowhere else.
+//
+// That last clause changed with S047-R4.2. Until then each of those outcomes
+// cost a warning above the report; four sub-tests below counted those warnings,
+// and they now assert CompareResult.Reading instead — which is strictly stronger,
+// because a count says how many reviews came back with nothing and the field says
+// which packages they were.
 //
 // The load-bearing property is the one asserted last and again in 6.6: NOTHING a
 // reviewer returns can change what the report decides (R5.8). Commentary is
 // commentary — the grouping, the Verdicts and the counts are the same whether a
 // model spoke or not.
 //
-// _Requirements: R5.1, R5.5, R5.8_
+// _Requirements: R5.1, R5.5, R5.8, S047-R4.1, S047-R4.2_
 func TestAnnotateReviews(t *testing.T) {
 	t.Run("every undeclared divergence carries the model's reading, and nothing else is asked", func(t *testing.T) {
 		warnings := captureReviewWarnings(t)
@@ -695,36 +734,61 @@ func TestAnnotateReviews(t *testing.T) {
 		}
 	})
 
-	t.Run("an erroring reviewer yields today's report plus one warning per package", func(t *testing.T) {
+	t.Run("an erroring reviewer yields today's report, with ReadingFailed on each package it could not read", func(t *testing.T) {
+		// REWRITTEN BY S047-R4.2, which moved this outcome off the log and onto the
+		// result. It used to assert one warning naming each package; it now asserts
+		// the state those warnings described, on the rows that carry it. The new
+		// assertion is strictly stronger — a count says how many reviews failed,
+		// the field says WHICH — and the warning it replaces was noise printed
+		// above the very rows it duplicated.
 		warnings := captureReviewWarnings(t)
 		report, prov, opts := reviewFixture(t)
-		reference := cloneReport(report)
+		// withoutReviews and not cloneReport, so BOTH SIDES of the comparison
+		// below are normalised identically. Reading is no longer written only by
+		// this pass: `func noteContentRefusal` (compare.go) records a refused
+		// pair inside the comparison, so a fresh report already carries one and
+		// stripping it from one side alone would report the fixture's own state
+		// as a change this pass made (S047-R3.3).
+		reference := withoutReviews(report)
 		rev := &annotateReviewer{t: t, offLimits: unreviewableAtoms, err: errors.New("claude: exit status 1")}
 
 		AnnotateReviews(report, rev, prov, opts)
 
 		// R5.5: the report the operator asked for is already complete without the
-		// commentary, so a failed review leaves it byte for byte as it was.
-		if !reflect.DeepEqual(report, reference) {
-			t.Errorf("an erroring reviewer changed the report.\n got %+v\nwant %+v", report, reference)
+		// commentary, so a failed review leaves everything but the commentary
+		// fields byte for byte as it was. withoutReviews clears exactly those.
+		if !reflect.DeepEqual(withoutReviews(report), reference) {
+			t.Errorf("an erroring reviewer changed the report beyond its commentary fields.\n got %+v\nwant %+v",
+				withoutReviews(report), reference)
 		}
-		// One warning NAMING THE PACKAGE, per package. It is not once per run: two
-		// packages that failed for two reasons are two things the operator may want
-		// to look at, and warnLogf carries no once-guard of its own.
-		if lines := warnings(); len(lines) != len(reviewedAtoms) {
-			t.Errorf("two failed reviews produced %d warnings, want %d: %v", len(lines), len(reviewedAtoms), lines)
+		// PER PACKAGE, not once per run: two packages that failed are two things
+		// the operator may want to look at, and each one's row says so itself.
+		got := readingsOf(t, report, reviewedAtoms)
+		if want := wantReadings(reviewedAtoms, ReadingFailed); !reflect.DeepEqual(got, want) {
+			t.Errorf("after an erroring reviewer the readings are %v, want %v (ReadingFailed is %d)", got, want, ReadingFailed)
 		}
+		// And the note is still empty: a failed review attaches nothing.
 		for _, atom := range reviewedAtoms {
-			if n := len(warningsNaming(warnings(), atom)); n != 1 {
-				t.Errorf("%s is named by %d warnings, want exactly 1: %v", atom, n, warnings())
+			if note := resultFor(t, report, atom).Review; note != (ReviewNote{}) {
+				t.Errorf("%s carries %+v after its review errored, want the zero note", atom, note)
 			}
+		}
+		// S047-R4.2: the outcome travels on the row and nowhere else.
+		if lines := warnings(); len(lines) != 0 {
+			t.Errorf("an erroring reviewer warned %d times: %v; the outcome is on the result now", len(lines), lines)
 		}
 	})
 
-	t.Run("a timeout and an unusable answer fail exactly like an error", func(t *testing.T) {
+	t.Run("a timeout and an unusable answer are read as ReadingFailed, exactly like an error", func(t *testing.T) {
+		// REWRITTEN BY S047-R4.2: the shared outcome used to be "the deterministic
+		// report and one warning per package", and it is now "the deterministic
+		// report and ReadingFailed on each package's row". Same property, asserted
+		// where the operator will actually read it.
+		//
 		// R5.5 lists four failures and gives them one answer. They are asserted
 		// together because they must be indistinguishable in the report: the
-		// operator gets the deterministic report and one warning, whichever it was.
+		// operator gets the deterministic report and the same state, whichever it
+		// was.
 		//
 		// "Unusable" is the shape a model reply takes when it parsed but said
 		// nothing: no classification (R5.2 unanswered) or no summary (R5.3
@@ -744,16 +808,20 @@ func TestAnnotateReviews(t *testing.T) {
 				warnings := captureReviewWarnings(t)
 				cacheDir := t.TempDir()
 				report, prov, opts := reviewFixtureIn(t, cacheDir)
-				reference := cloneReport(report)
+				reference := withoutReviews(report) // normalised like the value it is compared against; see the erroring-reviewer case above
 				rev := &annotateReviewer{t: t, offLimits: unreviewableAtoms, note: c.note, err: c.err}
 
 				AnnotateReviews(report, rev, prov, opts)
 
-				if !reflect.DeepEqual(report, reference) {
-					t.Errorf("the report changed.\n got %+v\nwant %+v", report, reference)
+				if !reflect.DeepEqual(withoutReviews(report), reference) {
+					t.Errorf("the report changed beyond its commentary fields.\n got %+v\nwant %+v", withoutReviews(report), reference)
 				}
-				if lines := warnings(); len(lines) != len(reviewedAtoms) {
-					t.Errorf("produced %d warnings, want %d (one per package): %v", len(lines), len(reviewedAtoms), lines)
+				got := readingsOf(t, report, reviewedAtoms)
+				if want := wantReadings(reviewedAtoms, ReadingFailed); !reflect.DeepEqual(got, want) {
+					t.Errorf("the readings are %v, want %v (ReadingFailed is %d, one per package)", got, want, ReadingFailed)
+				}
+				if lines := warnings(); len(lines) != 0 {
+					t.Errorf("this failure warned %d times: %v; S047-R4.2 puts the outcome on the row instead", len(lines), lines)
 				}
 
 				// AND IT IS NOT CACHED. A cache has no expiry — the key is the two
@@ -877,7 +945,15 @@ func TestAnnotateReviews(t *testing.T) {
 		}
 	})
 
-	t.Run("an ebuild that cannot be re-read is left un-annotated, with one warning", func(t *testing.T) {
+	t.Run("an ebuild that cannot be re-read is left un-annotated, and its own row reads ReadingFailed", func(t *testing.T) {
+		// REWRITTEN BY S047-R4.2, which took away the warning that used to name the
+		// package. The row names it now — which is the point: the warning said "one
+		// finding carries no reading" above a report in which nothing said which.
+		//
+		// It is ReadingFailed and NOT ReadingNotComparable. The content check did
+		// not refuse this pair — it compared both files and found a difference, and
+		// the row still says VerifiedDiffers. What failed is the re-read for the
+		// review, which is a reading that was requested and did not happen.
 		warnings := captureReviewWarnings(t)
 		report, prov, opts := reviewFixture(t)
 		gone := filepath.Join(opts.OverlayPath, "kde-plasma", "spectacle", "spectacle-6.7.4.ebuild")
@@ -891,16 +967,30 @@ func TestAnnotateReviews(t *testing.T) {
 		if atoms := rev.atoms(); !reflect.DeepEqual(atoms, []string{"kde-plasma/kwin"}) {
 			t.Errorf("the pass submitted %v, want only kde-plasma/kwin; a package whose files cannot be read has no difference to submit", atoms)
 		}
-		if got := resultFor(t, report, "kde-plasma/spectacle").Review; got != (ReviewNote{}) {
-			t.Errorf("spectacle carries %+v after its ebuild vanished, want the zero note", got)
+		spectacle := resultFor(t, report, "kde-plasma/spectacle")
+		if spectacle.Review != (ReviewNote{}) {
+			t.Errorf("spectacle carries %+v after its ebuild vanished, want the zero note", spectacle.Review)
 		}
-		if n := len(warningsNaming(warnings(), "kde-plasma/spectacle")); n != 1 {
-			t.Errorf("the vanished ebuild produced %d warnings naming the package, want exactly 1: %v", n, warnings())
+		if spectacle.Verified != VerifiedDiffers {
+			t.Fatalf("the fixture is wrong: spectacle is Verified %d, and this case needs a pair the content check DID compare", spectacle.Verified)
+		}
+		if spectacle.Reading != ReadingFailed {
+			t.Errorf("the vanished ebuild left spectacle at Reading %d, want ReadingFailed (%d): a review was requested for it "+
+				"and could not be made, which is not the same as nobody asking (%d) and not the same as a pair nothing could "+
+				"compare (%d)", spectacle.Reading, ReadingFailed, ReadingNotRequested, ReadingNotComparable)
+		}
+		if n := len(warningsNaming(warnings(), "kde-plasma/spectacle")); n != 0 {
+			t.Errorf("the vanished ebuild produced %d warnings naming the package, want 0: %v", n, warnings())
 		}
 		// The rest of the report is unaffected: one package's missing file is not
 		// the run's problem.
-		if got := resultFor(t, report, "kde-plasma/kwin").Review; got != reviewFixtureNote() {
-			t.Errorf("kwin carries %+v, want the reviewer's note; one unreadable package stopped the pass", got)
+		kwin := resultFor(t, report, "kde-plasma/kwin")
+		if kwin.Review != reviewFixtureNote() {
+			t.Errorf("kwin carries %+v, want the reviewer's note; one unreadable package stopped the pass", kwin.Review)
+		}
+		if kwin.Reading != ReadingDone {
+			t.Errorf("kwin carries Reading %d, want ReadingDone (%d); one unreadable package must not change its neighbour's state",
+				kwin.Reading, ReadingDone)
 		}
 	})
 
@@ -930,10 +1020,23 @@ func TestAnnotateReviews(t *testing.T) {
 		}
 	})
 
-	t.Run("a cancelled run stops asking and says so once", func(t *testing.T) {
+	t.Run("a cancelled run stops asking, and every review it abandoned reads ReadingFailed", func(t *testing.T) {
 		// Ctrl-C during a compare. Every remaining reviewer call would fail on the
-		// same cancelled context, so eight identical warnings would bury the report
-		// the operator is about to get: the pass stops and states it once.
+		// same cancelled context, so the pass stops.
+		//
+		// REWRITTEN BY S047-R4.2, which removed the single warning that used to say
+		// so — and the rewrite is what forced the decision this asserts. The
+		// warning was once per RUN ("n of m carry no reading"), while S047-R4.1
+		// records the state on EACH result, so every abandoned package must be
+		// marked and not only the one the loop stopped on. Leaving the rest at
+		// ReadingNotRequested would say "nobody asked" about reviews this run did
+		// ask for and then dropped, which is the conflation the field exists to
+		// remove; ReadingFailed is "a reading was attempted and did not come
+		// back", and a cancellation is exactly that.
+		//
+		// The cancellation fires before the FIRST call here, so this asserts the
+		// whole pending set — which is the case a per-iteration marking would get
+		// wrong.
 		warnings := captureReviewWarnings(t)
 		report, prov, opts := reviewFixture(t)
 		ctx, cancel := context.WithCancel(context.Background())
@@ -946,8 +1049,13 @@ func TestAnnotateReviews(t *testing.T) {
 		if len(rev.calls) != 0 {
 			t.Errorf("a cancelled run still submitted %v", rev.atoms())
 		}
-		if lines := warnings(); len(lines) != 1 {
-			t.Errorf("a cancelled run warned %d times, want exactly 1: %v", len(lines), lines)
+		if lines := warnings(); len(lines) != 0 {
+			t.Errorf("a cancelled run warned %d times, want 0: %v; the abandoned reviews are on their own rows now", len(lines), lines)
+		}
+		got := readingsOf(t, report, reviewedAtoms)
+		if want := wantReadings(reviewedAtoms, ReadingFailed); !reflect.DeepEqual(got, want) {
+			t.Errorf("a cancelled run left the readings at %v, want %v (ReadingFailed is %d): every review it abandoned was "+
+				"asked for, so none of them may read as ReadingNotRequested (%d)", got, want, ReadingFailed, ReadingNotRequested)
 		}
 		for _, atom := range reviewedAtoms {
 			if got := resultFor(t, report, atom).Review; got != (ReviewNote{}) {
@@ -974,9 +1082,14 @@ func TestAnnotateReviews(t *testing.T) {
 		AnnotateReviews(reviewed, rev, prov, opts)
 		AnnotateReviews(unreviewed, nil, prov, opts)
 
-		if !reflect.DeepEqual(withoutReviews(reviewed), unreviewed) {
-			t.Errorf("a review changed something other than the commentary.\nreviewed (commentary stripped): %+v\nunreviewed: %+v",
-				withoutReviews(reviewed), unreviewed)
+		// BOTH sides are stripped. A run with no reviewer keeps whatever Reading
+		// the comparison itself recorded — a refused pair reads NotComparable
+		// before this pass is ever called — so comparing a stripped report
+		// against an unstripped one would call the producer's own fact a change
+		// the reviewer made.
+		if !reflect.DeepEqual(withoutReviews(reviewed), withoutReviews(unreviewed)) {
+			t.Errorf("a review changed something other than the commentary.\nreviewed (commentary stripped): %+v\nunreviewed (commentary stripped): %+v",
+				withoutReviews(reviewed), withoutReviews(unreviewed))
 		}
 		// Spelled out as well, because DeepEqual on a struct that grew a field
 		// silently starts covering it: these four are the numbers R5.8 names.
@@ -1053,40 +1166,47 @@ func TestAnnotateReviews(t *testing.T) {
 // The commentary, as the operator reads it (6.4).
 // ---------------------------------------------------------------------------
 
-// reviewedFinding is an undeclared-divergence finding carrying a note, built on
-// the same helper the magnitude tests use so the commentary is asserted beneath
-// the REAL finding line rather than beneath a hand-drawn approximation of one.
-func reviewedFinding(pkg string, note ReviewNote) CompareResult {
-	r := divergenceFinding(pkg, 1, 1, AuthorshipUnproved, "")
-	r.Review = note
-	return r
-}
-
-// isCommentaryLine reports whether one rendered line carries a model's words.
+// commentaryFindings returns the findings a model spoke on.
 //
-// It is the ONE definition of "this line is commentary", shared by the helper
-// below and by stripCommentary (TestReviewChangesNothing). Spelled twice they
-// would be two things to keep in step, and R5.8's whole assertion is that the
-// report MINUS these lines is unchanged — so a second, looser definition would
-// strip a line the report owns and call the difference commentary.
+// Story 047, sub-task 5.5 (S047-R8.2). It is `func isCommentaryLine`'s claim
+// moved off the rendered line and onto the value, because sub-task 4.2 deletes
+// the renderer that produced the line. A finding qualifies by carrying one of
+// the three fields that hold a model's words and nothing else: Effect at
+// EffectReviewed, Origin, Proposal. Those are exactly the fields
+// `func compareFinding` in compare.go fills from CompareResult.Review, so the
+// predicate and the producer cannot drift.
 //
-// A line qualifies only by carrying one of the two openings the renderer prints,
-// never by carrying a model's text: text is what a mutation would move onto a
-// row, and a predicate that recognised it there would excuse exactly the failure
-// this is here to catch.
-func isCommentaryLine(line string) bool {
-	return strings.Contains(line, reviewReadingLead) || strings.Contains(line, reviewProposalLead)
-}
-
-// commentaryLines returns the rendered lines that carry a model's words.
-func commentaryLines(out string) []string {
-	var found []string
-	for _, line := range strings.Split(out, "\n") {
-		if isCommentaryLine(line) {
-			found = append(found, line)
+// It qualifies a finding by the SOURCE LABEL and never by the text, for the
+// reason isCommentaryLine gave: text is what a mutation would move onto a row,
+// and a predicate that recognised it there would excuse exactly the failure this
+// is here to catch.
+func commentaryFindings(findings []Finding) []Finding {
+	var found []Finding
+	for _, f := range findings {
+		if f.Effect.Source == EffectReviewed || f.Origin != OriginUnknown || f.Proposal != "" {
+			found = append(found, f)
 		}
 	}
 	return found
+}
+
+// withoutCommentary is the findings with every model-owned field cleared — the
+// value-shaped form of stripCommentary.
+//
+// A DECLARED effect is left alone. It is the maintainer's own sentence out of
+// the registry or the ebuild, it is there with no model in the room, and
+// clearing it would let a review that overwrote a declaration pass unnoticed.
+func withoutCommentary(findings []Finding) []Finding {
+	stripped := make([]Finding, len(findings))
+	copy(stripped, findings)
+	for i := range stripped {
+		if stripped[i].Effect.Source == EffectReviewed {
+			stripped[i].Effect = Effect{}
+		}
+		stripped[i].Origin = OriginUnknown
+		stripped[i].Proposal = ""
+	}
+	return stripped
 }
 
 // treeSnapshot records every file under root with its contents, so a later
@@ -1131,253 +1251,6 @@ func treeSnapshot(t *testing.T, root string) map[string]string {
 //
 // _Requirements: R5.2, R5.3, R5.4_
 func TestReviewCommentary(t *testing.T) {
-	t.Run("an overlay-origin note renders the classification, the summary and the proposal", func(t *testing.T) {
-		note := ReviewNote{
-			Origin:      OriginOverlay,
-			Summary:     "adds a PaX marking step ::gentoo does not carry",
-			Declaration: "patched = true",
-		}
-		out := formatVerificationFindings([]CompareResult{reviewedFinding("spectacle", note)})
-
-		lines := commentaryLines(out)
-		if len(lines) != 2 {
-			t.Fatalf("an overlay-origin note rendered %d commentary lines, want 2 (the reading and the proposal):\n%s", len(lines), out)
-		}
-		// R5.2: which side, in the report's prose rather than in the wire word.
-		// "upstream" is what the cache stores and what the adapter decodes;
-		// "::gentoo" is what the operator calls it.
-		if !strings.Contains(lines[0], reviewOriginProse(OriginOverlay)) {
-			t.Errorf("the reading does not say where the divergence came from:\n%s", lines[0])
-		}
-		// R5.3.
-		if !strings.Contains(lines[0], note.Summary) {
-			t.Errorf("the reading does not carry the summary:\n%s", lines[0])
-		}
-		// R5.4.
-		if !strings.Contains(lines[1], note.Declaration) {
-			t.Errorf("the proposal does not carry the declaration text:\n%s", lines[1])
-		}
-		// The provenance, on the line itself. Without it the commentary reads as a
-		// second finding of the report's own.
-		if !strings.Contains(lines[0], "model") {
-			t.Errorf("the reading never says a model produced it, so it reads as a finding this report stands behind:\n%s", lines[0])
-		}
-	})
-
-	t.Run("only an overlay-origin note proposes a declaration", func(t *testing.T) {
-		// R5.4 names ONE classification. `both` is deliberately not it: a copy that
-		// carries work of ours AND has fallen behind ::gentoo needs the rebase
-		// first, and declaring `patched` on it would record the whole difference as
-		// intentional and suppress its removal recommendation permanently — for the
-		// half that is merely stale. The declaration is refused HERE as well as left
-		// empty by the type (ReviewNote.Declaration), so a model that fills it in
-		// anyway still cannot get it printed.
-		for _, c := range []struct {
-			origin  ReviewOrigin
-			propose bool
-		}{
-			{OriginOverlay, true},
-			{OriginUpstream, false},
-			{OriginBoth, false},
-		} {
-			t.Run(c.origin.String(), func(t *testing.T) {
-				note := ReviewNote{
-					Origin:      c.origin,
-					Summary:     "what the difference does",
-					Declaration: "patched = true",
-				}
-				out := formatVerificationFindings([]CompareResult{reviewedFinding("spectacle", note)})
-
-				if !strings.Contains(out, reviewOriginProse(c.origin)) {
-					t.Errorf("the reading does not state the %s classification:\n%s", c.origin, out)
-				}
-				proposed := strings.Contains(out, reviewProposalLead)
-				if proposed != c.propose {
-					t.Errorf("a %s-origin note proposes a declaration = %v, want %v:\n%s", c.origin, proposed, c.propose, out)
-				}
-				if !c.propose && strings.Contains(out, note.Declaration) {
-					t.Errorf("a %s-origin note printed the declaration text anyway:\n%s", c.origin, out)
-				}
-			})
-		}
-	})
-
-	t.Run("an un-reviewed finding renders no commentary", func(t *testing.T) {
-		// The zero note is every run without a review: `--no-review`, no `claude`
-		// on PATH, a reviewer that errored. It must be invisible, not a blank line
-		// or a header with nothing under it.
-		out := formatVerificationFindings([]CompareResult{reviewedFinding("kwin", ReviewNote{})})
-
-		if lines := commentaryLines(out); len(lines) != 0 {
-			t.Errorf("a finding nobody reviewed rendered %d commentary lines: %v", len(lines), lines)
-		}
-		// Today's finding, unchanged, is what an un-reviewed run still prints.
-		if !strings.Contains(out, todaysUnprovedFinding) {
-			t.Errorf("the finding itself changed.\nwant the line: %s\n--- section ---\n%s", todaysUnprovedFinding, out)
-		}
-	})
-
-	t.Run("a half-filled note renders nothing", func(t *testing.T) {
-		// The same rule the annotator applies (reviewNoteSpeaks): a note missing
-		// either half has answered neither R5.2 nor R5.3. Held in the renderer as
-		// well, so a note that reached a CompareResult by some other route — a
-		// hand-edited cache, a future caller — cannot print a finding-shaped line
-		// that states nothing.
-		for _, note := range []ReviewNote{
-			{Origin: OriginUnknown, Summary: "the model said something but classified nothing"},
-			{Origin: OriginOverlay, Summary: "   "},
-			{Origin: OriginOverlay, Declaration: "patched = true"},
-		} {
-			out := formatVerificationFindings([]CompareResult{reviewedFinding("kwin", note)})
-			if lines := commentaryLines(out); len(lines) != 0 {
-				t.Errorf("the note %+v rendered %d commentary lines: %v", note, len(lines), lines)
-			}
-		}
-	})
-
-	t.Run("model text is rendered as an argument, never as a format string", func(t *testing.T) {
-		// The rule made executable. Summary and Declaration are produced by a MODEL:
-		// passed as a format string, a "%s" in either would consume the next
-		// argument and the line would render as "%!s(MISSING)" — or silently
-		// attribute the wrong text. Every other piece of this report already follows
-		// the rule; this is where it is checked for the two model-produced strings.
-		note := ReviewNote{
-			Origin:      OriginOverlay,
-			Summary:     "renames %s to %d and drops 100%% of the patches",
-			Declaration: "patched_reason = \"%s\"",
-		}
-		out := formatVerificationFindings([]CompareResult{reviewedFinding("spectacle", note)})
-
-		if !strings.Contains(out, note.Summary) {
-			t.Errorf("the summary did not render verbatim; it reached a format string:\n%s", out)
-		}
-		if !strings.Contains(out, note.Declaration) {
-			t.Errorf("the declaration did not render verbatim; it reached a format string:\n%s", out)
-		}
-		for _, artefact := range []string{"%!s(", "%!d(", "MISSING", "EXTRA"} {
-			if strings.Contains(out, artefact) {
-				t.Errorf("the output carries %q, which only a format-string expansion produces:\n%s", artefact, out)
-			}
-		}
-		// The finding above must still read as it does today: a summary interpreted
-		// as a format string would consume the counts as its own arguments.
-		if !strings.Contains(out, "(+1/-1)") {
-			t.Errorf("the counts did not survive beside a note containing verbs:\n%s", out)
-		}
-	})
-
-	t.Run("a model cannot forge a line of its own", func(t *testing.T) {
-		// The report's structure IS its lines: "⚠ " opens a finding this tool
-		// stands behind. A model summary carrying a newline would otherwise print a
-		// second line indistinguishable from one, about a package that may not even
-		// be in the overlay. One note, one line — whatever the model sent.
-		const forged = "⚠ dev-libs/forged: undeclared divergence (+9/-0) — remove this package"
-		note := ReviewNote{
-			Origin:  OriginOverlay,
-			Summary: "innocent enough\n" + forged,
-		}
-		out := formatVerificationFindings([]CompareResult{reviewedFinding("spectacle", note)})
-
-		if lines := commentaryLines(out); len(lines) != 1 {
-			t.Fatalf("a two-line summary rendered %d commentary lines, want 1:\n%s", len(lines), out)
-		}
-		for _, line := range strings.Split(out, "\n") {
-			if strings.HasPrefix(strings.TrimSpace(line), "⚠") && strings.Contains(line, "dev-libs/forged") {
-				t.Errorf("a model's newline produced a line that reads as this report's own finding:\n%s", line)
-			}
-		}
-	})
-
-	t.Run("a long declaration is capped exactly as PatchedReason is", func(t *testing.T) {
-		// Not a second cap: the same one. An unbounded proposal would let a model's
-		// essay decide the width of the whole report, which is the argument
-		// patchedReasonCap already makes for the operator's own declared reason.
-		long := strings.Repeat("patched_reason = \"a very long proposal\" ", 6)
-		note := ReviewNote{Origin: OriginOverlay, Summary: "ours", Declaration: long}
-		out := formatVerificationFindings([]CompareResult{reviewedFinding("spectacle", note)})
-
-		// Spelled through the SIBLING mechanism rather than through
-		// truncateString(long, patchedReasonCap) directly: if the declaration line
-		// ever stops agreeing with the declaration line one case above it, this
-		// fails.
-		want := strings.TrimPrefix(declaredReason(CompareResult{PatchedReason: long}), ": ")
-		if !strings.Contains(out, want) {
-			t.Errorf("the proposal is not capped the way PatchedReason is.\nwant it to contain: %s\n--- section ---\n%s", want, out)
-		}
-		if strings.Contains(out, long) {
-			t.Errorf("the proposal rendered in full (%d characters), so one note decides the report's width:\n%s", len(long), out)
-		}
-	})
-
-	t.Run("the commentary sits beneath its own finding, not at the end of the section", func(t *testing.T) {
-		// Two findings, two notes. Collected at the foot of the section they would
-		// be a second list the operator has to match up by hand — and the whole
-		// point of the note is to qualify the line above it.
-		out := formatVerificationFindings([]CompareResult{
-			reviewedFinding("kwin", ReviewNote{Origin: OriginUpstream, Summary: "::gentoo revised its copy in place"}),
-			reviewedFinding("spectacle", ReviewNote{Origin: OriginOverlay, Summary: "our slotting work", Declaration: "patched = true"}),
-		})
-
-		var order []string
-		for _, line := range strings.Split(out, "\n") {
-			switch {
-			case strings.Contains(line, "kde-plasma/kwin"):
-				order = append(order, "kwin-finding")
-			case strings.Contains(line, "kde-plasma/spectacle"):
-				order = append(order, "spectacle-finding")
-			case strings.Contains(line, "::gentoo revised its copy in place"):
-				order = append(order, "kwin-reading")
-			case strings.Contains(line, "our slotting work"):
-				order = append(order, "spectacle-reading")
-			case strings.Contains(line, reviewProposalLead):
-				order = append(order, "spectacle-proposal")
-			case strings.Contains(line, undeclaredDivergenceCaveat):
-				order = append(order, "caveat")
-			}
-		}
-		want := []string{"kwin-finding", "kwin-reading", "spectacle-finding", "spectacle-reading", "spectacle-proposal", "caveat"}
-		if !reflect.DeepEqual(order, want) {
-			t.Errorf("the section reads %v, want %v", order, want)
-		}
-	})
-
-	t.Run("the commentary names no package", func(t *testing.T) {
-		// Two reasons, and they agree. The cache indexes a note on the two files'
-		// CONTENT and excludes the atom (R5.7), so one note can legitimately be
-		// printed under two packages — prose about the DIFFERENCE stays true there,
-		// prose about the package does not. And findingLine, the helper several
-		// neighbouring tests locate a finding with, fails when two lines name one
-		// atom.
-		note := ReviewNote{Origin: OriginOverlay, Summary: "adds a patch", Declaration: "patched = true"}
-		out := formatVerificationFindings([]CompareResult{reviewedFinding("spectacle", note)})
-
-		for _, line := range commentaryLines(out) {
-			if strings.Contains(line, "kde-plasma/spectacle") || strings.Contains(line, "spectacle") {
-				t.Errorf("the commentary names the package, so the finding above it is no longer the only line that does:\n%s", line)
-			}
-		}
-		// And the helper itself still resolves the finding.
-		findingLine(t, out, "kde-plasma/spectacle")
-	})
-
-	t.Run("a note on a declared package renders nothing", func(t *testing.T) {
-		// Commentary belongs to the undeclared-divergence finding and to no other.
-		// AnnotateReviews never attaches one elsewhere, and the renderer refuses one
-		// anyway: a declaration line that grew a model's opinion would put a guess
-		// underneath the one statement the registry is authoritative about.
-		declared := comparedResult("app-editors", "zed", "1.0", VerifiedDiffers)
-		declared.Patched = true
-		declared.PatchedBy = zedPatchedEntry
-		declared.PatchedReason = "keeps our wayland patch"
-		declared.Review = ReviewNote{Origin: OriginOverlay, Summary: "a model's opinion about a declared package"}
-
-		out := formatVerificationFindings([]CompareResult{declared})
-
-		if lines := commentaryLines(out); len(lines) != 0 {
-			t.Errorf("a declared package rendered %d commentary lines: %v", len(lines), lines)
-		}
-	})
-
 	t.Run("the review leaves every file on disk unchanged", func(t *testing.T) {
 		// R5.4 PROPOSES declaration text; the operator applies it. The overlay
 		// repository auto-commits and pushes within minutes, so a declaration this
@@ -1397,15 +1270,19 @@ func TestReviewCommentary(t *testing.T) {
 			Declaration: "patched = true\npatched_reason = \"apply me\"",
 		}}
 		AnnotateReviews(report, rev, prov, opts)
-		out := FormatReport(report)
+		EstablishFindings(report)
 
 		if after := treeSnapshot(t, opts.OverlayPath); !reflect.DeepEqual(after, before) {
 			t.Errorf("the overlay tree changed.\nbefore: %v\nafter:  %v", before, after)
 		}
 		// And the proposal really was produced, so the unchanged tree is evidence
 		// that nothing applied it rather than evidence that nothing proposed one.
-		if !strings.Contains(out, reviewProposalLead) {
-			t.Errorf("no declaration was proposed, so the assertion above proves nothing:\n%s", out)
+		// Story 047, sub-task 5.5 (S047-R8.2): asked of the finding rather than of
+		// FormatReport's lead, which 4.2 deletes. The value is what cmd/bentoo
+		// prints as a candidate declaration, so this is the same evidence one step
+		// before the printer.
+		if len(commentaryFindings(report.Findings)) == 0 {
+			t.Errorf("no declaration was proposed, so the assertion above proves nothing:\n%+v", report.Findings)
 		}
 	})
 
@@ -1424,14 +1301,32 @@ func TestReviewCommentary(t *testing.T) {
 		}}
 		AnnotateReviews(report, rev, prov, opts)
 
-		out := FormatReport(report)
+		// Story 047, sub-task 5.5 (S047-R8.2): the same claim, asked of the
+		// findings. It is stricter than the old substring sweep in one way that
+		// matters here — the reading must arrive LABELLED as a model's
+		// (EffectReviewed), which is the distinction an operator uses to tell a
+		// guess from a finding, and a Contains over the whole report could not see.
+		EstablishFindings(report)
 		for _, pkg := range []string{"kwin", "spectacle"} {
-			if !strings.Contains(out, "what "+pkg+"'s difference does") {
-				t.Errorf("%s's reading never reached the report:\n%s", pkg, out)
+			want := "what " + pkg + "'s difference does"
+			found := false
+			for _, f := range report.Findings {
+				if f.Effect.Text == want && f.Effect.Source == EffectReviewed {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("%s's reading never reached the report as a model's:\n%+v", pkg, report.Findings)
 			}
 		}
-		if n := len(commentaryLines(out)); n != 4 {
-			t.Errorf("the report carries %d commentary lines, want 4 (a reading and a proposal for each of two findings):\n%s", n, out)
+		commentary := commentaryFindings(report.Findings)
+		if n := len(commentary); n != 2 {
+			t.Errorf("the report carries %d findings with commentary on them, want 2 (the two undeclared divergences):\n%+v", n, commentary)
+		}
+		for _, f := range commentary {
+			if f.Proposal == "" {
+				t.Errorf("%s carries a reading and no proposed declaration; R5.4 attaches one to every divergence a model reads as ours", f.Atom)
+			}
 		}
 	})
 }
@@ -1440,125 +1335,17 @@ func TestReviewCommentary(t *testing.T) {
 // The review is COMMENTARY (6.6): it changes nothing the operator acts on.
 // ---------------------------------------------------------------------------
 
-// stripCommentary returns the rendered report with every model line removed —
-// the report a run with no reviewer at all would print, if R5.8 holds.
+// stripCommentary, renderedSection, renderedSections, sectionsRecommendingRemoval
+// and firstDifference stood here and went with FormatReport (story 047,
+// sub-task 5.5, S047-R8.2). All five existed to cut a RENDERED report into
+// tables and diff two of them; TestReviewChangesNothing now compares the two
+// runs' findings, results and verdicts directly, so there is nothing left to cut
+// up. Their claims are recorded against their new form in that test.
 //
-// Removing the lines rather than ignoring them is what makes the comparison an
-// assertion about EVERYTHING ELSE: a commentary line that had displaced,
-// reworded or reordered anything would leave the remainder no longer equal to
-// the un-reviewed report, whatever the two lines themselves said.
-func stripCommentary(out string) string {
-	lines := strings.Split(out, "\n")
-	kept := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if isCommentaryLine(line) {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return strings.Join(kept, "\n")
-}
-
-// renderedSection is one table as the operator reads it: the heading and note
-// above it, and the data rows inside it.
-//
-// It is extracted from the RENDERED text rather than read off the report,
-// because that is where the three things R5.8 names actually reach the operator.
-// The heading carries the removal recommendation (redundantRemovalAdvice), the
-// rows carry the Verdict column, and which section a package's row sits in IS
-// the grouping.
-type renderedSection struct {
-	heading []string
-	rows    []string
-}
-
-// renderedSections extracts every table the report printed.
-//
-// The report's tables are drawn with box characters, so the structure is read
-// from those: a table opens at "┌", its data rows are the lines between the
-// "├" separator under the column headers and the closing "└". The heading is
-// the run of non-empty lines directly above the opening, which is exactly what
-// formatResultSection writes there — the title and, where there is one, the
-// section note.
-//
-// Every malformed shape FAILS rather than being skipped. An extractor that
-// silently found nothing would report two reports as equal for the same reason a
-// broken scanner reports a clean package: both produce an empty result.
-func renderedSections(t *testing.T, out string) []renderedSection {
-	t.Helper()
-
-	lines := strings.Split(out, "\n")
-	var sections []renderedSection
-	for i, line := range lines {
-		if !strings.HasPrefix(line, "┌") {
-			continue
-		}
-
-		var sec renderedSection
-		for j := i - 1; j >= 0 && strings.TrimSpace(lines[j]) != ""; j-- {
-			sec.heading = append([]string{lines[j]}, sec.heading...)
-		}
-
-		inside, closed := false, false
-		for j := i + 1; j < len(lines) && !closed; j++ {
-			switch {
-			case strings.HasPrefix(lines[j], "┌"):
-				t.Fatalf("a second table opened before the one at line %d closed; the extractor is not reading the report's structure:\n%s", i+1, out)
-			case strings.HasPrefix(lines[j], "├"):
-				inside = true
-			case strings.HasPrefix(lines[j], "└"):
-				closed = true
-			case inside:
-				sec.rows = append(sec.rows, lines[j])
-			}
-		}
-		if !closed {
-			t.Fatalf("the table opening at line %d never closes:\n%s", i+1, out)
-		}
-		if len(sec.heading) == 0 || len(sec.rows) == 0 {
-			t.Fatalf("the table opening at line %d was read as %d heading lines and %d rows; a table with neither cannot be compared:\n%s",
-				i+1, len(sec.heading), len(sec.rows), out)
-		}
-		sections = append(sections, sec)
-	}
-	return sections
-}
-
-// sectionsRecommendingRemoval returns the sections whose heading tells the
-// operator to remove the packages beneath it.
-//
-// This is the report's one actionable instruction, and R5.8's "same removal
-// recommendations" is about precisely which rows sit under it. It is matched on
-// redundantRemovalAdvice — the constant the notes are BUILT from — so a reworded
-// note cannot slip past by no longer matching a copied sentence.
-func sectionsRecommendingRemoval(sections []renderedSection) []renderedSection {
-	var found []renderedSection
-	for _, sec := range sections {
-		for _, line := range sec.heading {
-			if strings.Contains(line, redundantRemovalAdvice) {
-				found = append(found, sec)
-				break
-			}
-		}
-	}
-	return found
-}
-
-// firstDifference describes where two rendered reports stop agreeing, so a
-// failure names the line instead of printing two reports for a human to diff.
-func firstDifference(got, want string) string {
-	gotLines, wantLines := strings.Split(got, "\n"), strings.Split(want, "\n")
-	for i := 0; i < len(gotLines) && i < len(wantLines); i++ {
-		if gotLines[i] != wantLines[i] {
-			return fmt.Sprintf("line %d differs:\n  reviewed:   %q\n  unreviewed: %q", i+1, gotLines[i], wantLines[i])
-		}
-	}
-	if len(gotLines) == len(wantLines) {
-		return "no line differs"
-	}
-	return fmt.Sprintf("the reviewed report has %d lines and the un-reviewed one %d, and the shorter is a prefix of the longer",
-		len(gotLines), len(wantLines))
-}
+// isCommentaryLine and commentaryLines stood above and went the same way in
+// sub-task 4.2, together with the ten TestReviewCommentary subtests that read a
+// rendered section: the library no longer renders one. The two surviving
+// subtests assert values, not text.
 
 // countsOf returns the report's summary counts — every scalar it carries, with
 // the results themselves dropped.
@@ -1570,6 +1357,14 @@ func firstDifference(got, want string) string {
 func countsOf(report *CompareReport) CompareReport {
 	clone := *report
 	clone.Results = nil
+	// Findings go with them, and for the same reason: they are a materialised
+	// view of Results — EstablishFindings is a pure function of it — so they are
+	// not a count, and they legitimately DIFFER between the two runs, because
+	// carrying the model's words is exactly what a reviewed run's findings are
+	// for. The subtest above compares them field for field with the commentary
+	// cleared, which is the assertion that belongs to them; leaving them in here
+	// would make this whole-struct check fail on the one difference R5.8 permits.
+	clone.Findings = nil
 	return clone
 }
 
@@ -1616,7 +1411,15 @@ func TestReviewChangesNothing(t *testing.T) {
 	// path, called here exactly as runCompare calls it.
 	AnnotateReviews(unreviewedReport, nil, nilProv, nilOpts)
 
-	reviewed, unreviewed := FormatReport(reviewedReport), FormatReport(unreviewedReport)
+	// Story 047, sub-task 5.5 (S047-R8.2). The two reports are compared as what
+	// they ESTABLISHED, not as what FormatReport printed — 4.2 deletes it, and
+	// the findings are what `overlay compare` now hands to cmd/bentoo to build
+	// every row and note from. The property is unchanged and the observable is
+	// strictly earlier: a difference the old rendering could hide inside a
+	// truncated cell is visible here as an unequal field.
+	EstablishFindings(reviewedReport)
+	EstablishFindings(unreviewedReport)
+	reviewed, unreviewed := reviewedReport.Findings, unreviewedReport.Findings
 
 	// The fixture itself must be sound before any equality below means anything.
 	// A run that warned is a run where something did not happen, and "nothing
@@ -1634,56 +1437,62 @@ func TestReviewChangesNothing(t *testing.T) {
 		// are trivially equal, and would pass everything below while proving
 		// nothing. Four lines — a reading and a proposal for each of the two
 		// undeclared divergences.
-		if n := len(commentaryLines(reviewed)); n != 4 {
-			t.Fatalf("the reviewed report carries %d commentary lines, want 4; the comparison below would be between two identical un-reviewed reports:\n%s", n, reviewed)
+		if n := len(commentaryFindings(reviewed)); n != 2 {
+			t.Fatalf("the reviewed report carries commentary on %d findings, want 2; the comparison below would be between two identical un-reviewed reports:\n%+v", n, reviewed)
 		}
-		if n := len(commentaryLines(unreviewed)); n != 0 {
-			t.Fatalf("the un-reviewed report carries %d commentary lines: %v", n, commentaryLines(unreviewed))
+		if n := len(commentaryFindings(unreviewed)); n != 0 {
+			t.Fatalf("the un-reviewed report carries commentary on %d findings: %+v", n, commentaryFindings(unreviewed))
 		}
 
-		// The assertion. Byte for byte, with the model's own lines taken out.
-		if got := stripCommentary(reviewed); got != unreviewed {
-			t.Errorf("a review changed the report beyond its own lines.\n%s\n--- reviewed, commentary stripped ---\n%s\n--- un-reviewed ---\n%s",
-				firstDifference(got, unreviewed), got, unreviewed)
+		// The assertion. Field for field, with the model's own fields cleared.
+		if got := withoutCommentary(reviewed); !reflect.DeepEqual(got, unreviewed) {
+			t.Errorf("a review changed the report beyond its own fields.\n--- reviewed, commentary cleared ---\n%+v\n--- un-reviewed ---\n%+v", got, unreviewed)
 		}
 
 		// And no model text anywhere else. The equality above already forbids it;
-		// this states it directly, because "a model's words appear only on the two
-		// lines that say whose words they are" is the boundary the operator relies
-		// on to tell a finding from a guess.
-		for _, line := range strings.Split(reviewed, "\n") {
-			if isCommentaryLine(line) {
-				continue
-			}
+		// this states it directly, because "a model's words appear only in the
+		// fields that say whose words they are" is the boundary the operator relies
+		// on to tell a finding from a guess. Detail is checked by name because it
+		// is the sentence the row's REASON cell carries, which is where a leak
+		// would be read as this report's own voice.
+		for _, f := range withoutCommentary(reviewed) {
 			for _, atom := range reviewedAtoms {
 				note := noteFor(atom)
-				if strings.Contains(line, note.Summary) || strings.Contains(line, note.Declaration) {
-					t.Errorf("a model's words reached a line the report speaks in its own voice on:\n%s", line)
+				for _, field := range []string{f.Detail, f.Effect.Text, f.ProvedBy, f.Entry} {
+					if field == "" {
+						continue
+					}
+					if strings.Contains(field, note.Summary) || (note.Declaration != "" && strings.Contains(field, note.Declaration)) {
+						t.Errorf("a model's words reached a field the report speaks in its own voice on: %s = %q", f.Atom, field)
+					}
 				}
 			}
 		}
 	})
 
-	t.Run("every table is identical: the same headings, the same notes, the same rows", func(t *testing.T) {
-		// The GROUPING, as the operator sees it. Which table a package's row sits
-		// in is what the report recommends about it, and the row carries the
-		// Verdict column that says so in words.
-		reviewedSections := renderedSections(t, reviewed)
-		unreviewedSections := renderedSections(t, unreviewed)
-
-		// The extractor is asserted to have read the whole report, so an equality
-		// between two empty results cannot pass for one between two reports.
-		rows := 0
-		for _, sec := range reviewedSections {
-			rows += len(sec.rows)
+	t.Run("the grouping is identical: the same packages, in the same order, under the same verdict", func(t *testing.T) {
+		// The GROUPING, as the operator sees it. Which section a package's row
+		// sits in is what the report recommends about it, and the section is
+		// chosen from the Verdict by `func buildCompareReport` in cmd/bentoo.
+		//
+		// Story 047, sub-task 5.5 (S047-R8.2): this was a comparison of two
+		// rendered TABLES, cut out of FormatReport's text by renderedSections.
+		// Nothing in internal/overlay renders a table any more, so the claim is
+		// asserted on what the tables are built from — the results, in order,
+		// with their verdicts — which is where a review could actually move one.
+		if len(reviewedReport.Results) == 0 {
+			t.Fatal("the reviewed run produced no result, so every equality below is between two empty lists")
 		}
-		if len(reviewedSections) < 2 || rows != len(reviewedReport.Results) {
-			t.Fatalf("the reviewed report was read as %d tables holding %d rows, want at least 2 tables holding all %d results:\n%s",
-				len(reviewedSections), rows, len(reviewedReport.Results), reviewed)
+		type placed struct{ atom, verdict string }
+		place := func(results []CompareResult) []placed {
+			out := make([]placed, 0, len(results))
+			for _, r := range results {
+				out = append(out, placed{r.Category + "/" + r.Package, r.Verdict.String()})
+			}
+			return out
 		}
-
-		if !reflect.DeepEqual(reviewedSections, unreviewedSections) {
-			t.Errorf("the tables differ.\nreviewed:   %+v\nunreviewed: %+v", reviewedSections, unreviewedSections)
+		if !reflect.DeepEqual(place(reviewedReport.Results), place(unreviewedReport.Results)) {
+			t.Errorf("the grouping differs.\nreviewed:   %+v\nunreviewed: %+v", place(reviewedReport.Results), place(unreviewedReport.Results))
 		}
 	})
 
@@ -1692,15 +1501,26 @@ func TestReviewChangesNothing(t *testing.T) {
 		// model that classified a divergence as ours must not be able to withdraw a
 		// removal recommendation — nor to extend one — because the recommendation
 		// rests on a byte comparison and a registry, neither of which it read.
-		reviewedAdvice := sectionsRecommendingRemoval(renderedSections(t, reviewed))
-		unreviewedAdvice := sectionsRecommendingRemoval(renderedSections(t, unreviewed))
-
-		if len(reviewedAdvice) != 1 || len(unreviewedAdvice) != 1 {
-			t.Fatalf("the reviewed report recommends removal in %d sections and the un-reviewed one in %d, want exactly 1 each:\n%s",
-				len(reviewedAdvice), len(unreviewedAdvice), reviewed)
+		//
+		// The recommendation's PROSE now lives in internal/common/report and is
+		// derived from the redundant list, so the set of redundant packages IS the
+		// set the advice covers. That is what is compared here.
+		redundant := func(results []CompareResult) []string {
+			var out []string
+			for _, r := range results {
+				if r.Verdict == VerdictRedundant {
+					out = append(out, r.Category+"/"+r.Package)
+				}
+			}
+			return out
 		}
-		if !reflect.DeepEqual(reviewedAdvice[0], unreviewedAdvice[0]) {
-			t.Errorf("the removal recommendation changed.\nreviewed:   %+v\nunreviewed: %+v", reviewedAdvice[0], unreviewedAdvice[0])
+		reviewedAdvice, unreviewedAdvice := redundant(reviewedReport.Results), redundant(unreviewedReport.Results)
+		if len(reviewedAdvice) == 0 || len(unreviewedAdvice) == 0 {
+			t.Fatalf("the reviewed run recommends removing %d packages and the un-reviewed one %d; with an empty set on either side the equality below proves nothing",
+				len(reviewedAdvice), len(unreviewedAdvice))
+		}
+		if !reflect.DeepEqual(reviewedAdvice, unreviewedAdvice) {
+			t.Errorf("the removal recommendation changed.\nreviewed:   %v\nunreviewed: %v", reviewedAdvice, unreviewedAdvice)
 		}
 	})
 

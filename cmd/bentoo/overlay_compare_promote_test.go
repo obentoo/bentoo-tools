@@ -219,6 +219,31 @@ func TestRealignPublishOffersNothingWithoutATerminal(t *testing.T) {
 //
 // _Requirements: R5, R5.4_
 func TestRealignPublishReportsRefusalAndErrorDifferently(t *testing.T) {
+	// Story 047, sub-task 5.5 (S047-R8.2): the refusal literal was "refused",
+	// and it stopped being usable as a mustNot when `overlay compare` joined the
+	// report envelope. The scope section every run now prints ends "...or a
+	// version pair the content check REFUSED", so the write-error case matched
+	// its own forbidden word in prose that has nothing to do with publishing.
+	//
+	// It is narrowed to "refused: ", which is `func realignPublishOutcome`'s own
+	// output ("    refused: %v") and nothing else's — the standing sentence ends
+	// the word with a full stop, never a colon.
+	//
+	// # Why the narrowing is not a way of switching the check off
+	//
+	// A mustNot narrowed until it stops matching and one narrowed until it stops
+	// TESTING look identical from a green run. What tells them apart here is that
+	// the two literals are SHARED and CROSSED: each case's mustNot is the other
+	// case's mustSay. The refusal case asserts that publishRefused appears, so if
+	// production ever stopped emitting that exact string, this table goes red on
+	// the mustSay before the mustNot could quietly pass over a phrase nobody
+	// writes. Neither literal can rot unnoticed while the other is asserted
+	// positively.
+	const (
+		publishRefused = "refused: "
+		needsAHuman    = "needs a human"
+	)
+
 	cases := []struct {
 		name    string
 		err     error
@@ -228,14 +253,14 @@ func TestRealignPublishReportsRefusalAndErrorDifferently(t *testing.T) {
 		{
 			name:    "a refusal is the system working",
 			err:     fmt.Errorf("%w: the proof and the approval disagree", realign.ErrNotPromoted),
-			mustSay: "refused",
-			mustNot: "needs a human",
+			mustSay: publishRefused,
+			mustNot: needsAHuman,
 		},
 		{
 			name:    "a write error needs a human",
 			err:     errors.New("replacing the published ebuild: disk went away"),
-			mustSay: "needs a human",
-			mustNot: "refused",
+			mustSay: needsAHuman,
+			mustNot: publishRefused,
 		},
 	}
 

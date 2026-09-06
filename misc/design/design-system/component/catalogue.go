@@ -89,7 +89,7 @@ func Catalogue() []Sample {
 		},
 		{
 			Name: "Table",
-			Why:  `overlay_prune.go's "%-45s %s" — a width picked once, by hand`,
+			Why:  `overlay_prune.go's hand-picked column widths, until story 046 measured them away`,
 			C: Table{
 				Head: []string{"PACKAGE", "DEPTH", "REASON"},
 				Rows: [][]string{

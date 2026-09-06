@@ -277,7 +277,7 @@ func TestCheckRun_TallyCountsEachOutcomeExactlyOnce(t *testing.T) {
 
 	var tally report.Tally
 	_ = captureStdout(t, func() {
-		tally = runValidationCheck(plan, func(entry validationPlanEntry) validate.EbuildResult {
+		checked := checkPayload(runValidationCheck(plan, func(entry validationPlanEntry) validate.EbuildResult {
 			outcome := outcomes[entry.Package]
 			res := validate.EbuildResult{
 				Package: entry.Package,
@@ -290,7 +290,8 @@ func TestCheckRun_TallyCountsEachOutcomeExactlyOnce(t *testing.T) {
 				}}
 			}
 			return res
-		}).Tally
+		}))
+		tally = checked.Tally
 	})
 
 	if tally.Proved != 1 {
@@ -610,7 +611,7 @@ func renderCheckReport(t *testing.T, mode report.Mode) string {
 			_ = w.Close()
 			os.Stdout = original
 		}()
-		return renderCheckReportIn(mode, exportFixture(), render.Options{Width: 100})
+		return renderCheckReportIn(mode, exportFixture().Sections(report.SectionOptions{}), render.Options{Width: 100})
 	}()
 
 	out := <-captured
@@ -702,8 +703,9 @@ func TestNoLineExceedsWidth(t *testing.T) {
 }
 
 // TestCheckPathHasNoHardCodedWidths pins R6.3 mechanically, in the file the
-// story names. The three %-45s sites OUTSIDE the check path are explicitly Out
-// of Scope and must not be touched, so this is scoped to the one file.
+// story names. The sites OUTSIDE the check path were explicitly Out of Scope for
+// story 045 and must not be touched by it, so this is scoped to the one file.
+// (Which sites those are has since narrowed — see TestOutOfScopeWidthsAreUntouched.)
 func TestCheckPathHasNoHardCodedWidths(t *testing.T) {
 	body, err := os.ReadFile("overlay_autoupdate_check.go")
 	if err != nil {
@@ -718,10 +720,24 @@ func TestCheckPathHasNoHardCodedWidths(t *testing.T) {
 }
 
 // TestOutOfScopeWidthsAreUntouched is the other half, and it guards the story's
-// own boundary. Removing those three would be an improvement nobody asked for,
+// own boundary. Removing those widths would be an improvement nobody asked for,
 // in files this story does not test.
+//
+// NARROWED by story 046, sub-task 11.3. overlay_prune.go was in this list and is
+// no longer: story 046 edited that file (commit 55e6d06, the constructor
+// extraction), which puts it inside S046-R6.2's subject — "a file this story
+// MODIFIES" — so its three widths became that story's to remove rather than
+// anyone's to preserve. The boundary this test defends is story 045's, and a
+// boundary is a statement about one story's scope, not a permanent freeze on a
+// file: leaving prune here would have made this guard pass by forbidding work a
+// later story was required to do.
+//
+// overlay_autoupdate_sweep.go stays, and is not a leftover. It is absent from
+// story 046's diff, and its five widths are part of the eight that story hands
+// to 047 as a counted debt — so "nobody asked for it" is still true of it, and
+// this guard is still the thing keeping it that way.
 func TestOutOfScopeWidthsAreUntouched(t *testing.T) {
-	for _, file := range []string{"overlay_prune.go", "overlay_autoupdate_sweep.go"} {
+	for _, file := range []string{"overlay_autoupdate_sweep.go"} {
 		body, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("reading %s: %v", file, err)
@@ -800,9 +816,10 @@ func TestPendingValidationReturnsThePlanHalf(t *testing.T) {
 	autoupdateLLM = false
 	t.Cleanup(func() { autoupdateLLM = restore })
 
-	got, printed := runPendingValidation(t.Context(), t.TempDir(), t.TempDir(),
+	run, printed := runPendingValidation(t.Context(), t.TempDir(), t.TempDir(),
 		[]autoupdate.CheckResult{{Package: "app-misc/jq", CurrentVersion: "1.7.1", UpstreamVersion: "1.8.0", HasUpdate: true, Type: "source"}},
 		config.LLMConfig{})
+	got := checkPayload(run)
 
 	if printed {
 		t.Error("the gated arm reported the plan as printed, but it never reached printValidationPrice — SkipPlan would then omit a section nobody had shown (R2.3)")
@@ -811,9 +828,28 @@ func TestPendingValidationReturnsThePlanHalf(t *testing.T) {
 		t.Errorf("the gated arm returned a populated report (Scanned=%d, Plan=%d, Results=%d), want the zero value — it did not validate, so it has nothing to contribute (D2)",
 			len(got.Scanned), len(got.Plan), len(got.Results))
 	}
-	if got.Complete || got.NotEvaluated != 0 || got.DistfilesToFetch != 0 || got.Tally != (report.Tally{}) {
-		t.Errorf("the gated arm returned a non-zero report body (Complete=%v, NotEvaluated=%d, DistfilesToFetch=%d, Tally=%+v), want the zero value (D2)",
-			got.Complete, got.NotEvaluated, got.DistfilesToFetch, got.Tally)
+	if got.DistfilesToFetch != 0 || got.Tally != (report.Tally{}) {
+		t.Errorf("the gated arm returned a non-zero report body (DistfilesToFetch=%d, Tally=%+v), want the zero value (D2)",
+			got.DistfilesToFetch, got.Tally)
+	}
+	// The same claim about the two facts that moved to the envelope in sub-task
+	// 3.1: they are no longer fields of the report, so the arm is asked about
+	// them where they now live rather than being asked one question fewer.
+	// Since 3.2 that is the run itself, and the answers are exact rather than
+	// "zero": an arm that planned nothing left nothing unreached, and reaching
+	// the end of an empty plan is what Complete means (S045-R4.2). A false
+	// there would draw the `Run Interrupted` block over a run that finished.
+	if run.NotEvaluated != 0 {
+		t.Errorf("the gated arm reported %d unreached unit(s), want 0 — it validated nothing, so it left nothing unreached (D2)", run.NotEvaluated)
+	}
+	if !run.Complete {
+		t.Error("the gated arm reported an incomplete run — it planned nothing and reached the end of that, which is what Complete means (D2, S045-R4.2)")
+	}
+	// And the envelope still names the run, on the arm that established the
+	// least: a `--check` without --llm is the DEFAULT run, so a kind lost here
+	// is a kind missing from most exported documents (R4.1).
+	if run.Kind != report.KindAutoupdateCheck || run.Schema != report.SchemaVersion {
+		t.Errorf("the gated arm returned kind %q schema %d, want %q and %d", run.Kind, run.Schema, report.KindAutoupdateCheck, report.SchemaVersion)
 	}
 	// Scanned is filled by runCheck from the scan it already holds, never here:
 	// a report half that carried the scan would make the merge in 3.2 a question
@@ -847,15 +883,14 @@ func story045Scanned() ([]autoupdate.CheckResult, []report.PackageResult) {
 func TestValidationPlanHeadingAppearsOnce(t *testing.T) {
 	_, scanned := story045Scanned()
 	plan := buildValidationPlan(checkPlanUpdates(), checkPlanPolicy())
-	r := report.Report{
-		Scanned:  scanned,
-		Plan:     []report.PlanEntry{{Package: "app-misc/jq", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", Depth: "configure"}},
-		Complete: true,
+	r := report.AutoupdateCheck{
+		Scanned: scanned,
+		Plan:    []report.PlanEntry{{Package: "app-misc/jq", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", Depth: "configure"}},
 	}
 
 	out := captureStdout(t, func() {
 		printValidationPrice(plan)
-		presentCheckReport(r, true)
+		presentCheckReport(finishedRun(r), true)
 	})
 
 	if got := strings.Count(out, "Validation Plan"); got != 1 {
@@ -970,6 +1005,19 @@ func TestSinglePackageReturnsBeforeTheBatchPath(t *testing.T) {
 // `false` at four call sites would say nothing about which of the two it is.
 const noPlanPrinted = false
 
+// finishedRun is a fixture report inside the run a check that reached the end
+// of its plan produces.
+//
+// Complete and NotEvaluated are the ENVELOPE's since sub-task 3.1, and since
+// 3.2 the envelope is what the adapter hands presentCheckReport — so a fixture
+// that used to write `Complete: true` into the report states it out here, in
+// the value the run is actually made of. It goes through checkEnvelope rather
+// than through a report.Run literal so these fixtures carry the same schema,
+// kind and title a real run does. None of them is about an interrupted run.
+func finishedRun(r report.AutoupdateCheck) report.Run {
+	return checkEnvelope(r, true, 0)
+}
+
 // TestEmptyScanRendersNoReport is D4 held at the render seam rather than
 // scattered through runCheck. A run that scanned nothing renders nothing at all:
 // the sentence is logger.Info's (suppressible by --quiet, cmd/bentoo/main.go:30)
@@ -981,7 +1029,7 @@ const noPlanPrinted = false
 // do not build one.
 func TestEmptyScanRendersNoReport(t *testing.T) {
 	out := captureStdout(t, func() {
-		presentCheckReport(report.Report{Complete: true}, noPlanPrinted)
+		presentCheckReport(finishedRun(report.AutoupdateCheck{}), noPlanPrinted)
 	})
 
 	if strings.TrimSpace(out) != "" {
@@ -995,11 +1043,11 @@ func TestEmptyScanRendersNoReport(t *testing.T) {
 // an implementation that renders nothing ever. This is the fixture that would
 // make that implementation fail.
 func TestNonEmptyScanStillRenders(t *testing.T) {
-	r := report.Report{Complete: true, Scanned: []report.PackageResult{
+	r := report.AutoupdateCheck{Scanned: []report.PackageResult{
 		{Package: "app-misc/jq", Type: "source", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", HasUpdate: true},
 	}}
 
-	out := captureStdout(t, func() { presentCheckReport(r, noPlanPrinted) })
+	out := captureStdout(t, func() { presentCheckReport(finishedRun(r), noPlanPrinted) })
 
 	if !strings.Contains(out, "Version Check Results") {
 		t.Errorf("a scan with one package rendered no version check — the empty-scan rule must not swallow real runs (R4.1)\n%s", out)
@@ -1034,7 +1082,7 @@ func TestEmptyScanUnderQuietIsSilent(t *testing.T) {
 	t.Cleanup(func() { logger.Default().SetLevel(logger.LevelInfo) })
 
 	empty := captureStdout(t, func() {
-		presentCheckReport(report.Report{Complete: true}, noPlanPrinted)
+		presentCheckReport(finishedRun(report.AutoupdateCheck{}), noPlanPrinted)
 	})
 	if strings.TrimSpace(empty) != "" {
 		t.Errorf("a quiet run over an empty scan put %d bytes on stdout, which --quiet cannot reach — the one silence a quiet run has today would be gone (R5.3, D4)\n%s",
@@ -1042,9 +1090,9 @@ func TestEmptyScanUnderQuietIsSilent(t *testing.T) {
 	}
 
 	scanned := captureStdout(t, func() {
-		presentCheckReport(report.Report{Complete: true, Scanned: []report.PackageResult{
+		presentCheckReport(finishedRun(report.AutoupdateCheck{Scanned: []report.PackageResult{
 			{Package: "app-misc/jq", Type: "source", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", HasUpdate: true},
-		}}, noPlanPrinted)
+		}}), noPlanPrinted)
 	})
 	if !strings.Contains(scanned, "Version Check Results") {
 		t.Errorf("a quiet run over a NON-empty scan rendered nothing — --quiet must not become a report suppressor, and the silence above must come from the empty scan alone (D4)\n%s", scanned)
@@ -1071,14 +1119,13 @@ func TestEmptyScanUnderQuietIsSilent(t *testing.T) {
 // say. A run holding results has something to say however its scan came out, so
 // the guard is a conjunction: silent only when BOTH halves are empty.
 func TestEmptyScanWithValidationStillRenders(t *testing.T) {
-	r := report.Report{
-		Complete: true,
-		Plan:     []report.PlanEntry{{Package: "app-misc/jq", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", Depth: "configure"}},
-		Results:  []report.ValidationRow{{Package: "app-misc/jq", Outcome: "proved"}},
-		Tally:    report.Tally{Proved: 1},
+	r := report.AutoupdateCheck{
+		Plan:    []report.PlanEntry{{Package: "app-misc/jq", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", Depth: "configure"}},
+		Results: []report.ValidationRow{{Package: "app-misc/jq", Outcome: "proved"}},
+		Tally:   report.Tally{Proved: 1},
 	}
 
-	out := captureStdout(t, func() { presentCheckReport(r, noPlanPrinted) })
+	out := captureStdout(t, func() { presentCheckReport(finishedRun(r), noPlanPrinted) })
 
 	if !strings.Contains(out, "app-misc/jq") {
 		t.Errorf("a run that evaluated a package rendered nothing because its scan came out empty — the gates ran and their answer was discarded (D4, R5.3)\n%s", out)
@@ -1090,12 +1137,12 @@ func TestEmptyScanWithValidationStillRenders(t *testing.T) {
 // internal/common must not know one binary's command names. R1.4 permits it
 // because a hint is not a package name, a version, a plan entry or a tally.
 func TestListHintAppearsOnce(t *testing.T) {
-	r := report.Report{Complete: true, Scanned: []report.PackageResult{
+	r := report.AutoupdateCheck{Scanned: []report.PackageResult{
 		{Package: "app-misc/jq", Type: "source", CurrentVersion: "1.7.1", CandidateVersion: "1.8.0", HasUpdate: true},
 		{Package: "app-misc/yq", Type: "source", CurrentVersion: "4.44.1", CandidateVersion: "4.45.0", HasUpdate: true},
 	}}
 
-	out := captureStdout(t, func() { presentCheckReport(r, noPlanPrinted) })
+	out := captureStdout(t, func() { presentCheckReport(finishedRun(r), noPlanPrinted) })
 
 	// Two pending updates, one hint — not one per package, and not one per section.
 	if got := strings.Count(out, "--list"); got != 1 {
@@ -1106,11 +1153,11 @@ func TestListHintAppearsOnce(t *testing.T) {
 // TestListHintAbsentWithNoUpdates keeps the hint from becoming unconditional
 // noise: a run that found nothing to update has nothing to list.
 func TestListHintAbsentWithNoUpdates(t *testing.T) {
-	r := report.Report{Complete: true, Scanned: []report.PackageResult{
+	r := report.AutoupdateCheck{Scanned: []report.PackageResult{
 		{Package: "app-editors/zed", Type: "bin", CurrentVersion: "0.199.4", CandidateVersion: "0.199.4"},
 	}}
 
-	out := captureStdout(t, func() { presentCheckReport(r, noPlanPrinted) })
+	out := captureStdout(t, func() { presentCheckReport(finishedRun(r), noPlanPrinted) })
 
 	if strings.Contains(out, "--list") {
 		t.Errorf("the hint was printed for a scan with no pending update (R5.2)\n%s", out)
@@ -1213,13 +1260,13 @@ func countHeadingEmitters(t *testing.T, heading string) int {
 // "disabled in packages.toml" and returns before presentCheckReport, so there
 // is no risk of saying it twice. Only the batch path went quiet.
 func TestOrphanDisableIsAnnounced(t *testing.T) {
-	orphaned := report.Report{Complete: true, Scanned: []report.PackageResult{
+	orphaned := report.AutoupdateCheck{Scanned: []report.PackageResult{
 		{Package: "app-misc/gone", Type: "source", Orphaned: true},
 		{Package: "app-misc/alsogone", Type: "source", Orphaned: true},
 		{Package: "app-misc/jq", Type: "source", CurrentVersion: "1.7.1", CandidateVersion: "1.7.1"},
 	}}
 
-	out := captureStdout(t, func() { presentCheckReport(orphaned, noPlanPrinted) })
+	out := captureStdout(t, func() { presentCheckReport(finishedRun(orphaned), noPlanPrinted) })
 
 	// One sentence for the run, not one per package: it reports a single
 	// batched write, which is what DisableOrphans performs.
@@ -1227,11 +1274,11 @@ func TestOrphanDisableIsAnnounced(t *testing.T) {
 		t.Errorf("the auto-disable notice names packages.toml %d times over a 2-orphan scan, want exactly 1 — a batch check must not edit a hand-maintained file silently (R5.4)\n%s", got, out)
 	}
 
-	clean := report.Report{Complete: true, Scanned: []report.PackageResult{
+	clean := report.AutoupdateCheck{Scanned: []report.PackageResult{
 		{Package: "app-misc/jq", Type: "source", CurrentVersion: "1.7.1", CandidateVersion: "1.7.1"},
 	}}
 
-	quiet := captureStdout(t, func() { presentCheckReport(clean, noPlanPrinted) })
+	quiet := captureStdout(t, func() { presentCheckReport(finishedRun(clean), noPlanPrinted) })
 	if strings.Contains(quiet, "packages.toml") {
 		t.Errorf("a run that disabled nothing announced a registry write — the notice must not become unconditional noise (R5.4)\n%s", quiet)
 	}

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/obentoo/bentoolkit/internal/common/ebuild"
-	"github.com/obentoo/bentoolkit/internal/common/output"
 )
 
 // baselineRepo is the repository every baseline comes from.
@@ -435,9 +434,18 @@ func LocateBaselineTree(candidate string) (string, error) {
 		return "", fmt.Errorf("%w: nothing at %s, where %s was looked for", ErrNoBaselineTree, root, marker)
 	case err != nil:
 		// There and unexaminable. Still "we could not look", which is what this
-		// error means — the stat's own text is carried with %v rather than %w
-		// because the sentinel is the only thing a caller is meant to match on.
-		return "", fmt.Errorf("%w: %s could not be examined: %v", ErrNoBaselineTree, root, err)
+		// error means — and the stat's own error is wrapped with %w BESIDE the
+		// sentinel, not rendered with %v.
+		//
+		// It carried %v until sub-task 15.7, on the ground that "the sentinel is
+		// the only thing a caller is meant to match on". That is a statement
+		// about what callers match today and it decided what they CAN match
+		// forever: errors.Is found ErrNoBaselineTree and nothing found the
+		// filesystem cause, so a caller could not tell a permission denial from
+		// any other unexaminable root. Go has taken more than one %w since 1.20,
+		// and this module is on 1.26, so both travel and the sentinel match is
+		// unchanged.
+		return "", fmt.Errorf("%w: %s could not be examined: %w", ErrNoBaselineTree, root, err)
 	case !info.IsDir():
 		return "", fmt.Errorf("%w: %s is not a directory, so it carries no %s", ErrNoBaselineTree, root, portageRepoMarker)
 	}
@@ -447,7 +455,8 @@ func LocateBaselineTree(candidate string) (string, error) {
 	case errors.Is(err, os.ErrNotExist):
 		return "", fmt.Errorf("%w: %s carries no %s, so it is a directory rather than a synced repository", ErrNoBaselineTree, root, portageRepoMarker)
 	case err != nil:
-		return "", fmt.Errorf("%w: %s could not be examined: %v", ErrNoBaselineTree, marker, err)
+		// %w for the cause here too, for the reason given on the root stat above.
+		return "", fmt.Errorf("%w: %s could not be examined: %w", ErrNoBaselineTree, marker, err)
 	case markerInfo.IsDir():
 		return "", fmt.Errorf("%w: %s is a directory rather than Portage's marker file, so %s is not a repository", ErrNoBaselineTree, marker, root)
 	}
@@ -469,40 +478,43 @@ func LocateBaselineTree(candidate string) (string, error) {
 // else a run that examined 320 packages would report itself as having examined
 // none.
 //
-// _Requirements: R1, R1.5_
+// # It leaves the outcome as a FINDING as well as a field
+//
+// A field is something a renderer has to know to look at. This one is the run's
+// only "we could not look", and a consumer walking report.Findings — an export,
+// a count, a second renderer — would otherwise be told nothing at all about a
+// run that compared nothing, which is the same absence reported by another
+// route (S046-R5.1). So the last thing this does is ask EstablishFindings to
+// rebuild the list, and the caller is holding the finding the moment this
+// returns.
+//
+// EstablishFindings is asked rather than a finding appended, because it is the
+// ONE place report.Findings is written: `overlay compare` calls it again once
+// its annotation passes have run, and an appended entry would be silently
+// discarded by that call. baselineRunFindings reads report.BaselineSkipped, so
+// the finding and the field are one statement and cannot come to disagree.
+// Rebuilding is also idempotent, which is what makes it safe here AND in
+// AnnotateBaseline, which calls both.
+//
+// _Requirements: R1, R1.5, S046-R5.1_
 func MarkBaselineSkipped(report *CompareReport, lookedFor string) {
 	if lookedFor == "" {
 		// Nothing was configured, so there is no path to name. Naming an empty one
 		// would print a sentence with a hole in it, which reads as a bug in the
 		// report rather than as the missing configuration it is.
+		//
+		// It still SAYS SOMETHING, and the finding below is still established: a
+		// review that could not run must speak wherever a review that ran would
+		// have, and a run reporting nothing is indistinguishable from one where
+		// every package matched ::gentoo.
 		report.BaselineSkipped = "no ::gentoo tree was configured, so nothing was compared against ::gentoo"
-		return
+	} else {
+		report.BaselineSkipped = fmt.Sprintf(
+			"no ::gentoo tree at %s — looked for its %s marker, so nothing was compared against ::gentoo",
+			lookedFor, portageRepoMarker)
 	}
-	report.BaselineSkipped = fmt.Sprintf(
-		"no ::gentoo tree at %s — looked for its %s marker, so nothing was compared against ::gentoo",
-		lookedFor, portageRepoMarker)
-}
 
-// baselineSkippedLead opens the run-level SKIPPED line. It is a constant so a
-// test can name the word without copying the sentence, on the same argument that
-// made undeclaredDivergenceCaveat one.
-const baselineSkippedLead = "Baseline review SKIPPED: "
-
-// formatBaselineSkipped renders the run-level SKIPPED line, or "" when there is
-// none.
-//
-// "" is the answer for every run that requested no review, which is what keeps
-// `overlay compare` printing exactly what it printed yesterday (R7.2): the field
-// is additive and its zero value renders nothing at all.
-//
-// The text names an operator-configured path, so it is passed as an ARGUMENT and
-// never as a format string, exactly like every other piece of text this report
-// prints.
-func formatBaselineSkipped(report *CompareReport) string {
-	if report.BaselineSkipped == "" {
-		return ""
-	}
-	return output.Sprintf(output.Warning, "\n%s%s\n", baselineSkippedLead, report.BaselineSkipped)
+	EstablishFindings(report)
 }
 
 // splitBaselineAtom splits "category/package" and refuses anything else.

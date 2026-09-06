@@ -164,9 +164,20 @@ func TestGoldenGstInheritIsFoundWithNoModel(t *testing.T) {
 		t.Errorf("the inherit finding is %q and does not name gstreamer-meson — the eclass ::gentoo delegates the option list to is the actionable half of the finding", inherit.Detail)
 	}
 
-	rendered := FormatReport(report)
-	if !strings.Contains(rendered, "gstreamer-meson") {
-		t.Errorf("the finding never reaches the rendered report:\n%s", rendered)
+	// Story 047, sub-task 5.5 (S047-R8.2): the finding is followed to the value
+	// cmd/bentoo builds the report from, not to FormatReport's text. An axis
+	// finding whose detail was dropped between AnnotateBaseline and
+	// EstablishFindings would still leave res.Axes intact above, which is the
+	// gap this second assertion exists to close.
+	EstablishFindings(report)
+	reached := false
+	for _, f := range report.Findings {
+		if f.Kind == FindingAxisDivergence && strings.Contains(f.Detail, "gstreamer-meson") {
+			reached = true
+		}
+	}
+	if !reached {
+		t.Errorf("the finding never reaches the report a consumer receives:\n%+v", report.Findings)
 	}
 	if res.RealignVerdict != "" {
 		t.Errorf("RealignVerdict is %q with no model reachable; a verdict nobody produced is worse than none (R4.4)", res.RealignVerdict)
@@ -254,10 +265,22 @@ func TestGoldenNodejsIsNotProposedForWholesaleRealignment(t *testing.T) {
 	}
 	AnnotateBaseline(report, prov, opts)
 
-	rendered := FormatReport(report)
-
-	if strings.Contains(rendered, goldenNodejsBaselineMarker) {
-		t.Errorf("the report shows ::gentoo's %q, which only appears when the baseline text is offered as a replacement (R4.2) — with no model reachable nothing judged this divergence unjustified, and reverting deliberate slotting work is the failure mode this story must not have:\n%s", goldenNodejsBaselineMarker, rendered)
+	// Story 047, sub-task 5.5 (S047-R8.2). The claim is a NEGATIVE — ::gentoo's
+	// text must not be offered as a replacement — so where it is asked matters:
+	// asked of a rendered string it also passed whenever the renderer simply
+	// stopped printing findings. Asked of the findings, it is the report a
+	// consumer actually receives, and the positive control below (the
+	// classification is present and non-zero) is what keeps the negative from
+	// passing over an empty list.
+	EstablishFindings(report)
+	for _, f := range report.Findings {
+		if strings.Contains(f.Detail, goldenNodejsBaselineMarker) || strings.Contains(f.Effect.Text, goldenNodejsBaselineMarker) {
+			t.Errorf("the report carries ::gentoo's %q on a %v finding, which only appears when the baseline text is offered as a replacement (R4.2) — with no model reachable nothing judged this divergence unjustified, and reverting deliberate slotting work is the failure mode this story must not have: %q",
+				goldenNodejsBaselineMarker, f.Kind, f.Detail)
+		}
+	}
+	if len(report.Findings) == 0 {
+		t.Fatal("the run established no finding at all, so the negative above passed over an empty list")
 	}
 	if report.Results[0].RealignVerdict != "" {
 		t.Errorf("RealignVerdict is %q with no model reachable (R4.4)", report.Results[0].RealignVerdict)
@@ -265,7 +288,7 @@ func TestGoldenNodejsIsNotProposedForWholesaleRealignment(t *testing.T) {
 
 	// And it is not quiet about it: the divergence is reported, by class.
 	if report.Results[0].Classified == (Classified{}) {
-		t.Errorf("the largest divergence in the overlay is reported with no classification at all; 'not proposed for realignment' must not be achieved by saying nothing:\n%s", rendered)
+		t.Error("the largest divergence in the overlay is reported with no classification at all; 'not proposed for realignment' must not be achieved by saying nothing")
 	}
 	if report.Results[0].Classified.Ours == 0 {
 		t.Error("the same-version divergence is reported as zero lines of ours; every one of nodejs's 492 differing lines is ours (M-C)")

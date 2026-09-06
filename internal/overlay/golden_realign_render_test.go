@@ -1,7 +1,6 @@
 package overlay
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -22,9 +21,15 @@ import (
 //     :1247) renders from the same Classified fields and is a separate call site
 //     from the per-package one (compare.go:1393). Setting Classified still moved
 //     the run-level total, so "the rendering changed" stayed true.
-//   - 8.1's TestClassificationReachReachesTheRenderedLines calls
-//     classificationLines DIRECTLY. It proves the builder says the right thing,
-//     never that anybody prints what it says.
+//   - 8.1's reach test calls the per-package line builder DIRECTLY. It proves
+//     the builder says the right thing, never that anybody prints what it says.
+//
+// Story 047, sub-task 4.2 addendum (S047-R8.1): the three call sites named above
+// are gone. Sub-task 4.2 deleted the renderer, which left classificationLines
+// and renderClassificationLines with no production caller, and both were deleted
+// with the tests that only exercised them. The mutation this file was written
+// for now has a different shape — a classification computed and never
+// ESTABLISHED — and that is what is asserted below.
 //
 // WHAT THE SURVIVOR WOULD COST, which is why it is worth a test rather than a
 // note: the run-level line says "N differences examined across M of the packages
@@ -66,22 +71,43 @@ func TestNodejsClassificationIsAttributedToThePackageInTheReport(t *testing.T) {
 	res := report.Results[0]
 	atom := res.Category + "/" + res.Package
 
-	lines := classificationLines(res)
-	if len(lines) == 0 {
-		t.Fatalf("%s carries no classification lines at all; the reduction reached no report and the assertions below would pass by vacuity (R2.4)", atom)
+	built, classified := classificationFinding(res)
+	if !classified {
+		t.Fatalf("%s carries no classification at all; the reduction reached no consumer and the assertions below would pass by vacuity (R2.4)", atom)
 	}
 
-	// The lead line NAMES the package, and that is the property the run-level
-	// block cannot supply: its own lead counts every package at once, so a report
-	// carrying only that one states a total nobody can attribute.
-	if !strings.Contains(lines[0], atom) {
-		t.Errorf("the classification's lead line is %q and does not name %s; a count with no package beside it cannot be acted on across an overlay of 321 packages (R2.4)", lines[0], atom)
+	// The classification NAMES the package, and that is the property the
+	// run-level share cannot supply: its own total counts every package at once
+	// and carries no atom — see TestCompareRunClassificationShareReachesTheReport
+	// in cmd/bentoo, whose note is deliberately RUN-scoped — so a report carrying
+	// only that one states a number nobody can attribute.
+	if built.Atom != atom {
+		t.Errorf("the classification is attributed to %q and not to %s; a count with no package beside it cannot be acted on across an overlay of 321 packages (R2.4)", built.Atom, atom)
 	}
 
-	rendered := FormatReport(report)
-	for _, line := range lines {
-		if !strings.Contains(rendered, line) {
-			t.Errorf("the classification line %q was built and never printed; the divergence is classified in a field the operator never sees, which is 'not proposed for realignment' achieved by saying nothing:\n--- report ---\n%s", line, rendered)
+	// Story 047, sub-task 5.5 (S047-R8.2): "built and never printed" is now
+	// "built and never established". The sentence an operator reads is rendered
+	// FROM the finding, so it reaches them only if the finding reaches
+	// EstablishFindings, which is what is asserted here.
+	EstablishFindings(report)
+	var carried *Finding
+	for i := range report.Findings {
+		if report.Findings[i].Kind == FindingClassification && report.Findings[i].Atom == atom {
+			carried = &report.Findings[i]
+			break
 		}
+	}
+	if carried == nil {
+		t.Fatalf("the classification was built and reaches no consumer; the divergence is classified in a field the operator never sees, which is 'not proposed for realignment' achieved by saying nothing:\n%+v", report.Findings)
+	}
+	if carried.Classified != res.Classified {
+		t.Errorf("the finding carries %+v and the result %+v; the counts an operator reads and the counts the reduction made must not be two answers", carried.Classified, res.Classified)
+	}
+	// Story 047, sub-task 4.2 addendum (S047-R8.1): this compared the lines
+	// rendered from the finding with the ones built off the result, through a
+	// builder that had no production caller left. Detail is the sentence a reader
+	// is given, so the same "these must not be two answers" claim is made on it.
+	if carried.Detail != built.Detail {
+		t.Errorf("the sentence the report carries and the one built off the result differ:\n from finding: %q\n from result:  %q", carried.Detail, built.Detail)
 	}
 }

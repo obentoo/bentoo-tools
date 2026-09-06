@@ -10,7 +10,35 @@ import (
 	"github.com/obentoo/bentoolkit/internal/common/report"
 )
 
-// TestJSONRoundTrip pins R9.4: a machine reader sees the fields the renderers
+// exportedPayload decodes the payload half of a document back into the check
+// report.
+//
+// It is a decoder in a TEST and deliberately not one in the package: report.Run
+// marshals but does not unmarshal, because decoding into a Payload interface
+// needs a type switch driven by kind — a hand-maintained registry of every kind
+// (D3). A test does not need that registry, because it knows which kind it just
+// exported and can name the concrete type outright.
+func exportedPayload(t *testing.T, doc []byte) report.AutoupdateCheck {
+	t.Helper()
+
+	// The key is spelled out here, where jsonKeyFor reads it from the tag
+	// everywhere else in this file. A struct tag is a compile-time literal and
+	// cannot be computed, so this one has to be typed — and the difference is
+	// worth having rather than working around. jsonKeyFor FOLLOWS a tag rename
+	// silently, which is what a test about the four tally counts should do; the
+	// literal below does not, so renaming report.Run.Payload's tag turns this
+	// round trip red. That is the honest alarm: "payload" is the string a
+	// consumer has already typed into a jq expression.
+	var envelope struct {
+		Payload report.AutoupdateCheck `json:"payload"`
+	}
+	if err := json.Unmarshal(doc, &envelope); err != nil {
+		t.Fatalf("the document JSON produced is not valid JSON: %v\n%s", err, doc)
+	}
+	return envelope.Payload
+}
+
+// TestJSONRoundTrip pins S044-R9.4: a machine reader sees the fields the renderers
 // saw. Round-tripping the fixture and comparing it whole is the only assertion
 // that stays true as the model grows — a field-by-field list would be checked
 // against the fields somebody remembered to add to it.
@@ -18,32 +46,26 @@ func TestJSONRoundTrip(t *testing.T) {
 	want := fixtureReport()
 
 	var buf bytes.Buffer
-	if err := JSON(&buf, want); err != nil {
+	if err := JSON(&buf, finishedRun(want)); err != nil {
 		t.Fatalf("JSON returned an error: %v", err)
 	}
 
-	var got report.Report
-	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
-		t.Fatalf("the document JSON produced is not valid JSON: %v\n%s", err, buf.String())
-	}
+	got := exportedPayload(t, buf.Bytes())
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("the report did not survive the round trip\n--- want ---\n%+v\n--- got ---\n%+v", want, got)
 	}
 }
 
-// TestJSONRoundTripKeepsTheReasonWhole is R9.3 for the JSON path. The screen
+// TestJSONRoundTripKeepsTheReasonWhole is S044-R9.3 for the JSON path. The screen
 // shows 96 cells; the record holds all 232.
 func TestJSONRoundTripKeepsTheReasonWhole(t *testing.T) {
 	var buf bytes.Buffer
-	if err := JSON(&buf, fixtureReport()); err != nil {
+	if err := JSON(&buf, finishedRun(fixtureReport())); err != nil {
 		t.Fatalf("JSON returned an error: %v", err)
 	}
 
-	var got report.Report
-	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	got := exportedPayload(t, buf.Bytes())
 
 	for _, entry := range got.Plan {
 		if entry.Package == "sys-apps/portage" && entry.Reason != planReason {
@@ -57,7 +79,7 @@ func TestJSONRoundTripKeepsTheReasonWhole(t *testing.T) {
 // operator's policy, which is the whole distinction this story adds.
 func TestJSONNamesTheFourTallyCounts(t *testing.T) {
 	var buf bytes.Buffer
-	if err := JSON(&buf, fixtureReport()); err != nil {
+	if err := JSON(&buf, finishedRun(fixtureReport())); err != nil {
 		t.Fatalf("JSON returned an error: %v", err)
 	}
 
@@ -66,7 +88,15 @@ func TestJSONNamesTheFourTallyCounts(t *testing.T) {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 
-	tally, ok := doc[jsonKeyFor(t, report.Report{}, "Tally")].(map[string]any)
+	// The tally is a payload's own count, so it is reached through the
+	// envelope's payload key rather than at the root (D3). The key is read from
+	// the tag, like every other key here, rather than assumed.
+	payload, ok := doc[jsonKeyFor(t, report.Run{}, "Payload")].(map[string]any)
+	if !ok {
+		t.Fatalf("the document has no payload object\n%s", buf.String())
+	}
+
+	tally, ok := payload[jsonKeyFor(t, report.AutoupdateCheck{}, "Tally")].(map[string]any)
 	if !ok {
 		t.Fatalf("the document has no tally object\n%s", buf.String())
 	}
@@ -90,12 +120,12 @@ func TestJSONNamesTheFourTallyCounts(t *testing.T) {
 func TestJSONDropsNoField(t *testing.T) {
 	// A report whose every field is the zero value — the case omitempty eats.
 	var buf bytes.Buffer
-	empty := report.Report{
+	empty := report.AutoupdateCheck{
 		Scanned: []report.PackageResult{{}},
 		Plan:    []report.PlanEntry{{}},
 		Results: []report.ValidationRow{{}},
 	}
-	if err := JSON(&buf, empty); err != nil {
+	if err := JSON(&buf, finishedRun(empty)); err != nil {
 		t.Fatalf("JSON returned an error: %v", err)
 	}
 	doc := buf.String()
@@ -104,7 +134,7 @@ func TestJSONDropsNoField(t *testing.T) {
 		name string
 		v    any
 	}{
-		{"Report", report.Report{}},
+		{"AutoupdateCheck", report.AutoupdateCheck{}},
 		{"PackageResult", report.PackageResult{}},
 		{"PlanEntry", report.PlanEntry{}},
 		{"ValidationRow", report.ValidationRow{}},

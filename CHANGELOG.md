@@ -7,6 +7,757 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING — the exported JSON document gains a root envelope.** `--export`
+  to a `.json` path used to write the check's view model at the document root.
+  It now writes an envelope, with the model moved down one level, unchanged:
+
+      before: {"scanned": [...], "plan": [...], "tally": {"proved": 4, ...}, "complete": true}
+      after:  {"schema": 2, "kind": "autoupdate.check", "complete": true,
+               "payload": {"scanned": [...], "plan": [...], "tally": {"proved": 4, ...}}}
+
+  Every expression rooted at a model key gains one `.payload` hop:
+
+      jq '.tally.proved'         ->  jq '.payload.tally.proved'
+      jq '.scanned'              ->  jq '.payload.scanned'
+      jq '.plan'                 ->  jq '.payload.plan'
+      jq '.results'              ->  jq '.payload.results'
+      jq '.distfiles_to_fetch'   ->  jq '.payload.distfiles_to_fetch'
+
+  `.complete` and `.not_evaluated` are the only old expressions that keep
+  working, and they moved rather than stayed: both are facts about **any** run —
+  "it reached the end of its plan", "this many planned units were never reached"
+  — so they belong to the envelope and are no longer inside `payload`. A tally
+  does not generalise the same way and stays with its payload, spelled in that
+  command's own vocabulary. Nothing was renamed and nothing was dropped
+  otherwise — the `payload` object is the old root minus those two keys, so a
+  mechanical migration is `.payload as $p | ...`.
+
+  **`overlay validate --json` moved onto the same envelope, in the same
+  release.** It had a JSON schema of its own — the validation report at the
+  document root — which meant two `bentoo` commands emitted two shapes and
+  neither said which command wrote it. It now writes exactly what
+  `--export=<path>.json` writes, to stdout:
+
+      before: {"overlay": "...", "results": [...], "unmatched_selector": "..."}
+      after:  {"schema": 2, "kind": "overlay.validate", "complete": true,
+               "payload": {"overlay": "...", "results": [...]}}
+
+      jq '.overlay'             ->  jq '.payload.overlay'
+      jq '.results'             ->  jq '.payload.results'
+      jq '.results[].gates[]'   ->  jq '.payload.results[].gates[]'
+      jq '.unmatched_selector'  ->  jq '.payload.unmatched_selector'
+
+  `--json` is now an alias for `--export` at stdout rather than a second
+  mechanism: one code path, one document shape, and `kind` telling a consumer
+  which command produced it. Both migrations are announced here, together,
+  because a consumer piping `bentoo` into `jq` should read the change once.
+
+  **One gap, and the export now says so itself.** `overlay validate
+  --export=report.md` and `--export=report.txt` do not carry the validation
+  report: those two renderers draw sections, and the validation payload has
+  none yet — turning a validation run into blocks means deciding what it says
+  gate by gate, which is the next release's work. What they write is a block
+  naming the omission and its reason, so an operator holding the file learns
+  from the file that it is not the report, instead of from a release note they
+  may never have read. It used to be an empty file, which is the same omission
+  made silently. Only the JSON form carries the run today, because that
+  renderer reaches the payload through its fields rather than through sections.
+  `--json` and `--export=<path>.json` are unaffected, byte for byte.
+
+    **Why break it at all, and why `2`.** `kind` is what lets a consumer tell two
+  exported documents apart without being told which command wrote them, and it
+  is what makes every subsequent addition non-breaking: a fourth command adds a
+  `kind` value and changes no existing key. `schema` is `2` rather than `1`
+  because the shape above under "before" is already schema 1 in the field, even
+  though nothing declares it — numbering the new one `1` would make the version
+  indistinguishable from the version that has no version. The envelope
+  marshals and does not read: decoding a payload needs a type switch driven by
+  `kind`, export is write-only today, and a reader belongs with the first use
+  case that needs one.
+
+- **The renderers no longer know what produced a report.** `Plain`, `Markdown`,
+  `Inline` and `Fullscreen` take `[]report.Section`; `JSON` takes the envelope.
+  None of them names a payload type, which is what makes adding a command a new
+  file rather than an edit to shared presentation code. The autoupdate check's
+  own section-building moved onto the model, where it becomes the first
+  implementation of the `Payload` contract.
+
+  `render.Options` is down to one field, `Width`, and that is the whole point of
+  the split: `--all` and "skip the plan already printed" describe **what the
+  report should say** and now travel in `report.SectionOptions`, while width
+  describes **what the device allows**. A renderer that read `--all` would be
+  deciding content.
+
+  **Nothing the check prints changes.** All three modes render byte-for-byte
+  what they rendered before, and the stored golden files are the evidence — not
+  one was regenerated.
+
+- **The autoupdate check became one payload among several.** `report.Report` is
+  now `report.AutoupdateCheck` and it implements the `Payload` contract: same
+  fields, same JSON tags, same `Reconciles()`, same four tally columns —
+  `proved`, `errored`, `inconclusive`, `skipped` — which are byte-identical to
+  what they were before this story. The check's adapter now hands back a
+  `report.Run` naming its kind, assembled whole before anything is printed.
+
+  One operator-visible sentence changed, and only on the interrupted path. It
+  used to read *"N of M planned package(s) were not evaluated"* and now reads
+  *"N planned unit(s) were not evaluated"*. The count is stated by the envelope,
+  which knows how many units a run failed to reach but deliberately knows
+  nothing about packages — the next commands to gain reports count subvolumes
+  and manifest targets, and a sentence that said "package" would be wrong for
+  both. A run that stops part way still says how much it missed.
+
+- **`--ui`, `--export` and `--all` are the CLI's flags now, not `overlay
+  autoupdate`'s.** They were declared on one command, so every other command
+  that could have produced a report was a command you had to guess about. They
+  are persistent flags on the root beside `--verbose`, `--quiet` and
+  `--no-color`, and `overlay manifest --ui=plain --export=report.json` is
+  accepted today by a command that declares neither.
+
+  The precedence chain is unchanged and inherited whole: `--no-tui` outranks
+  `--ui`, which outranks `BENTOO_UI`, which outranks the `ui.mode` config key,
+  which falls back to `auto`. `--no-tui` deliberately stayed on `overlay
+  autoupdate` — it is deprecated, and giving every command a second opt-out
+  competing with `--ui` would be the opposite of retiring it.
+
+  The known cost, accepted: the three flags appear in `--help` for commands
+  that produce no report, `version` and `completion` among them. A flag that is
+  accepted and does nothing is a smaller defect than three flags whose help
+  texts drift apart.
+
+- **An unusable `--ui` now stops any command before it does any work.**
+  `--ui=bogus` is rejected once per invocation, in the root's pre-run hook,
+  naming the set it accepts — rather than inside whichever command happened to
+  remember to check. Nothing runs: no scan, no fetch, no file written. Only the
+  flag's VALUE is checked there, deliberately, so that `bentoo version` does not
+  start failing on a host whose config cannot be loaded; the full precedence
+  chain still resolves where the report is produced, unchanged.
+
+- **An exported report is no longer shortenable, in any format.** `--export` to
+  a `.md` path listed every package a run scanned; the same export to a `.log`
+  or a `.txt` COUNTED the ones found up to date instead of naming them. The
+  disagreement was inherited from the renderer that path replaced and is now
+  settled in favour of the complete record: every format writes every unit,
+  every reason in full, whatever `--all` and `--ui` asked of the terminal.
+
+      before:  --export=run.log   ->  "247 packages up to date"
+      after:   --export=run.log   ->  every one of the 247 named
+
+  A record is kept precisely because the terminal is gone, and one missing
+  exactly what the screen dropped cannot answer "was this package checked at
+  all". The export path is a single function every future report-producing
+  command reaches, and it takes a `report.Run` and nothing else — there is no
+  parameter through which a screen setting could arrive.
+
+- **An export that cannot be written still costs nothing.** Unchanged in
+  behaviour, restated here because it is now the CLI's rule rather than one
+  command's: the failure is reported on stderr naming the path it attempted,
+  the report is still rendered to the terminal, and the run exits with the
+  status it would otherwise have had.
+
+- **The command tree is built by constructors instead of assembled by
+  `init()`.** Internal, with no operator-visible effect — `bentoo <cmd> --help`
+  is byte-identical. Every command file now exposes a `newXCmd()` that
+  registers its own flags and children, and `newRootCmd()` returns a fully
+  wired tree with pristine flag values. The old package-level variables remain
+  as lookups into the one production tree, so existing tests are untouched.
+  cobra keeps a flag's parsed value and its `Changed` bit ON the command, so a
+  test suite driving one shared tree let one case's `--ui` survive into the
+  next; there is now an end-to-end harness that builds a tree per run, points
+  config resolution at a temporary HOME, forces a non-TTY, and returns the exit
+  status instead of ending the test binary.
+
+- **`overlay manifest` ends in a report, like `overlay autoupdate --check`
+  does.** It used to end with a sentence the library had already formatted —
+  `"%d ok, %d failed"` handed to the progress reporter — which nothing could
+  count, export or render a second way. It now renders a report in whichever
+  mode the run resolved, honours `--ui`, `--all` and `--export`, and writes an
+  envelope whose `kind` is `overlay.manifest`, so a script can tell a manifest
+  export from a check export without being told which command wrote it.
+
+      bentoo overlay manifest --ui=plain --export=run.json
+      jq '.kind'                 ->  "overlay.manifest"
+      jq '.payload.ok, .payload.failed'
+      jq '.payload.targets[] | select(.success | not)'
+
+  A `--dry-run` says so in the envelope rather than looking like a run in which
+  every package failed: a preview invokes nothing, so nothing succeeded, and the
+  counts are stated against `dry_run` instead of being summed from the targets.
+
+- **Interrupting a manifest run now leaves you the report of what it had done.**
+  Ctrl+C used to cost the whole summary. The run returns what it established,
+  the envelope carries `complete: false` and a `not_evaluated` count of the
+  targets never started, and both the terminal render and the export say the run
+  stopped early.
+
+  Making that true meant fixing something underneath it: cancelling a run killed
+  the `pkgdev` process and nothing it had spawned, and Go's `cmd.Wait` does not
+  return while any descendant still holds the output pipe — so a cancelled
+  target held the entire run open for the lifetime of a grandchild. Measured at
+  30.002 s against a child that slept 30 s. `pkgdev` is now started in its own
+  process group and the group is signalled, so an interrupt returns promptly and
+  leaves no orphaned fetcher writing into a distfiles directory the run is about
+  to remove. On platforms with no process groups the wait is bounded instead,
+  which returns just as promptly and is honest that the descendant is abandoned.
+
+- **A failed manifest target carries its error and its output, not a sentence.**
+  `ManifestUpdate` gained `Err error` (wrapped with `%w` and naming the atom, so
+  it can be unwrapped and matched) and `Output string` (what the failing command
+  printed, kept because by the time a report is rendered the terminal that
+  streamed it live is gone). The existing `Error` string is unchanged and still
+  atom-free — both formatters prefix the atom themselves.
+
+- **`snapshot run` ends in a report too, and the envelope held.** It renders in
+  whichever mode the run resolved, honours `--ui`, `--all` and `--export`, and
+  writes an envelope whose `kind` is `snapshot.run`. The report names every
+  subvolume the run operated on and the outcome of each step — create, prune,
+  ship, gfs — with the ship target named where there was one.
+
+      bentoo snapshot run --ui=plain --export=run.json
+      jq '.kind'                       ->  "snapshot.run"
+      jq '.payload.subvolume'
+      jq '.payload.steps[] | select(.success | not)'
+
+  This was the design's own test, and it is the reason `snapshot run` was picked
+  rather than a second package-shaped command: a snapshot run shares no
+  vocabulary with a version check, so if the report envelope only fitted
+  package-shaped runs this is where it would have shown. **Adding it edited no
+  renderer.** A guard now enforces that from here on — no file under
+  `internal/common/report/render/` may name a payload type — and it is recorded
+  in the test what the guard prints when one does, because a green guard proves
+  nothing about what it would catch.
+
+  Two lines were removed rather than kept beside the report: the
+  `✓ snapshot run completed (N stages)` success line, and the run error
+  re-printed on stderr afterwards. Two statements of one run's outcome, in two
+  voices on two streams, is not a safety net — it is a reader with no way to
+  tell which is authoritative the day they disagree. The exit status is
+  unchanged.
+
+  `snapshot run` now reads `config.yaml`, which it never did before, so that
+  `ui.mode` is honoured. A config carrying unknown keys will show that loader's
+  own warnings where a timer-driven run previously showed none.
+
+  `snapshot run --dry-run` prints its plan and produces no report, and that is
+  the decision rather than the one path left unfinished. A preview declines to
+  start a run, so no result exists to report — only a plan, which is the same
+  sentences the plan itself prints, with no outcome to put beside them. Stated
+  as a run it would render empty steps beside zero succeeded and zero failed,
+  which is indistinguishable from a run that achieved nothing. `overlay
+  manifest --dry-run` does produce a report, and the difference is what each
+  preview holds: that one resolves its targets off the filesystem first, so it
+  has a row per target and only the outcomes are missing. The reasoning is
+  recorded beside the early return in the code, not only here.
+
+- **BREAKING for anyone reading `overlay compare`, `overlay status` or
+  `overlay add` by eye: their output is no longer coloured.** Five files under
+  `internal/overlay` printed directly through `internal/common/output` —
+  `compare.go`, `annotate_baseline.go`, `baseline.go`, `realign_reviewer.go`
+  and `status.go` — and all 40 of the calls they made into it, every one a
+  library picking a colour, padding a column or composing a sentence, have been
+  replaced by a value returned to the caller. The information is unchanged and
+  the layout is unchanged; the escape sequences are gone. Piped or redirected
+  output is byte-identical to before, because it never carried them.
+
+  Three commands are affected, and each for the same reason: the package that
+  read git or compared two trees was the package deciding what a terminal would
+  look like. `overlay compare` loses the colouring of its whole report;
+  `overlay status` and `overlay add` lose the blue package headings and the
+  green/yellow/red change letters. Nothing re-applies the styling at the call
+  site on purpose — all three move into the report envelope in the next release,
+  which renders every mode from one place, and a second styled renderer built in
+  the meantime would be a second thing to migrate and a second place for the
+  wording to drift.
+
+  This is deliberate and it is temporary. A library that prints has already
+  decided how its facts look, and a fact in that shape can be printed and
+  nothing else — it cannot be written to a Markdown file, exported as JSON,
+  diffed, filtered or counted, and it cannot be tested without capturing
+  stdout. Restyling arrives in the next release, when `overlay compare`'s report
+  moves onto the same renderers `overlay autoupdate`, `overlay manifest` and
+  `snapshot run` already use, and gains `--ui`, `--export` and three modes with
+  it. The colour comes back through `render/`; it is not coming back into the
+  library.
+
+  A guard now enforces the boundary: any package under `internal/overlay` or
+  `internal/snapshot` that imports the terminal printer fails its test suite,
+  naming the offending file and saying where the finding belongs instead. It was
+  verified to still bite — a blank import, the weakest form the violation can
+  take, was reinstated, the failure observed, and the file restored.
+
+- **A comparison's findings are values, not sentences.** `CompareReport` gained
+  a `Findings` list. Each entry names what it is about in a field (the atom), in
+  text nothing decorated, alongside the version, the upstream, the proving file
+  and — the field that matters most — what the divergence actually **does**,
+  kept apart from **how far that can be trusted**: a maintainer's declared
+  `patched` reason, a model's reading labelled as a reading, or an honest "not
+  known". Those three were previously flattened into one pre-composed string,
+  which is why a report could headline a patch filename where the real
+  divergence was a slotted install.
+
+  The same list now carries the facts that used to live only in fields a
+  renderer had to know to look for: a skipped baseline review states itself
+  wherever a review that ran would have spoken, so it can no longer go missing
+  from a count or an export.
+
+- **Columns in `overlay autoupdate --apply`, `overlay validate` and `overlay
+  prune` are measured rather than typed.** Eleven format strings declared a
+  fixed column width — `%-45s` for a package atom in the check, apply and prune
+  paths, `%-26s` for a summary label, `%-14s` and `%-8s` for validation
+  columns. A typed width is wrong in both directions at once: too
+  narrow the moment one value outgrows it, and too wide on every run that never
+  comes close. Each is now measured from the values that run actually produced.
+
+  The measurement is in display **cells**, which is not what `%-*s` would have
+  given: `fmt` pads to a rune count, and a terminal aligns on cells. `→` is
+  three bytes, one rune and one cell; `日` is three bytes, one rune and two
+  cells. A column that counted runes would drift on the first wide character.
+
+  A test now lists every file this work touched and fails if any of them
+  declares a fixed width, and it prints the number still outstanding elsewhere
+  in the tree — **8, across four files** — so the figure the next release
+  starts from is produced by a run instead of typed into a document.
+
+  That list is now checked against the diff rather than merely asserted. It is
+  still written out, because the rule has to hold in a working tree with no
+  branch point to diff against — but where a base commit *is* resolvable, a
+  second check reads `git diff` and fails when a file the work touched carries a
+  width and is missing from the list, skipping with a named reason when it
+  cannot. The list had already drifted once: `overlay prune` was edited for an
+  unrelated reason, nobody added it, and its three widths went on passing a
+  guard whose subject no longer contained them. `%-45s` was costing that command
+  32 cells of empty air on a short package name and misaligning any row with a
+  wide character, since `fmt` pads to runes and a terminal aligns on cells.
+
+- **The producer-to-consumer contract is verified, not assumed.** Every payload
+  is rendered through every renderer — three payloads by plain, Markdown,
+  inline, fullscreen and JSON — and each combination must produce output the run
+  can be recognised in, so a renderer that answered `""` for everything cannot
+  pass fifteen times. A companion check fails the suite if any renderer switches
+  on a payload type. Together they are what makes "adding a command edits no
+  renderer" a property with a test behind it rather than a claim in a design
+  document.
+
+- **A requirement number in a comment now names the story that issued it.**
+  Internal, with no operator-visible effect. `internal/common/report` was built
+  by an earlier story and its comments cite that story's requirement numbers
+  bare — `R9.3`, `R2.5`, `R6.4` and nine others, 79 occurrences across 21
+  files. The story documents are not in this repository, so a bare number is
+  the whole record and it resolves to nothing: `R2.5` alone is defined in
+  sixteen story files across twelve of them, so a reader meeting it has no way
+  to find the sentence it points at. Each of the twelve was resolved against
+  the owning story's requirement **text** rather than its number and prefixed
+  `S044-`, the disambiguation this repository already uses several hundred
+  times. Bare citations that resolve inside the current story were left bare, on
+  the premise that they are unambiguous where they stand — which turned out to
+  hold only in a package the current story wrote. This one was written by the
+  earlier story, and its numbering covers the current story's entirely, so a
+  bare number here is matched on its **number** and not on its **meaning**:
+  `section.go` is a file this story created, and its bare `R7.2` and `R7.4` mean
+  the earlier story's sentences, not this one's.
+
+  A guard now fails the suite on a citation that names a requirement the
+  current story does not have without saying which story does, and it rejects
+  the cheap wrong fix as well: prefixing an offender with the story being
+  worked on produces a citation that is confidently false, which is worse than
+  the bare one because it looks resolved. What the guard prints when each of
+  those is reintroduced is recorded in the test file, since a green guard
+  proves nothing about what it would catch.
+
+  The citations that resolve by number alone are counted rather than failed —
+  **356, across 36 files** — with the per-file breakdown printed on every run
+  and a ceiling that fails when the count rises. Nothing was prefixed: deciding
+  which story's sentence each of 356 comments meant requires reading them, and a
+  mechanical sweep would write confident falsehoods, which is worse than a bare
+  number because it looks resolved. The next release inherits a figure it can
+  check instead of a description it has to believe.
+
+- **`overlay.FormatManifestResult` carries the reason it is kept.** Internal.
+  Moving `overlay manifest` onto the report envelope took away this function's
+  last non-test caller, but four comments elsewhere cite what it does as the
+  canonical reading — the error field that carries no atom, the preview
+  answered before any count is taken, and what a nil result gets instead of a
+  crash. Deleting it would have left all four pointing at nothing, so the
+  orphaning is now stated in its doc comment rather than left for the next
+  reader to rediscover and act on.
+
+- **`snapshot.NewReportingRunner` carries the reason it is kept.** Internal, and
+  the same case one file over, which the entry above closed for one function and
+  not for its twin. It has only ever had test callers — it arrived that way — and
+  its doc comment claimed the opposite, that "drivers wire this when a TUI/plain
+  reporter is active". No driver does. It stays because it is the only thing that
+  sets a runner's reporter: delete it and the package's whole progress-event path
+  becomes dead code, and the seam the next release wires would have to be rebuilt
+  before it could be used.
+
+- **The manifest run's closing sentence is composed by its caller.** Internal,
+  and deliberately invisible: `overlay manifest` still ends its live region on
+  exactly the same words, `"N ok, M failed"`. What moved is who chooses them.
+  `internal/overlay/manifest.go` held the format string, which made the end of a
+  run a report squeezed out through a progress channel — text, composed inside a
+  package that has no business composing any, that nothing downstream could
+  count, export, shorten or draw again in another mode. `ManifestOptions` gains
+  an optional `Summary func(ManifestResult) string`; the run hands over its
+  facts and the caller turns them into a sentence, which
+  `cmd/bentoo/overlay_manifest.go` now does. A caller that supplies none closes
+  its batch with the empty string.
+
+  The producer still makes the `BatchDone` call, and that is a refinement rather
+  than a half-measure: `BatchStart` is emitted inside the run, so a bracket
+  opened there and closed by the caller would stay open on every path a caller
+  forgets. What crosses the boundary is the wording, not the lifecycle.
+
+- **`overlay compare` produces a report instead of printing one.** It gains
+  `--ui`, `--all` and `--export`, inherited from the root rather than declared
+  here, so the accepted values and the precedence chain are the ones every other
+  command already documents. `cmd/bentoo/overlay_compare.go` no longer writes
+  the comparison to stdout itself — its three report-printing functions are
+  gone — and `cmd/bentoo/overlay_compare_report.go` adapts the run into the
+  envelope, which is then rendered in whichever mode resolved and exported if
+  one was asked for.
+
+  **Three things an operator sees differently.**
+
+  Packages that share a version pair collapse into a single group row carrying a
+  member count and a per-category breakdown, where each was its own row before.
+  A pair with one member stays an ordinary row: a group of one is a second name
+  for a package rather than a compression (S047-R2.5). A package carrying a
+  finding is never absorbed into a group, because a finding is precisely the
+  thing a group would hide. `--all` lists every member as its own row, and the
+  flat list underneath is unchanged — every member is still in it, so a group is
+  a view over the comparison rather than a replacement for it.
+
+  Every row states which of four reading states it is in. "We checked and it
+  matches" used to be indistinguishable from "nobody looked": a review nobody
+  requested, a review that was attempted and failed, and a version pair the
+  content check refused all reached the operator as the same silence. A row
+  whose review failed is now marked `[reading failed]`, and the header counts
+  the comparisons that were never read. Nothing is downgraded to hide a missing
+  explanation — the difference is real, and what is absent is the reading of it.
+
+  Long explanations moved out of row details and into section notes, which wrap.
+  A detail cell is truncated to the column it sits in, so the sentence saying
+  WHY a package was classified as it was arrived with its end cut off; a note is
+  attached to the section and printed in full.
+
+  **`--export` JSON is new for this command at schema 2, and there is no
+  migration, because no consumer existed.** `overlay compare` emitted no
+  machine-readable output at all before this release, so there is no shape
+  anything could have been reading and nothing to rewrite. That is why this
+  entry is additive where story 046's, directly above, is breaking: 046 moved
+  documents that consumers already had, and this one adds a document that had
+  none. The envelope is the same every other command writes —
+  `{"schema": 2, "kind": "overlay.compare", "complete": ..., "payload": {...}}`
+  — so `jq '.kind'` identifies which command wrote the file, and the comparison
+  sits under `.payload` from its first release instead of being moved there by a
+  later one.
+
+  The grouping travels into the document as a VIEW and not as a partition.
+  Every atom in `.payload.keep_groups[].members` also has its own entry in
+  `.payload.keep`, exactly as the terminal's flat list keeps them, so a consumer
+  that sums the two counts every grouped package twice. Read `.payload.keep` for
+  the population and `.payload.keep_groups` for the compression over it; their
+  union is not a population of anything.
+
+  **Where the work landed.** The payload and its sections are
+  `internal/common/report/compare_run.go`, and `internal/common/report/run.go`
+  gains `KindOverlayCompare`. The reading state is recorded where the reading
+  actually happens — `internal/overlay/compare.go` and
+  `internal/overlay/review.go` — rather than guessed at render time, and four
+  review warnings that said what a row now says were removed along with it. The
+  classification builders the move left dead are gone from
+  `internal/overlay/annotate_baseline.go`, `internal/overlay/baseline.go` and
+  `internal/overlay/realign_reviewer.go`.
+
+### Added
+- **A report envelope every command can produce, and a section vocabulary every
+  renderer can consume.** `overlay autoupdate --check` has been the only command
+  that ends by telling you what it did; the reason was structural rather than an
+  oversight. Its view model described *a check* — packages, versions, validation
+  outcomes — so a second command could not reuse it without either inheriting
+  vocabulary it has no answer for or forcing the renderers to learn a second
+  shape. `report.Run` splits that in two: an envelope carrying what is true of
+  any batch (`schema`, `kind`, `title`, `complete`, `not_evaluated`) and a
+  `Payload` carrying the domain half, which says itself as ordered blocks through
+  `Sections(SectionOptions) []Section`. `kind` is the discriminator — the reason
+  a consumer will be able to tell two exported documents apart without being told
+  which command wrote them.
+- **`report.Section`, `report.Table` and `report.Row` — structure, in the model.**
+  They were unexported types inside the renderer, which meant the renderer was
+  the only thing that could describe a block of a report. Keeping them there
+  would have required a translator per producer *inside* the renderer, so every
+  new command would edit presentation code — the opposite of what the split is
+  for. They hold no width, no colour and no escape sequence; how wide a column is
+  drawn is still measured in `render` from `lipgloss.Width`, and a second guard
+  test now fails the build if a field named for presentation appears in the model
+  at all, naming the type and the field. Both guards carry the mutation that was
+  observed to make them fail, quoted in the test file rather than referenced
+  elsewhere.
+
+  **Nothing a command prints changes in this entry.** The envelope exists and is
+  not yet emitted; `--export` still writes the shape it wrote before. The commits
+  that move the renderers and the check onto it say so where they land.
+
+
+### Fixed
+
+- **Every requirement number in this story's comments now names the story that
+  issues it, and four that pointed at the wrong rule were re-pointed.** Story
+  046 issues R1.1-R8.4 and story 044 issues R1.1-R10.5, so every number 046 has,
+  044 also has with a different meaning: a bare `R2.4` resolves in both stories
+  and means neither on its own. What made these invisible was the guard's reach,
+  not its rule — `TestCitationsResolve` (`internal/common/report/citation_test.go`)
+  swept only the report package, so the non-test files this story created outside
+  it were never looked at. The swept tree now includes them, and the sites it
+  found are prefixed.
+
+  Four citations were not merely bare but wrong, where prefixing alone would have
+  turned a vague claim into a confident falsehood:
+
+  - `internal/common/report/run.go` attributed the interrupted-run obligation to
+    story 044's R1.4, a build-ORDER rule. The rule that carries it is `S044-R4.3`.
+  - `internal/common/report/manifest_run.go` and
+    `internal/common/report/snapshot_run.go` cited `S044-R2.5`, a SPACE
+    constraint, for the `ShowAll` decision, which `S044-R8.3` governs.
+  - `cmd/bentoo/overlay_autoupdate.go` cited `S044-R3.8` for the `--apply`
+    live-region gate. `S044-R3.8` is about `overlay manifest`; what the gate
+    obeys is `S046-R3.3`.
+  - `cmd/bentoo/overlay_autoupdate_ui.go` said the `--ui` refusal "is stated
+    there" from inside a function that is not the root. The sentence now names
+    where it actually comes from — `newRootCmd`'s `PersistentPreRunE` in
+    `cmd/bentoo/root.go` — and cites `S046-R3.2, S046-R3.6` rather than a bare
+    pair.
+
+  `internal/overlay/finding.go` was the worst site, and is a file this story
+  created. Twenty-two citations now carry a prefix, across four stories: 4
+  `S025-`, 8 `S032-`, 7 `S034-` and 3 `S046-`, and none carry `S044-` — the file
+  answers `overlay compare` and the baseline review, not the report envelope.
+  Eight of its bare numbers named requirements story 046 does not issue at all,
+  so they resolved in no story rather than in the wrong one.
+
+  `internal/common/report/render/inline.go` carried a comment that taught the
+  opposite of what its sibling warns about: it credited `ResolveMode` with
+  folding `NO_COLOR`, where `mode.go` says in capitals that the CALLER must fold
+  it into `ModeInputs.NoTUI`. The comment now says who does it, because a caller
+  that drops the variable from that expression silently gives a user who set
+  `NO_COLOR` inline output where they get plain output today.
+
+  `internal/common/report/render/text.go`,
+  `internal/common/report/render/width.go` and
+  `internal/common/report/render/fullscreen.go` carried the same ambiguity
+  around `R6.3` — 044's is the hard-coded field-width rule, 046's is the line
+  budget — and around `R2.4`.
+
+  All changes in these ten files are comment-only; no behaviour moved, and the
+  full suite is unchanged at 24 packages ok.
+
+- **Two repository-wide test sweeps no longer walk into the agent worktrees
+  under `.claude/`, where they were counting a second copy of the tree as
+  project source.** `measuredWidthDebtRemainder`
+  (`cmd/bentoo/width_debt_subject_test.go`) and `goFileIndex`
+  (`cmd/bentoo/anchor_test.go`) skipped `.git`, `.epic` and `vendor` but not
+  `.claude`, which holds the git worktrees this project's own tooling creates —
+  each one a full second checkout of the repository.
+
+  The width-debt guard therefore reported 33 typed widths against a published
+  ceiling of 7: two worktrees contributed 26 more, from a commit predating the
+  story that measured them away. The anchor guard failed worse. With three
+  candidates per basename, `resolveAnchoredFile` returned `""` for every name,
+  so `TestAnchorCanFail` failed on its own premise and
+  `TestAnchorCitationsResolve` **passed having swept 8 anchors and checked none
+  of them** — the same sweep resolves 18 on a clean checkout. A guard that
+  fires on the developer rather than on the change is bad; one that goes quiet
+  while appearing to work is worse.
+
+  The visible symptom was `go test ./...` exiting 1 on any machine that had run
+  the tooling and 0 on CI, which checks out clean.
+
+- **A render mode inherited from the environment or the config no longer
+  disappears in silence — or takes the run with it.** `BENTOO_UI` and the
+  `ui.mode` config key are *ambient*: inherited from a shell profile or a config
+  file rather than typed for this run. A value outside the accepted set had two
+  wrong answers depending on which command you ran, and neither was the one the
+  operator needed.
+
+  On `overlay manifest` and `snapshot run` the value was **dropped without a
+  word**. Both producers refused it, fell back to plain — the correct fallback —
+  and reported that at `logger.Debug`, which sits below the default level and
+  reaches nobody. The run rendered in a mode the operator did not choose and
+  nothing said why.
+
+  On `overlay autoupdate` it was worse: the value **killed the run**. A gate
+  before any package work resolved the whole precedence chain and exited 1, so a
+  typo in a shell profile cost you the entire check:
+
+      before:  BENTOO_UI=bogus bentoo overlay autoupdate --check
+               exit 1, no report — "BENTOO_UI: \"bogus\" is not a UI mode"
+      after:   exit 0, the full report in plain, and on stderr
+               "BENTOO_UI: \"bogus\" is not a UI mode; the accepted values are
+                auto, plain, inline or fullscreen — this report is rendered in
+                plain instead"
+
+  The refusal now names the three facts an operator needs: the **source**
+  (`BENTOO_UI` or `ui.mode`), the **value** refused, and the **mode used
+  instead** — that last one being the fact no existing message carried, since
+  listing `plain` among the accepted values is not the same as saying the report
+  in front of you was rendered in it. It arrives at `Warn`, on stderr, and is
+  deliberately distinguishable from the pre-existing downgrade sentence
+  ("fullscreen output needs an interactive terminal…"): both end in plain, but
+  one is a device limit with nothing to fix and the other is a typo that costs
+  you every run until you find it.
+
+  **An explicit `--ui` is unchanged and still fatal.** `bentoo <anything>
+  --ui=bogus` still exits 1 before doing any work, naming the accepted set. The
+  split is the point: a value you just typed is rejected, a value you inherited
+  degrades the render. Validating ambient sources at the root would make
+  `bentoo version` fail on a host whose shell profile has a typo.
+
+  **A run that fails for its own reasons keeps its own failure.** Previously an
+  unusable `BENTOO_UI` replaced the operator's real diagnostic with one about the
+  display; now the two are independent:
+
+      overlay autoupdate --check, overlay with no packages.toml
+      control:          exit 1, "failed to initialize checker: … packages.toml not found in overlay"
+      BENTOO_UI=bogus:  exit 1, identical message
+
+
+- **`overlay validate` states a refused ambient render mode too, and `--json`
+  stops advertising a value it never took.** Two follow-ups to the entry above,
+  found by auditing it rather than by using it.
+
+  `overlay validate` builds the same report envelope as the other three
+  producers but never resolved a render mode, so an unusable `BENTOO_UI` or
+  `ui.mode` was dropped there in silence — the one outcome the entry above calls
+  forbidden. It now refuses on the same terms as the rest:
+
+      BENTOO_UI=bogus bentoo overlay validate
+      exit 0, the same report, and on stderr:
+      BENTOO_UI: "bogus" is not a UI mode; the accepted values are auto, plain,
+      inline or fullscreen — this report is rendered in plain instead
+
+  Under `--json` the refusal goes to stderr and the document on stdout is
+  **byte-identical** to a run without the bad value, so a `| jq` pipeline is
+  unaffected.
+
+  Separately, `bentoo overlay validate --help` advertised `--json` as if it took
+  an argument:
+
+      before:  --json jq '.kind'   Write the whole report to stdout …
+      after:   --json              Write the whole report to stdout …
+
+  `--json` is a boolean and rejects every argument. The usage text had quoted a
+  `jq` expression in back-quotes, which is how pflag is told to name a flag's
+  **value placeholder** — so it lifted the expression out of the sentence and
+  printed it as one. The sentence itself is unchanged: pflag was already
+  stripping those quotes out of the rendered text, so they bought nothing.
+
+  **Nothing else about either command changed** — same exit statuses, same
+  report content, same JSON schema.
+
+- **Source comments stopped pointing at line numbers, and stopped claiming more
+  than the code delivers.** Documentation only — no behaviour, no exit status, no
+  output changes — recorded because the claims were being read as true.
+
+  Eleven `file.go:NN` citations in comments this release wrote had drifted off
+  what they pointed at; a line number is accurate for exactly one commit, and
+  nothing tells a comment when an edit above it moves the target. Each now names
+  the identifier instead, which survives every edit above it, in
+  `cmd/bentoo/overlay_autoupdate_check.go`, `overlay_autoupdate_ui.go`,
+  `overlay_compare.go`, `overlay_prune.go`, `overlay_staged.go`,
+  `overlay_validate_report.go` and `internal/snapshot/runner.go`. A test now
+  fails on any line-number citation in the files this release touched.
+
+  `internal/common/report/snapshot_run.go` documented its `Target` field's
+  no-address rule and then generalised it to "every other field here" — while
+  the `Error` field twelve lines below carries a failing command's stderr
+  verbatim, where a failed `btrbk ssh` send prints `user@host:/path`. The rule
+  is now scoped to the fields that can honour it, and `Error` says plainly what
+  it may contain: **an export that includes a failed ship step should be read
+  before it is shared.**
+
+- **An explicit `--ui` is no longer outranked by a stale `BENTOO_UI` or
+  `ui.mode`.** The three render-mode sources are documented as a precedence
+  chain — `--ui`, then `BENTOO_UI`, then `ui.mode` — but any one of them failing
+  to parse aborted the whole resolution, wherever it sat. So a typo left in a
+  shell profile years ago silently decided the render mode of every
+  report-producing command, beating the flag just typed on the command line:
+
+      before:  BENTOO_UI=bogus bentoo overlay autoupdate --check --ui=fullscreen
+               plain — the flag was parsed, then discarded
+      after:   fullscreen, and on stderr
+               "BENTOO_UI: \"bogus\" is not a UI mode; the accepted values are
+                auto, plain, inline or fullscreen — outranked by --ui, so refused
+                without effect; this run renders in fullscreen"
+
+  The refusal keeps its whole sentence and loses only its reach: an unusable
+  value is still named, with the source it came from and the mode used instead,
+  and it now decides the run only where nothing above it named a mode. Both
+  edges are unchanged. An ambient value refused with nothing above it still
+  falls back to plain and still says so, and `--ui=bogus` still exits 1 before
+  any work whatever sits below it — including `--no-tui`.
+
+  Fixed in `internal/common/report/mode.go`. Exit statuses for every case that
+  already succeeded, report content and the JSON schema are unchanged.
+
+- **`errors.Is` now reaches the filesystem cause behind a missing baseline
+  tree.** `internal/overlay/baseline.go` wrapped its `ErrNoBaselineTree`
+  sentinel with `%w` and rendered the underlying `os.Stat` failure with `%v`, so
+  the sentinel was matchable and the cause was text only — a caller could not
+  tell a permission denial from any other unexaminable root. Both now travel as
+  wrapped errors. Messages are byte-identical; what changes is what a caller can
+  match on.
+
+- **A refused ambient render mode is stated once on `overlay manifest`, not
+  twice.** With an unusable `BENTOO_UI` or `ui.mode`, a real (non-`--dry-run`)
+  `overlay manifest` printed the refusal twice, in two different wordings — once
+  from the shared report path and once from the command's own live-region gate:
+
+      before:  BENTOO_UI=bogus bentoo overlay manifest
+               "...is not a UI mode... — this run renders in plain"
+               "...is not a UI mode... — this report is rendered in plain instead"
+      after:   the second line only, once
+
+  `--dry-run` skips the live region entirely, which is why the duplication
+  survived several passes: the cheap way to check the behaviour is the one flag
+  that hides it. Exit statuses, report content and the JSON schema are unchanged.
+
+- **`overlay manifest --ui` now reaches the live region, not just the report.**
+  On a terminal, `bentoo overlay manifest --ui=plain` rendered its report in
+  plain and started the bubbletea live region anyway — so the operator who asked
+  for the one mode whose help text promises "no escape sequence at all" got them
+  regardless:
+
+      before:  --ui=plain  ->  plain report, live region ON  (escape sequences)
+      after:   --ui=plain  ->  plain report, live region off
+
+  The command resolved its render mode twice, from different inputs. Its live
+  region left the `--ui` input unset, on the recorded and once-correct ground
+  that `overlay manifest` registered no such flag; the same release then moved
+  `--ui` onto the root, where every command parses it. Off a terminal the two
+  answers agreed by accident — the mode degrades to plain there anyway — which
+  is why nothing failed in the meantime.
+
+  `--no-tui` still does **not** reach a manifest run. It is declared on `overlay
+  autoupdate` alone, deliberately, and reading it here would be a cross-command
+  leak rather than a fix. Exit statuses, report content and the JSON schema are
+  unchanged. The fix is one input, in `cmd/bentoo/overlay_autoupdate_ui.go`:
+  the live-region gate now reads the same `--ui` the report does.
+
+- **The design system stopped describing a column width that no longer exists.**
+  `misc/design/design-system/component/layout.go` and `catalogue.go` asserted in
+  the present tense that `overlay_prune.go` "reaches for" a hand-picked column
+  width — true when written, and removed earlier in this same release. Neither
+  file was in the release's diff, so nothing contradicted them.
+
+  This is documentation, with one measurable consequence. `catalogue.go` carried
+  the claim as a **string literal** rather than a comment, so the guard that
+  counts remaining hand-picked widths counted it as debt. The figure handed to
+  the next release therefore falls from 8 to 7 — not because anything was
+  repaid, but because the eighth was a sentence rather than a width. The seven
+  that remain are real, and the guard now publishes a number equal to its own
+  measurement.
+
 ## [0.28.2] - 2026-08-27
 
 ### Changed

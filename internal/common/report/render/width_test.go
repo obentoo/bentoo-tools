@@ -78,7 +78,7 @@ func TestColumnWidthOfNothingIsZero(t *testing.T) {
 	}
 }
 
-// TestShortenNeverExceedsTheCellsAsked pins R6.4. Overflowing by even one cell
+// TestShortenNeverExceedsTheCellsAsked pins S044-R6.4. Overflowing by even one cell
 // wraps the line, and a wrapped row destroys every column to its right — which
 // is the failure a width limit exists to prevent.
 func TestShortenNeverExceedsTheCellsAsked(t *testing.T) {
@@ -111,7 +111,7 @@ func TestShortenLeavesAShortValueAlone(t *testing.T) {
 	}
 }
 
-// TestShortenMarksWhatItRemoved pins the visible half of R6.4: a value that was
+// TestShortenMarksWhatItRemoved pins the visible half of S044-R6.4: a value that was
 // cut has to say so, or the reader takes a truncated atom for a real one.
 func TestShortenMarksWhatItRemoved(t *testing.T) {
 	got := shorten(atomOverflowing45, 20)
@@ -124,7 +124,7 @@ func TestShortenMarksWhatItRemoved(t *testing.T) {
 	}
 }
 
-// TestShortenNeverWraps pins the rest of R6.4 — a newline defeats the purpose
+// TestShortenNeverWraps pins the rest of S044-R6.4 — a newline defeats the purpose
 // as thoroughly as overflowing does.
 func TestShortenNeverWraps(t *testing.T) {
 	if got := shorten(atomOverflowing45, 20); strings.ContainsAny(got, "\n\r") {
@@ -132,7 +132,7 @@ func TestShortenNeverWraps(t *testing.T) {
 	}
 }
 
-// TestTerminalWidthFallsBackTo80 pins R6.5. Under `go test` stdout is not a
+// TestTerminalWidthFallsBackTo80 pins S044-R6.5. Under `go test` stdout is not a
 // terminal, so this exercises the real fallback rather than a simulated one:
 // the prototype work found `tput cols` failing with no TERM, and a renderer
 // that cannot read a width must still produce a report.

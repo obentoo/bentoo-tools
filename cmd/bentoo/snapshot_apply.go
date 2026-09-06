@@ -12,18 +12,18 @@ import (
 // (008 R2.1).
 var snapshotApplyDryRun bool
 
-var snapshotApplyCmd = &cobra.Command{
-	Use:   "apply",
-	Short: "Render native config and install the systemd timer",
-	Long: `Load and validate snapshot.toml, render the btrbk.conf, and install +
+// newSnapshotApplyCmd builds `snapshot apply`.
+func newSnapshotApplyCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "apply",
+		Short: "Render native config and install the systemd timer",
+		Long: `Load and validate snapshot.toml, render the btrbk.conf, and install +
 enable the systemd service/timer. Idempotent: re-running reconciles the units.`,
-	Run: runSnapshotApply,
-}
-
-func init() {
-	snapshotApplyCmd.Flags().BoolVar(&snapshotApplyDryRun, "dry-run", false,
+		Run: runSnapshotApply,
+	}
+	cmd.Flags().BoolVar(&snapshotApplyDryRun, "dry-run", false,
 		"print the configs and systemd units that would be written, without writing them")
-	snapshotCmd.AddCommand(snapshotApplyCmd)
+	return cmd
 }
 
 func runSnapshotApply(cmd *cobra.Command, _ []string) {

@@ -136,10 +136,44 @@ func TestRealignOtherRepositoriesOnlyWhereNoBaselineExists(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code is %d, want 0", code)
 	}
-	if !strings.Contains(got, "app-editors/zed: ::guru") {
-		t.Errorf("no other-repository row for app-editors/zed, which ::gentoo does not carry; R6.1 is what those 84 packages get instead of a baseline.\nreport:\n%s", got)
+	// Story 047, sub-task 5.5 (S047-R8.2). The pinned literal was
+	// "app-editors/zed: ::guru", which was the old printer's shape:
+	// `baselineFindingLead + atom + ": " + detail`, every finding on its own
+	// prefixed line. In the report, a package's FIRST finding beyond
+	// FindingCompared becomes the ROW's reason cell — un-prefixed, because the
+	// row already names the package in its first column — and only the ones
+	// after it become atom-prefixed notes. zed has exactly one, so its sentence
+	// moved onto the row and lost the prefix.
+	//
+	// The FACT and the ASSOCIATION both survive, so the test is rewritten rather
+	// than retired: the sentence is asserted verbatim, and its attachment to zed
+	// is asserted by POSITION — it must fall between zed's row and the next row.
+	// That is what "under this row" means in a table, and it is the property the
+	// atom prefix used to stand in for.
+	const guru = "::guru was checked and carries no version of it"
+	zedRow := strings.Index(got, "app-editors/zed")
+	if zedRow < 0 {
+		t.Fatalf("there is no row for app-editors/zed at all.\nreport:\n%s", got)
 	}
-	if strings.Contains(got, "gst-plugins-qt6: ::guru") {
-		t.Errorf("media-libs/gst-plugins-qt6 has an other-repository row although ::gentoo carries it; R6.1 scopes those rows to packages with NO baseline, and one printed here sits under the baseline line contradicting it.\nreport:\n%s", got)
+	guruAt := strings.Index(got, guru)
+	if guruAt < 0 {
+		t.Fatalf("no other-repository row for app-editors/zed, which ::gentoo does not carry; R6.1 is what those 84 packages get instead of a baseline.\nreport:\n%s", got)
+	}
+	// The first row after zed's. Searched from zedRow because the candidate
+	// declaration block above the table names gst-plugins-qt6 too, and an index
+	// taken over the whole report would find that instead.
+	nextRow := strings.Index(got[zedRow:], "media-libs/gst-plugins-qt6")
+	if nextRow < 0 {
+		t.Fatalf("no row for media-libs/gst-plugins-qt6 after zed's, so the placement below cannot be checked.\nreport:\n%s", got)
+	}
+	if guruAt < zedRow || guruAt > zedRow+nextRow {
+		t.Errorf("the ::guru sentence is not under app-editors/zed's row; a finding detached from its package answers a question about nothing.\nreport:\n%s", got)
+	}
+	// The negative half, which is the one that can rot. ONE mention, for the one
+	// package with no baseline: a gate keyed on anything but the baseline would
+	// light up gst-plugins-qt6 too, whether as a second row detail or as an
+	// atom-prefixed note, and either shape is a second occurrence.
+	if n := strings.Count(got, "::guru"); n != 1 {
+		t.Errorf("::guru is named %d times, want 1; R6.1 scopes those rows to packages with NO baseline, and one printed for media-libs/gst-plugins-qt6 sits under the baseline line contradicting it.\nreport:\n%s", n, got)
 	}
 }

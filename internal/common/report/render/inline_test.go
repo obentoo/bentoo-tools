@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/obentoo/bentoolkit/internal/common/report"
 )
 
 // captureStdout runs fn with os.Stdout redirected through a pipe and returns
 // what it wrote.
 //
-// It exists because Inline's signature — Inline(r, opts) error — carries no
+// It exists because Inline's signature — Inline(blocks, opts) error — carries no
 // io.Writer, unlike Plain, Markdown and JSON. That is the design's choice, not
 // an oversight to work around here: an inline renderer owns a region of the
 // terminal, and a terminal is not an arbitrary writer. The cost is that the
@@ -80,9 +81,9 @@ func trimTrailing(s string) string {
 func TestInlineMatchesPlainContent(t *testing.T) {
 	opts := Options{Width: 100}
 
-	plain := trimTrailing(renderPlain(t, opts))
+	plain := trimTrailing(renderPlain(t, opts, report.SectionOptions{}))
 	inline := trimTrailing(ansi.Strip(captureStdout(t, func() error {
-		return Inline(fixtureReport(), opts)
+		return Inline(screenSections(fixtureReport(), report.SectionOptions{}), opts)
 	})))
 
 	if inline == plain {
@@ -110,8 +111,10 @@ func TestInlineMatchesPlainContent(t *testing.T) {
 // satisfied the lazy way. Inline could match Plain perfectly by BEING Plain —
 // and then R2.2's live region would not exist while R2.4 reported success.
 func TestInlineIsStyled(t *testing.T) {
+	opts := Options{Width: 100}
+
 	out := captureStdout(t, func() error {
-		return Inline(fixtureReport(), Options{Width: 100})
+		return Inline(screenSections(fixtureReport(), report.SectionOptions{}), opts)
 	})
 
 	if !strings.ContainsRune(out, 0x1b) {
@@ -123,11 +126,15 @@ func TestInlineIsStyled(t *testing.T) {
 // deliberately ignore it (they have no Options at all); inline is a screen
 // mode, so it must not.
 func TestInlineHonoursShowAll(t *testing.T) {
+	opts := Options{Width: 100}
+	counted := report.SectionOptions{}
+	listed := report.SectionOptions{ShowAll: true}
+
 	without := ansi.Strip(captureStdout(t, func() error {
-		return Inline(fixtureReport(), Options{Width: 100})
+		return Inline(screenSections(fixtureReport(), counted), opts)
 	}))
 	with := ansi.Strip(captureStdout(t, func() error {
-		return Inline(fixtureReport(), Options{Width: 100, ShowAll: true})
+		return Inline(screenSections(fixtureReport(), listed), opts)
 	}))
 
 	if without == with {

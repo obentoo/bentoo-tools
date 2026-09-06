@@ -36,6 +36,7 @@
 package overlay
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,23 +175,57 @@ func TestAnnotateBaselinePopulatesTheCarrier(t *testing.T) {
 	}
 }
 
+// baselineFindingsDigest is what the review ESTABLISHED, as one comparable
+// value.
+//
+// Story 047, sub-task 5.5 (S047-R8.2) put it where FormatReport's string used to
+// be in the two tests below. The claim they make has not changed — a carrier
+// field no consumer reads is a field that may as well not exist — but the
+// consumer has: `overlay compare` no longer prints from internal/overlay at all,
+// it hands CompareReport.Findings to cmd/bentoo, which turns them into the
+// report's rows and notes. So the observable is the findings, and the assertion
+// is a strictly stronger form of the old one: a field could reach a rendered
+// string and still be lost on the way to a JSON export, and this cannot.
+//
+// EstablishFindings is called rather than the field read, because that is the
+// contract — the findings are a pure function of the report, rebuilt after the
+// annotation passes have written to it, and a test reading a stale Findings
+// would pass on a report no consumer would ever see.
+func baselineFindingsDigest(report *CompareReport) string {
+	EstablishFindings(report)
+	return fmt.Sprintf("%+v", report.Findings)
+}
+
 // TestAnnotateBaselineZeroValueRendersNothing is the mechanism behind D1's
-// byte-identical promise, asserted in both directions per field.
+// promise, asserted in both directions per field.
 //
-// Direction 1 (set → the rendering must CHANGE) forbids a field that no renderer
-// reads. Without it, the whole story could ship as dead struct fields and this
-// file would still be green.
+// Direction 1 (set → what the run established must CHANGE) forbids a field that
+// no consumer reads. Without it, the whole story could ship as dead struct
+// fields and this file would still be green.
 //
-// Direction 2 (zeroed → the rendering must return to the golden BYTES) is R7.2:
-// a run that never requested the review leaves the fields zero, and the operator
-// sees today's report exactly.
+// Direction 2 (zeroed → back to the un-annotated findings) is R7.2 in the shape
+// it still has after story 047: a run that never requested the review
+// establishes exactly the findings it established before the review existed, so
+// nothing the review carries can leak into a run that did not ask for it. What
+// it can no longer mean is "the same BYTES on screen" — 047 redesigns the
+// report's rendering on purpose, and a byte comparison against the old printer
+// would now be asserting that the redesign did not happen.
 //
-// _Requirements: R2, R2.4, R6, R6.4, R7.2_
+// NoBaselineCount is deliberately NOT in the table. It is the one carrier that
+// is not a finding — it is a run-level count, and `func baselineRunFindings`
+// composes only BaselineSkipped — so its consumer is `func compareRunNotes` in
+// cmd/bentoo, reading the field directly. Its read side is guarded there, by
+// TestCompareRunNotesCarryTheRunLevelFacts/"the baseline coverage is a share of
+// the packages COMPARED", which also pins its denominator and its silence at
+// zero. Listing it here would assert it changes the findings, which it does not
+// and must not.
+//
+// _Requirements: R2, R2.4, R6, R6.4, R7.2, S047-R8.2_
 func TestAnnotateBaselineZeroValueRendersNothing(t *testing.T) {
 	overlayRoot, prov, pkgs := annotateFixtureTrees(t, map[string]bool{"media-libs/gst-plugins-qt6": true})
 	opts := annotateReviewOpts(overlayRoot)
 
-	golden := FormatReport(annotateCompare(t, pkgs, prov, opts))
+	golden := baselineFindingsDigest(annotateCompare(t, pkgs, prov, opts))
 
 	cases := []struct {
 		field string
@@ -211,26 +246,26 @@ func TestAnnotateBaselineZeroValueRendersNothing(t *testing.T) {
 		{"RealignVerdict", func(r *CompareReport) {
 			r.Results[0].RealignVerdict = "no longer justified: ::gentoo's eclass now covers the option list"
 		}},
-		{"NoBaselineCount", func(r *CompareReport) { r.NoBaselineCount = 4 }},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.field, func(t *testing.T) {
 			report := annotateCompare(t, pkgs, prov, opts)
 
-			if before := FormatReport(report); before != golden {
-				t.Fatalf("the un-annotated rendering is not reproducible; the comparison itself is non-deterministic:\n%s", before)
+			if before := baselineFindingsDigest(report); before != golden {
+				t.Fatalf("the un-annotated findings are not reproducible; the comparison itself is non-deterministic:\n%s", before)
 			}
 
 			tc.set(report)
-			if withValue := FormatReport(report); withValue == golden {
-				t.Errorf("%s changed nothing in the rendering when set — the field is written by the review pass and read by no renderer, which makes R7.2's promise true and worthless", tc.field)
+			if withValue := baselineFindingsDigest(report); withValue == golden {
+				t.Errorf("%s established nothing when set — the field is written by the review pass and read by no consumer, "+
+					"which makes R7.2's promise true and worthless", tc.field)
 			}
 
 			// Back to zero: the exact state a run without --realign leaves.
 			zeroed := annotateCompare(t, pkgs, prov, opts)
-			if got := FormatReport(zeroed); got != golden {
-				t.Errorf("%s at its zero value did not render the shipped bytes.\n got:\n%s\nwant:\n%s", tc.field, got, golden)
+			if got := baselineFindingsDigest(zeroed); got != golden {
+				t.Errorf("%s at its zero value did not establish the un-annotated findings.\n got:\n%s\nwant:\n%s", tc.field, got, golden)
 			}
 		})
 	}
@@ -240,20 +275,26 @@ func TestAnnotateBaselineZeroValueRendersNothing(t *testing.T) {
 // above cannot see: a pass that filled the new fields correctly AND quietly
 // re-sorted Results, or moved a counter, would satisfy every per-field
 // assertion. So the pass is run for real and then its five fields (plus the
-// report counter) are set back to zero; the rendering must be the golden bytes
-// again.
+// report counter) are set back to zero; what the run established must be the
+// un-annotated findings again.
 //
-// If it is not, the review changed something it does not own, and R7.2's
-// byte-identical promise is untrue for reasons no field-by-field test can find.
+// If it is not, the review changed something it does not own, and R7.2's promise
+// is untrue for reasons no field-by-field test can find.
 //
-// _Requirements: R7.2_
+// The findings are the right observable for the ORDER half of that claim in
+// particular: EstablishFindings walks Results in order and never sorts, so a
+// pass that re-sorted Results shows up here as a reordered digest — which is the
+// same defect the old byte comparison caught, seen at the source instead of
+// through a printer.
+//
+// _Requirements: R7.2, S047-R8.2_
 func TestAnnotateBaselineIsTheOnlyThingTheReviewChanges(t *testing.T) {
 	overlayRoot, prov, pkgs := annotateFixtureTrees(t, map[string]bool{
 		"media-libs/gst-plugins-qt6": true,
 		"sys-devel/binutils":         true,
 	})
 	opts := annotateReviewOpts(overlayRoot)
-	golden := FormatReport(annotateCompare(t, pkgs, prov, opts))
+	golden := baselineFindingsDigest(annotateCompare(t, pkgs, prov, opts))
 
 	report := annotateCompare(t, pkgs, prov, opts)
 	AnnotateBaseline(report, prov, opts)
@@ -267,7 +308,7 @@ func TestAnnotateBaselineIsTheOnlyThingTheReviewChanges(t *testing.T) {
 	}
 	report.NoBaselineCount = 0
 
-	if got := FormatReport(report); got != golden {
+	if got := baselineFindingsDigest(report); got != golden {
 		t.Errorf("AnnotateBaseline changed something outside the five carrier fields.\n got:\n%s\nwant:\n%s", got, golden)
 	}
 }

@@ -34,7 +34,7 @@ type GateFact struct {
 	// carried as a plain string so the boundary above stays uncrossed.
 	//
 	// Classify does NOT branch on it. It travels so the output can NAME the
-	// cause (R5.6), and so the rule has it in hand on the day it tightens.
+	// cause (S044-R5.6), and so the rule has it in hand on the day it tightens.
 	Cause string
 	// ProvesSelectedDepth marks the ONE gate whose pass answers the depth the
 	// policy selected for this bump. At most one fact in a slice carries it.
@@ -51,7 +51,7 @@ type GateFact struct {
 }
 
 // Classify decides which of the tally's four columns one planned package lands
-// in (R5.2, R5.3, R5.4, R5.6). It is D2's four-line rule, in order:
+// in (R5.2, R5.3, S044-R5.4, S044-R5.6). It is D2's four-line rule, in order:
 //
 //	policy said no        →  Skipped        (read FIRST, before any gate)
 //	any deciding failed   →  Errored
@@ -61,7 +61,7 @@ type GateFact struct {
 //	no cause recorded     →  Inconclusive   (D3 — see below, and do not "fix" it)
 //
 // Every input is a typed fact. Nothing here matches text in a human-readable
-// reason string, which is R5.4 stated as code: a reworded reason must never
+// reason string, which is S044-R5.4 stated as code: a reworded reason must never
 // move a package from one column to another.
 //
 // # Policy is read before the gates, and the order IS the rule
@@ -84,8 +84,8 @@ type GateFact struct {
 // untagged toolkit failure hiding behind the operator's policy, which is
 // exactly the fold this story exists to undo. Inconclusive is the honest
 // reading: "the toolkit did not establish why it could not answer" is a
-// limitation of the toolkit, and that is what Inconclusive means (R5.6). It
-// also keeps the case VISIBLE, which is the second half of R5.6 — an
+// limitation of the toolkit, and that is what Inconclusive means (S044-R5.6). It
+// also keeps the case VISIBLE, which is the second half of S044-R5.6 — an
 // unclassified package is named in the output rather than absorbed into a
 // column that reads as intentional.
 //
@@ -115,7 +115,7 @@ type GateFact struct {
 // declining. WorstOutcome answers SKIPPED for that case, so this is the one
 // place the rule deliberately says more than WorstOutcome did — it is read only
 // after policy and failure, and only for a gate the caller marked as standing
-// for the selected depth. R5.7's guarantee is unchanged where it matters: a
+// for the selected depth. S044-R5.7's guarantee is unchanged where it matters: a
 // failure still returns Errored above, and no package WorstOutcome called
 // errored becomes proved here.
 //
@@ -123,7 +123,7 @@ type GateFact struct {
 // drops the pkgcheck gate before counting (D8) and the adapter must drop it
 // here too. A QA gate that declined on a host without pkgcheck — which is every
 // package on such a host — would otherwise turn every Proved into Inconclusive
-// and break R5.7 across the whole overlay.
+// and break S044-R5.7 across the whole overlay.
 func Classify(policySkipped bool, gates []GateFact) Outcome {
 	// D2's first line. Before any gate is consulted: what the operator
 	// decided outranks what the toolkit managed.
@@ -154,7 +154,7 @@ func Classify(policySkipped bool, gates []GateFact) Outcome {
 	}
 
 	// EVERY gate passed, and there was one: WorstOutcome's own condition, so
-	// no package becomes proved that was not proved before (R5.7).
+	// no package becomes proved that was not proved before (S044-R5.7).
 	if passing > 0 && passing == len(gates) {
 		return Proved
 	}
@@ -174,7 +174,7 @@ func Classify(policySkipped bool, gates []GateFact) Outcome {
 	// that passed. Not one case had a gate deeper than the selected depth
 	// declining, so nothing here reports a rung the run did not climb.
 	//
-	// R5.7 is not weakened by this, it is met at a different point: no package
+	// S044-R5.7 is not weakened by this, it is met at a different point: no package
 	// becomes proved that WorstOutcome called errored, because a failure
 	// returned above. What changes is a package WorstOutcome called SKIPPED
 	// whose selected depth was in fact measured and passed — the over-report

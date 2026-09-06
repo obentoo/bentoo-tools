@@ -12,27 +12,27 @@ var (
 	pullDryRun bool
 )
 
-var pullCmd = &cobra.Command{
-	Use: "pull",
-	// "sync" is the name this command shipped under. It stays as an alias so
-	// existing scripts and muscle memory keep working.
-	Aliases: []string{"sync"},
-	Short:   "Pull upstream changes into the overlay",
-	Long: `Fetch the configured remote and integrate the current branch's upstream.
+// newPullCmd builds `overlay pull`.
+func newPullCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use: "pull",
+		// "sync" is the name this command shipped under. It stays as an alias so
+		// existing scripts and muscle memory keep working.
+		Aliases: []string{"sync"},
+		Short:   "Pull upstream changes into the overlay",
+		Long: `Fetch the configured remote and integrate the current branch's upstream.
 
 By default the integration is fast-forward only: if the overlay has diverged
 from its upstream, the pull refuses rather than writing a merge commit. Use
 --rebase to replay local commits on top of the upstream, or --merge to accept
 a merge commit.`,
-	Run: runPull,
-}
-
-func init() {
-	pullCmd.Flags().BoolVar(&pullRebase, "rebase", false, "Replay local commits on top of the upstream")
-	pullCmd.Flags().BoolVar(&pullMerge, "merge", false, "Merge the upstream, allowing a merge commit")
-	pullCmd.Flags().BoolVarP(&pullDryRun, "dry-run", "n", false, "Show what would be pulled without integrating")
-	pullCmd.MarkFlagsMutuallyExclusive("rebase", "merge")
-	overlayCmd.AddCommand(pullCmd)
+		Run: runPull,
+	}
+	cmd.Flags().BoolVar(&pullRebase, "rebase", false, "Replay local commits on top of the upstream")
+	cmd.Flags().BoolVar(&pullMerge, "merge", false, "Merge the upstream, allowing a merge commit")
+	cmd.Flags().BoolVarP(&pullDryRun, "dry-run", "n", false, "Show what would be pulled without integrating")
+	cmd.MarkFlagsMutuallyExclusive("rebase", "merge")
+	return cmd
 }
 
 // pullModeFromFlags maps the flag pair to an integration mode. The flags are

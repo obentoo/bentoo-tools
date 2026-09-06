@@ -192,7 +192,7 @@ func TestManifestInheritsUIMode(t *testing.T) {
 
 	plain := &config.Config{UI: config.UIConfig{Mode: "plain"}}
 	if manifestUsesTUI(plain) {
-		t.Error("ui.mode: plain did not reach overlay manifest — it is still deciding on its own (R3.8)")
+		t.Error("ui.mode: plain did not reach overlay manifest — it is still deciding on its own (S044-R3.8)")
 	}
 
 	inline := &config.Config{UI: config.UIConfig{Mode: "inline"}}
@@ -270,7 +270,7 @@ func TestBothCallSitesUseTheSharedResolution(t *testing.T) {
 				return true
 			}
 
-			t.Errorf("%s:%d still calls tui.Enabled — this command decides its own presentation instead of inheriting ui.mode (R3.8). "+
+			t.Errorf("%s:%d still calls tui.Enabled — this command decides its own presentation instead of inheriting ui.mode (S044-R3.8). "+
 				"Use manifestUsesTUI or autoupdateUsesTUI; both are already resolved through report.ResolveMode.",
 				name, fset.Position(call.Pos()).Line)
 			return true

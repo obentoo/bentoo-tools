@@ -589,18 +589,34 @@ func TestReviewAnnotationEndToEnd(t *testing.T) {
 			t.Error("the adapter altered the model's summary; flattening is the renderer's job, and doing it here would hide whether the renderer still does it")
 		}
 
-		out := overlay.FormatReport(report)
-		for _, line := range strings.Split(out, "\n") {
-			if strings.HasPrefix(strings.TrimSpace(line), "⚠ dev-libs/forged") {
-				t.Errorf("the model's prose opened a finding of its own:\n%s", line)
+		// Story 047, sub-task 5.5 (S047-R8.2): asked of the FINDINGS, which is
+		// where the flattening now happens and where every consumer reads from.
+		// `func effect` in internal/overlay/finding.go collapses the text as it
+		// builds the value, once, rather than at each renderer — so a newline
+		// that survived to here would forge a line in the terminal, in a Markdown
+		// export and in a line-oriented log alike, and this is the one place that
+		// catches all three.
+		overlay.EstablishFindings(report)
+		if len(report.Findings) == 0 {
+			t.Fatal("the run established no finding, so the checks below pass over an empty list")
+		}
+		var carried string
+		for _, f := range report.Findings {
+			for _, text := range []string{f.Detail, f.Effect.Text, f.Proposal} {
+				if strings.Contains(text, "\n") {
+					t.Errorf("a finding carries a newline, so the model's prose can open a line of its own: %q", text)
+				}
+			}
+			if strings.Contains(f.Effect.Text, "ours") {
+				carried = f.Effect.Text
 			}
 		}
 		// A verb that survives verbatim was an ARGUMENT; one consumed by a format
 		// string would have been rendered (or, with nothing to consume,
 		// %!s(MISSING)).
 		const verbatimVerb = "100%s ours"
-		if !strings.Contains(out, verbatimVerb) {
-			t.Errorf("%q did not survive into the report, so the model's text reached a format string rather than an argument", verbatimVerb)
+		if !strings.Contains(carried, verbatimVerb) {
+			t.Errorf("%q did not survive into the finding (%q), so the model's text reached a format string rather than an argument", verbatimVerb, carried)
 		}
 	})
 
@@ -625,10 +641,20 @@ func TestReviewAnnotationEndToEnd(t *testing.T) {
 		if got := report.Results[0].Review; got != want {
 			t.Errorf("the finding carries %+v, want %+v", got, want)
 		}
-		// R5.8: one field changed and nothing else. Clearing it must restore the
+		if got := report.Results[0].Reading; got != overlay.ReadingDone {
+			t.Errorf("the finding carries Reading %d, want ReadingDone (%d): the note landed, so somebody read it (S047-R4.1)",
+				got, overlay.ReadingDone)
+		}
+		// R5.8: only the commentary fields changed. Clearing them must restore the
 		// result the comparison produced, byte for byte.
+		//
+		// TWO fields are cleared since S047-R4.1: Review, the model's words, and
+		// Reading, whether anybody produced any. Both are written by this pass and
+		// neither is anything the report decides — R5.8 is about Verdicts, counts
+		// and grouping, and those are asserted below and unmoved.
 		after := report.Results[0]
 		after.Review = overlay.ReviewNote{}
+		after.Reading = overlay.ReadingNotRequested
 		// DeepEqual rather than ==: CompareResult stopped being comparable when
 		// the baseline review's slice fields (Axes, Declarations, Others) landed
 		// on it. The assertion is unchanged and now reaches further — it is still

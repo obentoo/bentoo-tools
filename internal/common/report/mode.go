@@ -42,7 +42,7 @@ const (
 
 // modes is the accepted set (R3.1), in the order the rejection message names
 // them. The message is DERIVED from this slice rather than written out beside
-// it, because R3.9's whole point is that the message names the set that is
+// it, because S044-R3.9's whole point is that the message names the set that is
 // actually accepted — a hand-written list drifts the day a fifth value is added
 // and then tells the operator something false.
 var modes = []Mode{ModeAuto, ModePlain, ModeInline, ModeFullscreen}
@@ -84,7 +84,7 @@ type ModeInputs struct {
 	// same convention tui.Enabled follows, an empty value means "not set".
 	Env string
 	// Config is the ui.mode configuration value, empty when the key is
-	// absent. Absent is the case R3.7 protects: it must produce exactly
+	// absent. Absent is the case S044-R3.7 protects: it must produce exactly
 	// today's behaviour.
 	Config string
 	// NoTUI is the opt-out layer, and the CALLER MUST FOLD ALL THREE OPT-OUTS
@@ -99,7 +99,7 @@ type ModeInputs struct {
 	// struct deliberately has no NO_COLOR field of its own. Drop NO_COLOR
 	// from that expression and a user who set it, and configured nothing
 	// about ui.mode, silently starts getting inline output where they get
-	// plain today: precisely the change R3.7 forbids.
+	// plain today: precisely the change S044-R3.7 forbids.
 	//
 	// It is applied as ModePlain at the flag layer (R3.4), so --no-tui is an
 	// alias for --ui=plain rather than a second mechanism competing with it.
@@ -121,12 +121,12 @@ type ModeInputs struct {
 // Precedence is R3.2: the --ui flag, then BENTOO_UI, then ui.mode, then auto.
 // The first source that speaks decides; the ones below it are not consulted.
 //
-// # Composition, and why R3.7 holds by construction
+// # Composition, and why S044-R3.7 holds by construction
 //
 // With nothing configured, this reproduces tui.Enabled exactly: NoTUI yields
 // plain, and otherwise auto yields inline on a terminal and plain off one —
 // the same two answers today's boolean gives, under names instead of a bool.
-// A user who configured no ui.mode therefore sees no change, which is R3.7
+// A user who configured no ui.mode therefore sees no change, which is S044-R3.7
 // satisfied by construction rather than by a compatibility branch.
 //
 // # auto never yields fullscreen (R3.3)
@@ -136,19 +136,42 @@ type ModeInputs struct {
 //
 // # Every stated source is validated, not just the deciding one
 //
-// A value outside the accepted set is rejected wherever it appears, even when
+// A value outside the accepted set is refused wherever it appears, even when
 // a higher-precedence source would have outranked it. Two reasons:
 //
-//   - R3.9 is unconditional — "IF --ui is given a value outside the accepted
+//   - S044-R3.9 is unconditional — "IF --ui is given a value outside the accepted
 //     set" says nothing about --no-tui also being passed, so validating only
 //     the source that happens to win would let `--ui=bogus --no-tui` run.
 //   - A typo that is merely outranked today decides the run tomorrow, the
 //     first time the flag above it is dropped. Naming it now costs one
 //     message; hiding it costs a confusing run later.
 //
-// The error names the source it came from (--ui, BENTOO_UI or ui.mode) as well
-// as the accepted set, because "which of my three places is wrong" is the
+// The message names the source it came from (--ui, BENTOO_UI or ui.mode) as
+// well as the accepted set, because "which of my three places is wrong" is the
 // question the operator actually has.
+//
+// # A refusal that is outranked is a WARNING, never an error (D10)
+//
+// Validating every source and letting every refusal ABORT the resolution are
+// two different rules, and this file used to run them together: `--ui=fullscreen`
+// with a stale `BENTOO_UI=bogus` failed, and every caller fell back to plain —
+// a shell profile the operator forgot silently outranking the flag they just
+// typed, on every command that produces a report. That is the inversion S046-R3.3
+// exists to forbid and the one S046-R3.7 calls "refused in words, never in
+// effect".
+//
+// So the refusal keeps its whole sentence and loses only its reach. A source
+// that does not parse yields an ERROR only when no source above it named a
+// mode; otherwise it yields a WARNING and the higher source decides. Both
+// halves stay measurable: an ambient-only refusal still errors, because there
+// the refused source IS the highest-precedence one that spoke, and `--ui=bogus`
+// still errors whatever legal value sits below it, because nothing sits above
+// `--ui`.
+//
+// Precedence is read off the three STRING sources alone. --no-tui is a boolean
+// opt-out rather than a source that names a mode, so it neither rescues a
+// refusal below it nor excuses one above it — which is what keeps
+// `--ui=bogus --no-tui` rejected under S044-R3.9.
 //
 // # The opt-out outranks an explicit --ui, deliberately
 //
@@ -168,44 +191,111 @@ type ModeInputs struct {
 // asked for returns "". A sentence on every call would train the operator to
 // ignore the one call that matters.
 func ResolveMode(in ModeInputs) (Mode, string, error) {
-	requested, err := requestedMode(in)
+	req, err := requestedMode(in)
 	if err != nil {
 		return "", "", err
 	}
 
+	mode, downgrade := deliverableMode(req.mode, in.Interactive)
+	return mode, req.warning(mode, downgrade), nil
+}
+
+// deliverableMode answers the second of the two questions ResolveMode asks:
+// given what was requested, what can THIS terminal actually carry, and does the
+// difference owe the operator a sentence.
+//
+// It is split out from ResolveMode so that the sentence an outranked refusal
+// produces can be composed against the mode that was finally delivered rather
+// than the one the precedence walk named — those differ whenever --no-tui or a
+// non-terminal stdout has the last word, and a warning that named the wrong
+// mode would be exactly the false statement S046-R3.7 exists to prevent.
+func deliverableMode(requested Mode, interactive bool) (Mode, string) {
 	// auto is the only value that reads the terminal to pick BETWEEN modes.
 	// Fullscreen is not a candidate here at any interactivity (R3.3).
 	if requested == ModeAuto {
-		if in.Interactive {
-			return ModeInline, "", nil
+		if interactive {
+			return ModeInline, ""
 		}
-		return ModePlain, "", nil
+		return ModePlain, ""
 	}
 
 	// Plain always works — it is the mode that assumes nothing about the
 	// terminal — and inline and fullscreen work on a terminal. Nothing was
 	// downgraded in either case, so there is nothing to say.
-	if requested == ModePlain || in.Interactive {
-		return requested, "", nil
+	if requested == ModePlain || interactive {
+		return requested, ""
 	}
 
-	// R3.6: a mode was requested explicitly and this terminal cannot carry
+	// S044-R3.6: a mode was requested explicitly and this terminal cannot carry
 	// it. That is a downgrade, not a failure — the run still produces its
 	// report — so it returns a sentence rather than an error.
 	return ModePlain, fmt.Sprintf(
 		"%s output needs an interactive terminal and stdout is not one, so this run renders in plain",
 		requested,
-	), nil
+	)
 }
 
-// requestedMode applies R3.2's precedence and R3.9's rejection, returning the
+// modeRequest is what the precedence walk decided, before the terminal is
+// consulted. It exists so that requestedMode can report a refusal it did NOT
+// act on — the D10 case — without a second error return that every caller would
+// have to remember is not fatal.
+type modeRequest struct {
+	// mode is what the highest-precedence source that spoke named, ModePlain
+	// when --no-tui had the last word, or ModeAuto when nothing spoke.
+	mode Mode
+	// statedBy names the source that decided, for the sentence an outranked
+	// refusal produces. Empty when no source named a mode.
+	statedBy string
+	// outranked holds the refusals that lost: sources whose value does not
+	// parse but which a higher-precedence source had already overruled. They
+	// are warnings and never failures (D10). A slice rather than one entry
+	// because two ambient sources can both be unusable under one valid flag,
+	// and naming only the first would drop the second silently — the omission
+	// S046-R2.3 forbids one level up.
+	outranked []error
+}
+
+// warning renders the one sentence the caller puts on stderr, for the mode that
+// was actually delivered.
+//
+// Two sentences can be owed at once — an outranked refusal AND a terminal
+// downgrade — and both are stated, joined, rather than one being dropped for
+// fitting the single string this returns. The empty string stays the success
+// signal.
+func (r modeRequest) warning(delivered Mode, downgrade string) string {
+	if len(r.outranked) == 0 {
+		return downgrade
+	}
+
+	refusals := make([]string, 0, len(r.outranked))
+	for _, err := range r.outranked {
+		refusals = append(refusals, err.Error())
+	}
+
+	// "without effect" is the whole point of the sentence: the operator is
+	// told their value was refused AND that the refusal changed nothing, so a
+	// stale key in a shell profile never reads as the cause of the mode they
+	// got.
+	sentence := fmt.Sprintf("%s — outranked by %s, so refused without effect; this run renders in %s",
+		strings.Join(refusals, "; "), r.statedBy, delivered)
+	if downgrade == "" {
+		return sentence
+	}
+	return sentence + "; " + downgrade
+}
+
+// requestedMode applies R3.2's precedence and S044-R3.9's refusal, returning the
 // mode that was ASKED FOR — which may still be ModeAuto, and which ResolveMode
 // then resolves against the terminal.
 //
 // Splitting "what was asked for" from "what can be delivered" is what keeps the
 // two rules separable: precedence and validation live here, terminal capability
-// lives in ResolveMode, and neither has to reason about the other.
-func requestedMode(in ModeInputs) (Mode, error) {
+// lives in deliverableMode, and neither has to reason about the other.
+//
+// The error return is now narrow by construction: it fires only for a refusal
+// that nothing outranks. Everything else a source got wrong comes back on
+// modeRequest.outranked, which is a sentence rather than a stop (D10).
+func requestedMode(in ModeInputs) (modeRequest, error) {
 	// In precedence order (R3.2), so the FIRST invalid value reported is the
 	// one from the highest-priority source — the one the operator most
 	// likely just typed.
@@ -220,7 +310,7 @@ func requestedMode(in ModeInputs) (Mode, error) {
 
 	// The empty Mode is a safe sentinel for "no source has spoken yet": it is
 	// not one of the four legal values, so parseMode can never produce it.
-	stated := Mode("")
+	req := modeRequest{mode: Mode("")}
 	for _, source := range sources {
 		if source.value == "" {
 			// Unset. An empty value is "not set", never a fifth mode.
@@ -228,30 +318,47 @@ func requestedMode(in ModeInputs) (Mode, error) {
 		}
 		mode, err := parseMode(source.name, source.value)
 		if err != nil {
-			return "", err
+			if req.mode == "" {
+				// Nothing above this source named a mode, so the refused
+				// source IS the highest-precedence one that spoke and the
+				// refusal decides the run. `--ui=bogus` always lands here:
+				// nothing sits above --ui.
+				return modeRequest{}, err
+			}
+			// A source above already decided. The refusal is stated and
+			// discarded (S046-R3.3, S046-R3.7 via D10).
+			req.outranked = append(req.outranked, err)
+			continue
 		}
-		if stated == "" {
+		if req.mode == "" {
 			// The highest-precedence source that spoke. The loop keeps
 			// going to validate the rest; it does not keep choosing.
-			stated = mode
+			req.mode = mode
+			req.statedBy = source.name
 		}
 	}
 
-	// The flag layer, after validation so that --ui=bogus is still rejected
-	// when --no-tui is also passed (R3.9), and before stated is returned so
-	// that the opt-out outranks an explicit --ui.
+	// The flag layer, after validation so that --ui=bogus is still refused
+	// when --no-tui is also passed (S044-R3.9), and before the stated mode is
+	// returned so that the opt-out outranks an explicit --ui.
+	//
+	// statedBy is deliberately LEFT as the string source that spoke: --no-tui
+	// changes which mode is delivered, not which source outranked the refusal,
+	// and the delivered mode is carried into the sentence separately.
 	if in.NoTUI {
-		return ModePlain, nil
+		req.mode = ModePlain
+		return req, nil
 	}
-	if stated == "" {
+	if req.mode == "" {
 		// Nothing spoke at any layer: auto (R3.2's last step).
-		return ModeAuto, nil
+		req.mode = ModeAuto
+		return req, nil
 	}
-	return stated, nil
+	return req, nil
 }
 
 // parseMode turns one source's raw value into a Mode, or explains why it is not
-// one (R3.9).
+// one (S044-R3.9).
 //
 // The match is EXACT: no trimming, no case folding. Not an oversight — the same
 // four words are read from three different places, and a normalization applied

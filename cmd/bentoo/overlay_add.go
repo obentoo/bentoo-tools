@@ -6,16 +6,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var addCmd = &cobra.Command{
-	Use:   "add [paths...]",
-	Short: "Add files to the staging area",
-	Long: `Add files to the Git staging area in the overlay repository.
+// newAddCmd builds `overlay add`.
+func newAddCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add [paths...]",
+		Short: "Add files to the staging area",
+		Long: `Add files to the Git staging area in the overlay repository.
 If no paths are specified, adds all changes (equivalent to "git add .").`,
-	Run: runAdd,
-}
-
-func init() {
-	overlayCmd.AddCommand(addCmd)
+		Run: runAdd,
+	}
+	return cmd
 }
 
 func runAdd(cmd *cobra.Command, args []string) {
@@ -45,6 +45,10 @@ func runAdd(cmd *cobra.Command, args []string) {
 			logger.Error("getting status: %v", err)
 			osExit(1)
 		}
+		// Plain text, by the same call runStatus documents at length: the library
+		// composes what was staged, this command shows it, and nothing here
+		// re-applies the colour overlay.FormatStatus used to decide for it
+		// (S046-R5.2).
 		logger.Info("%s", overlay.FormatStatus(statuses))
 	}
 

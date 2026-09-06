@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/obentoo/bentoolkit/internal/common/logger"
-	"github.com/obentoo/bentoolkit/internal/common/output"
 	"github.com/obentoo/bentoolkit/internal/snapshot"
 	"github.com/spf13/cobra"
 )
@@ -12,19 +11,19 @@ import (
 // RunResult persisted (008 R2.2).
 var snapshotRunDryRun bool
 
-var snapshotRunCmd = &cobra.Command{
-	Use:   "run",
-	Short: "Run the snapshot pipeline now",
-	Long: `Execute the engine → prune → ship pipeline for every configured subvolume,
+// newSnapshotRunCmd builds `snapshot run`.
+func newSnapshotRunCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "Run the snapshot pipeline now",
+		Long: `Execute the engine → prune → ship pipeline for every configured subvolume,
 persist a RunResult for 'status', and exit non-zero if any stage failed. This is
 the command driven by the systemd timer.`,
-	Run: runSnapshotRun,
-}
-
-func init() {
-	snapshotRunCmd.Flags().BoolVar(&snapshotRunDryRun, "dry-run", false,
+		Run: runSnapshotRun,
+	}
+	cmd.Flags().BoolVar(&snapshotRunDryRun, "dry-run", false,
 		"print the pipeline that would run, without executing it")
-	snapshotCmd.AddCommand(snapshotRunCmd)
+	return cmd
 }
 
 func runSnapshotRun(cmd *cobra.Command, _ []string) {
@@ -39,6 +38,29 @@ func runSnapshotRun(cmd *cobra.Command, _ []string) {
 		// 008 R2.2: preview only — print the pipeline (engine driver per
 		// subvolume, then each ship target) and return BEFORE the engine-config
 		// render, the pipeline execution, and the RunResult persistence below.
+		//
+		// It returns before the REPORT as well, and that is the decision rather
+		// than the one path story 046 missed (S046-R1.2).
+		//
+		// R1.2 binds "WHEN snapshot run FINISHES", and a preview does not finish a
+		// run — it declines to start one. Nothing below this line executes, so no
+		// snapshot.RunResult exists to report and no step of any subvolume has an
+		// outcome. All a report could describe here is PlanRun's []string: the
+		// same conditional sentences printed on the next line, with no status to
+		// put beside them. Reporting that as a run would render empty Steps beside
+		// Ok=0/Failed=0 — which report.SnapshotRun documents as "a run that ran no
+		// step at all" — so the preview would be indistinguishable from a real run
+		// that achieved nothing.
+		//
+		// `overlay manifest --dry-run` DOES end in a report, and the difference is
+		// what each preview HOLDS rather than a disagreement between two commands.
+		// That one resolves its targets off the filesystem before previewing them,
+		// so RegenerateManifests hands back a row per target and only the outcomes
+		// are missing; report.ManifestRun.DryRun is the preview arm that says so
+		// before any count is taken (overlay_manifest_report.go). A snapshot
+		// preview has no rows to carry, and report.SnapshotRun has no such field.
+		// Adding one would answer a new requirement about previews, not this one
+		// about runs.
 		printDryRunPlan(snapshot.PlanRun(cfg))
 		return
 	}
@@ -65,11 +87,37 @@ func runSnapshotRun(cmd *cobra.Command, _ []string) {
 	if perr := result.SaveLastRun(); perr != nil {
 		logger.Warn("snapshot run: persist result: %v", perr)
 	}
-	if runErr != nil {
-		logger.Error("snapshot run: %v", runErr)
-		osExit(1)
-		return
-	}
 
-	output.PrintSuccess("snapshot run completed (%d stages)", len(result.Stages))
+	// The run ends in a report, and it ends in exactly one (S046-R1.2).
+	//
+	// What stood here was output.PrintSuccess("snapshot run completed (%d
+	// stages)") on the way out of a successful run, and logger.Error with the
+	// pipeline's own error on the way out of a failed one. Both are gone, and
+	// they are gone for the reason runManifest states for its own removal: two
+	// statements of one run's outcome, in two voices on two streams, is the
+	// defect rather than a safety net — an operator would have no way to tell
+	// which of the two was authoritative the day they disagreed.
+	//
+	// Neither was a loss. "3 stages" answered neither of R1.6's questions —
+	// which subvolume, and how each step came out — and the failure line said
+	// "snapshot run completed with failures", which is the number the report now
+	// prints beside the name of every step that produced it. The error paths
+	// ABOVE this point keep their logger.Error calls, and the rule is the same
+	// one: before a report exists, the log line is the only statement there is;
+	// after it exists, a second one is a competing account of the same run.
+	//
+	// It is rendered BEFORE the exit branch below, not after, because the run
+	// that most needs a report is the one that failed. A report reached only on
+	// success would be missing exactly when it is read.
+	//
+	// ctx.Err() is the interruption half of the envelope: Manager.Run records a
+	// cancellation as a sentence in the same string field it uses for ordinary
+	// failures, so the context — which cannot be mistaken for anything else — is
+	// what the report is told.
+	presentSnapshotReport(snapshotReportConfig(),
+		buildSnapshotReport(&result, cfg.Engine.Subvolumes, ctx.Err() != nil))
+
+	if runErr != nil {
+		osExit(1)
+	}
 }

@@ -18,25 +18,25 @@ var (
 	snapshotPruneShip string
 )
 
-var snapshotPruneCmd = &cobra.Command{
-	Use:   "prune",
-	Short: "Apply the retention policy on demand",
-	Long: `Apply the [engine.retention] policy now, without taking a snapshot: the
+// newSnapshotPruneCmd builds `snapshot prune`.
+func newSnapshotPruneCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "prune",
+		Short: "Apply the retention policy on demand",
+		Long: `Apply the [engine.retention] policy now, without taking a snapshot: the
 engine-native prune for every subvolume (btrbk clean / snapper cleanup timeline)
 plus the GFS retention sweep on every archive ship's rclone remote.
 
 --ship NAME scopes the prune to that one destination: the engine-local prune is
 skipped and only the named ship's remote is pruned. Recorded incremental parents
 are never deleted — each is the base of its subvolume's next incremental send.`,
-	Run: runSnapshotPrune,
-}
-
-func init() {
-	snapshotPruneCmd.Flags().BoolVar(&snapshotPruneDryRun, "dry-run", false,
+		Run: runSnapshotPrune,
+	}
+	cmd.Flags().BoolVar(&snapshotPruneDryRun, "dry-run", false,
 		"print the prune actions that would run, without executing them")
-	snapshotPruneCmd.Flags().StringVar(&snapshotPruneShip, "ship", "",
+	cmd.Flags().StringVar(&snapshotPruneShip, "ship", "",
 		"scope the prune to the named [[ship]] destination")
-	snapshotCmd.AddCommand(snapshotPruneCmd)
+	return cmd
 }
 
 // runSnapshotPrune applies the [engine.retention] policy on demand (008 R3.1):

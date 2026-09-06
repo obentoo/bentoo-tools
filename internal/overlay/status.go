@@ -7,7 +7,6 @@ import (
 
 	"github.com/obentoo/bentoolkit/internal/common/config"
 	"github.com/obentoo/bentoolkit/internal/common/git"
-	"github.com/obentoo/bentoolkit/internal/common/output"
 )
 
 // FileType represents the type of file in an overlay
@@ -200,10 +199,43 @@ func StagedStatusWithExecutor(executor git.GitExecutor) ([]PackageStatus, error)
 	return GroupStatusEntries(entries), nil
 }
 
-// FormatStatus formats package statuses into a human-readable string with colors
+// statusCleanTree is what a working tree with nothing to report says.
+//
+// It is a CONSTANT so a test — and, later, a renderer — can name the sentence
+// without copying it, on the same argument that made baselineSkippedLead one.
+//
+// It also exists at all because this outcome may not render as silence: a clean
+// tree and a command that failed to look produce the same zero bytes, and only
+// a sentence tells them apart.
+const statusCleanTree = "No changes detected (working directory clean)"
+
+// FormatStatus renders package statuses as the lines a caller prints, and
+// chooses NO APPEARANCE (S046-R5.2).
+//
+// # What left, and why the composition stayed
+//
+// Three things here used to be built by the terminal printer package: the clean-tree
+// sentence arrived dimmed, the package heading arrived blue and bold, and every
+// change's status arrived in the colour of its git letter. A colour is a
+// decision only a terminal can use — the same status could not then be written
+// to a Markdown file, exported as JSON, diffed or counted (design.md D7) — so
+// the library no longer makes it, and whoever is printing does.
+//
+// Two of those helpers were doing something ELSE as well, and that part stayed:
+// output.FormatPackage joined the category to the package, and
+// output.FormatStatus wrapped the status in brackets. Composing the facts into a
+// line is what this function is for; only the appearance crossed the boundary,
+// which is why the import went and the shape of the text did not.
+//
+// The result is byte-identical to what the command printed OFF A TTY, since
+// fatih/color returns bare text there — so every pipe, log and CI run reads
+// exactly what it read yesterday. On a terminal the colour is gone, and story
+// 047 is where the whole CLI's presentation is restyled through the report
+// renderers; reintroducing it here would put the decision back in the library
+// that just gave it up.
 func FormatStatus(statuses []PackageStatus) string {
 	if len(statuses) == 0 {
-		return output.Sprintf(output.Dim, "No changes detected (working directory clean)")
+		return statusCleanTree
 	}
 
 	var sb strings.Builder
@@ -213,8 +245,8 @@ func FormatStatus(statuses []PackageStatus) string {
 			sb.WriteString("\n")
 		}
 
-		// Write package header with color
-		sb.WriteString(output.FormatPackage(ps.Category, ps.Package))
+		// Write package header
+		sb.WriteString(statusPackageLabel(ps.Category, ps.Package))
 		sb.WriteString(":\n")
 
 		// Group changes by file type for cleaner output
@@ -233,11 +265,32 @@ func FormatStatus(statuses []PackageStatus) string {
 			}
 
 			for _, change := range changes {
-				statusFormatted := output.FormatStatus(change.Status)
-				fmt.Fprintf(&sb, "  %s %s (%s)\n", statusFormatted, change.Name, ft)
+				// The brackets are output.FormatStatus's composition, moved here
+				// without its colour. Every value interpolated is a git working
+				// tree's own text — a filename this process did not choose — so
+				// each is passed as an ARGUMENT and never as a format string.
+				fmt.Fprintf(&sb, "  [%s] %s (%s)\n", change.Status, change.Name, ft)
 			}
 		}
 	}
 
 	return strings.TrimSuffix(sb.String(), "\n")
+}
+
+// statusPackageLabel names the package a group of changes belongs to.
+//
+// It is output.FormatPackage's join, kept because it is composition and not
+// appearance: the caller is handed "app-misc/jq", which is what an operator
+// types, rather than two fields it would have to join the same way itself.
+//
+// The empty category is a REAL case rather than defensive padding.
+// GroupStatusEntries files anything outside a category/package directory under
+// the category "" and the package "root" — the overlay's own metadata/ and
+// profiles/ reach here that way — and a bare "/root" would read as a path in
+// the filesystem root, which is the one thing it is not.
+func statusPackageLabel(category, pkg string) string {
+	if category == "" {
+		return pkg
+	}
+	return category + "/" + pkg
 }

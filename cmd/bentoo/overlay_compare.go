@@ -70,10 +70,12 @@ var (
 	compareYes bool
 )
 
-var compareCmd = &cobra.Command{
-	Use:   "compare [repository]",
-	Short: "Compare overlay packages with upstream repository",
-	Long: `Compare package versions in your local Bentoo overlay against
+// newCompareCmd builds `overlay compare`.
+func newCompareCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "compare [repository]",
+		Short: "Compare overlay packages with upstream repository",
+		Long: `Compare package versions in your local Bentoo overlay against
 an upstream repository.
 
 Any repository from the Gentoo ecosystem (~428 repos) can be used by name.
@@ -116,33 +118,31 @@ Examples:
   bentoo overlay compare --only-patched     # Show only declared divergences
   bentoo overlay compare --no-review        # Contact no model
   bentoo overlay compare --realign          # Review against the ::gentoo baseline`,
-	Args: cobra.MaximumNArgs(1),
-	Run:  runCompare,
-}
-
-func init() {
-	compareCmd.Flags().BoolVar(&compareClone, "clone", false, "Use git clone instead of API")
-	compareCmd.Flags().StringVar(&compareCacheDir, "cache-dir", "", "Directory to cache data")
-	compareCmd.Flags().BoolVar(&compareNoCache, "no-cache", false, "Disable caching")
-	compareCmd.Flags().IntVar(&compareTimeout, "timeout", 30, "HTTP request timeout in seconds")
-	compareCmd.Flags().StringVar(&compareToken, "token", "", "Auth token for API provider")
-	compareCmd.Flags().BoolVar(&compareOnlyOutdated, "only-outdated", false, "Show only outdated packages (Bentoo < Gentoo)")
-	compareCmd.Flags().BoolVar(&compareOnlyRedundant, "only-redundant", false, "Show only redundant packages (removal candidates)")
-	compareCmd.Flags().BoolVar(&compareOnlyPatched, "only-patched", false, "Show only packages a registry entry declares a divergence for")
-	compareCmd.Flags().BoolVar(&compareSync, "sync", false, "Force refresh of repository list")
-	compareCmd.Flags().IntVar(&compareConcurrency, "concurrency", overlay.DefaultCompareConcurrency, "max parallel checks (1-100)")
-	compareCmd.Flags().BoolVar(&compareNoReview, "no-review", false, "Contact no model; print the report without commentary")
-	compareCmd.Flags().BoolVar(&compareRealign, "realign", false, "Review each package against its ::gentoo baseline (needs a local gentoo tree)")
+		Args: cobra.MaximumNArgs(1),
+		Run:  runCompare,
+	}
+	cmd.Flags().BoolVar(&compareClone, "clone", false, "Use git clone instead of API")
+	cmd.Flags().StringVar(&compareCacheDir, "cache-dir", "", "Directory to cache data")
+	cmd.Flags().BoolVar(&compareNoCache, "no-cache", false, "Disable caching")
+	cmd.Flags().IntVar(&compareTimeout, "timeout", 30, "HTTP request timeout in seconds")
+	cmd.Flags().StringVar(&compareToken, "token", "", "Auth token for API provider")
+	cmd.Flags().BoolVar(&compareOnlyOutdated, "only-outdated", false, "Show only outdated packages (Bentoo < Gentoo)")
+	cmd.Flags().BoolVar(&compareOnlyRedundant, "only-redundant", false, "Show only redundant packages (removal candidates)")
+	cmd.Flags().BoolVar(&compareOnlyPatched, "only-patched", false, "Show only packages a registry entry declares a divergence for")
+	cmd.Flags().BoolVar(&compareSync, "sync", false, "Force refresh of repository list")
+	cmd.Flags().IntVar(&compareConcurrency, "concurrency", overlay.DefaultCompareConcurrency, "max parallel checks (1-100)")
+	cmd.Flags().BoolVar(&compareNoReview, "no-review", false, "Contact no model; print the report without commentary")
+	cmd.Flags().BoolVar(&compareRealign, "realign", false, "Review each package against its ::gentoo baseline (needs a local gentoo tree)")
 	// The default is the EMPTY string and not a rung's name, unlike `overlay
 	// validate --depth`, because the two defaults mean opposite things: there the
 	// shallowest useful rung IS the shipped behaviour, here any rung at all is a
 	// build nobody asked for. Absent means report-only, which is what `--realign`
 	// shipped as.
-	compareCmd.Flags().StringVar(&compareDepth, "depth", "",
+	cmd.Flags().StringVar(&compareDepth, "depth", "",
 		"Prove each proposed realignment by building it to this rung of the ladder — patches, configure, compile or install, each including every rung before it. "+
 			"Needs --realign, builds in a staged tree outside the overlay, and asks once before the first build. Absent means report only, and nothing is built")
-	compareCmd.Flags().BoolVar(&compareYes, "yes", false, "Prove the whole plan without the prompt. Only --depth builds anything; publishing stays a separate per-package question, asked only in an interactive terminal and never answered by this flag")
-	overlayCmd.AddCommand(compareCmd)
+	cmd.Flags().BoolVar(&compareYes, "yes", false, "Prove the whole plan without the prompt. Only --depth builds anything; publishing stays a separate per-package question, asked only in an interactive terminal and never answered by this flag")
+	return cmd
 }
 
 func runCompare(cmd *cobra.Command, args []string) {
@@ -349,8 +349,10 @@ func runCompare(cmd *cobra.Command, args []string) {
 		//
 		// Switched on unconditionally it would be a regression rather than a
 		// feature: those packages would gain rows they do not have today, and
-		// verdictScopeLines' `counted - len(report.Results)` would change under
-		// every operator who never asked for a review (D1).
+		// the summary's "N of M have no row above" — Scanned minus what the
+		// report lists, in `func compareSummarySection` in
+		// internal/common/report — would move for every operator who never
+		// asked for a review (D1).
 		IncludeNotInRemote: compareRealign,
 		Concurrency:        compareConcurrency,
 		Ctx:                runCtx,
@@ -407,8 +409,9 @@ func runCompare(cmd *cobra.Command, args []string) {
 	// IT RUNS ONLY FOR A REVIEW RUN, and that single condition is the whole of
 	// R7.2's byte-identical promise. Every field it writes renders nothing at its
 	// zero value, so a run that never reaches this line prints exactly what
-	// `overlay compare` printed yesterday — the tables, the summary lines and
-	// verdictScopeLines' arithmetic all untouched.
+	// `overlay compare` printed yesterday — the tables and every line of the
+	// summary block untouched, the sentence counting what the report left out
+	// among them.
 	//
 	// Locating the tree comes FIRST because it is the one condition the command
 	// exits non-zero for (D9): a review with no ::gentoo repository to read
@@ -491,6 +494,29 @@ func runCompare(cmd *cobra.Command, args []string) {
 		proveRealignments(runCtx, report, overlayPath)
 	}
 
+	// The report's FINDINGS, re-established now that every annotation pass has
+	// written back onto it (S046-R5.1).
+	//
+	// The comparison establishes them once, at the end of CompareWithProvider,
+	// from what was known then — the versions, the registry declaration and the
+	// content check. The four passes above run afterwards and each writes facts a
+	// finding built before them could not have known: whether the overlay's own
+	// content PROVED the difference is ours, what a model read the difference as
+	// doing, what it proposed be declared. A list left un-refreshed would report
+	// an undeclared divergence as unproved after the files had proved it, which is
+	// the one direction that matters — it is the reading that authorises deleting
+	// work of our own.
+	//
+	// It is one call rather than a refresh inside each pass, because four refresh
+	// points are four things to keep in step and this is one. The findings are a
+	// pure function of report.Results, so this simply asks the question again.
+	//
+	// It runs BEFORE the narrowing below for the reason the passes do: the
+	// findings are what the run established about the OVERLAY, not the rows the
+	// operator asked to look at, exactly as none of the counters on the report are
+	// narrowed either (D7).
+	overlay.EstablishFindings(report)
+
 	// Narrow the VIEW, never the computation (D7). The comparison above already
 	// produced the whole picture; only report.Results — the rows the table
 	// prints — is narrowed here, and every counter on report keeps the value the
@@ -502,39 +528,74 @@ func runCompare(cmd *cobra.Command, args []string) {
 	// inside CompareOptions above and has already removed its rows, so the
 	// filters compose by intersection without anyone arranging it — each stage
 	// only ever removes.
+	//
+	// The WHOLE run's rows are KEPT before the narrowing replaces them
+	// (S047-R5.2). Every counter on the report survives the filter because it is
+	// a field; the two answers taken by walking the rows do not, so
+	// `func buildCompareReport` in overlay_compare_report.go is handed this
+	// slice and takes them over the whole run. Without it a --only-patched run
+	// that removed a row whose reading failed would report a smaller gap than
+	// the same run unfiltered, and narrowing the view would have made a holed
+	// run look whole.
+	unfiltered := report.Results
 	report.Results = filterCompareResults(report.Results, compareOnlyRedundant, compareOnlyPatched)
 
-	// Display results. Nothing left to show is reported BEFORE FormatReport, so
-	// the report never has to explain an emptiness it cannot see the cause of.
-	if len(report.Results) == 0 {
-		// The run-level SKIPPED line, said here because this path returns before
-		// FormatReport — which opens with it precisely to correct the "All packages
-		// are up-to-date" claim reportEmptyCompare is about to make.
-		reportSkippedBaseline(report)
-		reportEmptyCompare(repoInfo.Name, compareOnlyRedundant, compareOnlyPatched)
-		printComparisonSummary(report, repoInfo.Name)
-		exitOnSkippedBaseline(report)
-		return
-	}
-
-	// Print the formatted report
-	fmt.Print(overlay.FormatReport(report))
-
-	// What a review run adds beside the report: that no verdict was produced when
-	// no model was reachable (R4.4), and the candidate declarations a maintainer is
-	// invited to paste (R3.5). Both are printed HERE rather than by the renderer,
-	// which takes a *CompareReport and never learns which flags were passed, and
-	// both render nothing when there is nothing to say.
+	// Present the comparison as the report every other command presents: the
+	// terminal first, then the export (S047-R1.5, S047-R7.2).
+	//
+	// ONE tail now serves the full run and the empty one. The branch that stood
+	// here announced an empty result set BEFORE the renderer, because the
+	// renderer could not explain an emptiness it could not see the cause of; the
+	// report states its own scope in its first section and its own counts in its
+	// last, so an empty run says it in the same words a full one uses, and the
+	// two paths can no longer disagree about what a run reports.
+	//
+	// It runs AFTER the progress region is down — the cleared line above is that
+	// teardown — because both write to stdout, and a report drawn into a live
+	// region is a report the UI redraws over.
+	//
+	// The candidate declarations a review proposes, PRINTED and deliberately not
+	// carried as notes (R3.5).
+	//
+	// Every other fact this command has left the terminal for the report, and
+	// this one must not: a candidate is a multi-line declaration block a
+	// maintainer COPIES back into an ebuild or a registry, and a note is wrapped
+	// to the device by the renderer. Wrapping a declaration re-flows it into
+	// something that no longer pastes back as one well-formed entry, which is the
+	// only thing `--realign` exists to produce. It is not a sentence about the
+	// run, so it does not belong where sentences about the run go.
+	//
+	// It is called DIRECTLY rather than through `func realignAddendum` in
+	// overlay_compare_realign.go, whose other half — the "no verdict was
+	// produced" notice — now crosses as a run note; going through the wrapper
+	// would print that fact twice.
+	//
+	// It follows the VIEW, as it did before the report: it is per-package output
+	// standing beside rows the operator asked to see, so proposing a declaration
+	// for a package `--only-redundant` removed would put a paste block under a
+	// package with no row. That is the opposite direction from the counters
+	// above, and for the opposite reason — a count answers what the run did,
+	// a proposal answers what is on screen.
 	if realignRan {
-		fmt.Print(realignAddendum(report, realignJudged, compareNoReview))
+		fmt.Print(realignCandidateSection(report.Results))
 	}
 
-	// Print summary
-	printComparisonSummary(report, repoInfo.Name)
+	// What no row can carry crosses in the PAYLOAD, not beside it. The run-level
+	// sentences — no ::gentoo tree was reached, a review produced no verdict at
+	// all, the classification share, the prune advice — are built here because
+	// they are derived in part from flags the adapter never sees, and handed to
+	// `func buildCompareReport` as CompareRun.Notes. Every finding beyond the
+	// first a package has, which a one-line reason cell has no room for, travels
+	// on that package's own entry (S047-R6.1). Both reach the terminal and every
+	// export through one code path, which is what they did not do while they were
+	// appended to the sections after the fact.
+	presentCompareReport(cfg, buildCompareReport(report, repoInfo.Name, unfiltered,
+		compareRunNotes(report, realignRan, realignJudged, compareNoReview)...))
 
 	// The ONE non-zero condition (R7.5, D9): the review could not locate a
-	// ::gentoo tree, so nothing was examined. It is last because the report is
-	// still worth printing — `compare` did its job — and osExit does not return.
+	// ::gentoo tree, so nothing was examined. It is LAST — after the render and
+	// after the export — because the report is still worth printing and worth
+	// exporting, `compare` did its job, and osExit does not return.
 	exitOnSkippedBaseline(report)
 }
 
@@ -577,52 +638,6 @@ func filterCompareResults(results []overlay.CompareResult, onlyRedundant, onlyPa
 		filtered = append(filtered, r)
 	}
 	return filtered
-}
-
-// reportEmptyCompare says why the report has no rows to show.
-//
-// "All packages are up-to-date" is a claim only an UNFILTERED run can make.
-// Reached after a filter it is simply false, and misleading in exactly the way
-// this story exists to remove: --only-redundant on an overlay with nothing to
-// remove would print the very same words as on one whose removal candidates the
-// operator never asked to see. A filtered run therefore names the filter that
-// returned nothing, and the success message stays reserved for the run that
-// looked at everything.
-//
-// This is also the ONLY place that CAN name it. FormatReport takes a
-// *CompareReport and never learns which flags were passed, so its own
-// "All packages are up-to-date!" short-circuit could not name a filter even if
-// it wanted to — which is why the caller filters before testing for emptiness:
-// FormatReport is then never reached with an empty result set, and that
-// sentence is off both paths at once.
-func reportEmptyCompare(repoName string, onlyRedundant, onlyPatched bool) {
-	if filters := activeCompareFilters(onlyRedundant, onlyPatched); len(filters) > 0 {
-		// The names are this function's own literals, so joining them into an
-		// ARGUMENT — never into the format string — costs nothing and keeps the
-		// habit intact for the day one of them is not.
-		logger.Info("%s", output.Sprintf(output.Info,
-			"No package matches %s.", strings.Join(filters, " ")))
-		return
-	}
-	logger.Info("%s", output.Sprintf(output.Success, "All packages are up-to-date with %s!", repoName))
-}
-
-// activeCompareFilters names the presentation filters in play, in the order
-// they are declared, so an empty report can say which question returned nothing
-// instead of claiming the overlay is healthy.
-//
-// It names only the filters filterCompareResults applies. --only-outdated is
-// left out on purpose: an empty result set under that flag alone means nothing
-// is outdated, which IS the up-to-date message and must keep printing it.
-func activeCompareFilters(onlyRedundant, onlyPatched bool) []string {
-	var names []string
-	if onlyRedundant {
-		names = append(names, "--only-redundant")
-	}
-	if onlyPatched {
-		names = append(names, "--only-patched")
-	}
-	return names
 }
 
 // buildDivergenceMap turns the registry into the per-atom view compare needs:
@@ -717,142 +732,6 @@ func truncatePkgName(name string, maxLen int) string {
 		return name + strings.Repeat(" ", maxLen-len(name))
 	}
 	return name[:maxLen-3] + "..."
-}
-
-// printComparisonSummary emits the summary the operator reads after the report.
-//
-// The decision of WHAT to print lives in the pure builders below and the
-// emission is all that stays here, because logger binds its io.Writer once at
-// first use and exposes no setter (logger.go:44-52) — so a test can reach the
-// builders and cannot reach this. That split is not decoration: these three
-// lines are the half of UB3 that used to be guaranteed by "no task modifies this
-// function", and adding the verdict counts spends that guarantee. It is replaced
-// by overlay_compare_summary_test.go pinning the lines directly, which is the
-// stronger of the two and was simply not reachable before.
-//
-// Each line is emitted with a "%s" format so the rendered bytes are identical to
-// the per-line Printf form this replaced.
-func printComparisonSummary(report *overlay.CompareReport, repoName string) {
-	for _, line := range comparisonSummaryLines(report) {
-		logger.Info("%s", line)
-	}
-
-	// Stays on Warn and stays in this position: it is a different level, and
-	// moving it would change what a --quiet run shows.
-	if report.ErrorCount > 0 {
-		logger.Warn("  Errors (API issues): %d", report.ErrorCount)
-	}
-
-	for _, line := range verdictSummaryLines(report) {
-		logger.Info("%s", line)
-	}
-
-	// Emitted BESIDE the counts, never folded into them: it qualifies what they
-	// cover, and a line that carries its own caveat is one the eye stops reading
-	// as a count. It also has to survive the counts being silent — the caveat is
-	// about the numbers above, so it prints only when they do.
-	for _, line := range verdictScopeLines(report) {
-		logger.Info("%s", line)
-	}
-}
-
-// comparisonSummaryLines builds the three pre-existing summary lines, verbatim.
-//
-// UB3 promises these bytes are what they were before the Verdict axis existed.
-func comparisonSummaryLines(report *overlay.CompareReport) []string {
-	return []string{
-		"\nSummary:",
-		fmt.Sprintf("  Total packages scanned: %d", report.TotalPackages),
-		fmt.Sprintf("  Found in both repos: %d", report.ComparedPackages-report.NotInRemoteCount-report.ErrorCount),
-		fmt.Sprintf("  Only in Bentoo: %d", report.NotInRemoteCount),
-	}
-}
-
-// verdictSummaryLines builds the per-Verdict counts (R3.9), or nothing when
-// every count is zero.
-//
-// ONE line naming the axis, rather than four bare labels, for the reason the
-// counter fields carry a Verdict prefix: a bare "Unknown: 5" sitting under
-// "Errors (API issues): 1" reads as a Status count, and keeping the two axes
-// apart is exactly what UB3 is for. Zero counts are dropped so the line states
-// what is there rather than what is not, matching the ErrorCount line above.
-//
-// The counts are read from the REPORT, never recomputed from report.Results:
-// runCompare assigns the filtered slice back to Results before rendering, and
-// this summary answers "what is in the overlay", not "what did you ask to see".
-func verdictSummaryLines(report *overlay.CompareReport) []string {
-	terms := make([]string, 0, 4)
-	for _, t := range []struct {
-		label string
-		count int
-	}{
-		{overlay.VerdictKeep.String(), report.VerdictKeepCount},
-		{overlay.VerdictRedundant.String(), report.VerdictRedundantCount},
-		{overlay.VerdictNeedsRebase.String(), report.VerdictNeedsRebaseCount},
-		{overlay.VerdictUnknown.String(), report.VerdictUnknownCount},
-	} {
-		if t.count > 0 {
-			terms = append(terms, fmt.Sprintf("%s %d", t.label, t.count))
-		}
-	}
-
-	if len(terms) == 0 {
-		return nil
-	}
-	return []string{"  Verdicts: " + strings.Join(terms, " | ")}
-}
-
-// verdictScopeLines says what the verdict counts cover and how many of the
-// packages they count have no row anywhere in the report (R4.1, R4.2), or
-// nothing when every counted package is listed.
-//
-// The counts and the tables disagree on screen, and until this line nothing said
-// why. Measured against ::gentoo on the live overlay: the verdict line reports
-// keep 231 above a keep table holding 155 rows, and `--only-outdated` reports 318
-// verdicts above no table at all, because every package is up-to-date and the
-// report is empty. Both numbers are right — the counts are computed over the
-// whole scan on purpose (D7) while Results is only the view — but a total larger
-// than what is on screen with nothing explaining it reads as a defect, and an
-// operator who counts the rows to check it concludes the tool is broken.
-//
-// The universe is the SUM OF THE COUNTERS rather than ComparedPackages or
-// TotalPackages, which is what makes the sentence checkable: the number named
-// here is the number the terms on the line above add up to. Any run that reaches
-// this point has all three equal — every compared package increments exactly one
-// verdict counter, and a scan cut short by a signal aborts before the summary
-// prints — so the choice shows up only in a report built by hand, where naming a
-// total the printed counts do not add up to would be the wrong answer. It also
-// makes the silence fall out: no verdict counts, no line to qualify them.
-//
-// What is unlisted is measured against the ROWS, never against NotInRemoteCount.
-// The two agree on a default run — runCompare never sets IncludeNotInRemote, so
-// the Bentoo-only packages are the only ones counted without a row, 84 of 318 in
-// the measurement above — and they part company the moment a filter narrows the
-// view: the same scan under --only-redundant prints 74 rows, leaving 244 packages
-// unlisted while NotInRemoteCount still reads 84. Every result does reach a table
-// (FormatReport sections every verdict and prints any leftover under "Other
-// Packages"), so len(Results) is exactly the count the operator can check by eye.
-//
-// Zero prints nothing, on the same terms as the zero verdict terms above: with
-// the counts and the tables in agreement there is nothing to reconcile. A
-// negative difference is unreachable from a real report and is silent for the
-// same reason.
-//
-// It says how many are unlisted and not WHICH: listing the Bentoo-only packages
-// is a separate decision about what a default run prints, and this line has to
-// stay true under a filter, where the missing rows are the operator's own doing.
-func verdictScopeLines(report *overlay.CompareReport) []string {
-	counted := report.VerdictKeepCount + report.VerdictRedundantCount +
-		report.VerdictNeedsRebaseCount + report.VerdictUnknownCount
-
-	unlisted := counted - len(report.Results)
-	if unlisted <= 0 {
-		return nil
-	}
-
-	return []string{fmt.Sprintf(
-		"  Verdicts count every package scanned, not the rows above: %d of %d have no row in any table.",
-		unlisted, counted)}
 }
 
 // repoTokenName maps a repository name to the environment variable / secrets key

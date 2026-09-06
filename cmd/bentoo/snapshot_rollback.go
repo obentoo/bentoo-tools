@@ -23,25 +23,25 @@ var (
 	snapshotRollbackConfirm func(string) bool
 )
 
-var snapshotRollbackCmd = &cobra.Command{
-	Use:   "rollback <id>",
-	Short: "Roll the system back to a snapshot (snapper only)",
-	Long: `Roll the system back to snapshot <id> via snapper rollback.
+// newSnapshotRollbackCmd builds `snapshot rollback`.
+func newSnapshotRollbackCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "rollback <id>",
+		Short: "Roll the system back to a snapshot (snapper only)",
+		Long: `Roll the system back to snapshot <id> via snapper rollback.
 
 Rollback is snapper-specific: it requires engine.driver = "snapper" and is refused
 for any other engine. It is DESTRUCTIVE — snapper makes a read-write copy of
 snapshot <id> the new default subvolume, so the system boots into it on the next
 reboot — and prompts for confirmation unless --yes is given.`,
-	Args: cobra.ExactArgs(1),
-	Run:  runSnapshotRollback,
-}
-
-func init() {
-	snapshotRollbackCmd.Flags().BoolVarP(&snapshotRollbackYes, "yes", "y", false,
+		Args: cobra.ExactArgs(1),
+		Run:  runSnapshotRollback,
+	}
+	cmd.Flags().BoolVarP(&snapshotRollbackYes, "yes", "y", false,
 		"skip the destructive-rollback confirmation prompt")
-	snapshotRollbackCmd.Flags().BoolVar(&snapshotRollbackDryRun, "dry-run", false,
+	cmd.Flags().BoolVar(&snapshotRollbackDryRun, "dry-run", false,
 		"print the destructive rollback action without performing it")
-	snapshotCmd.AddCommand(snapshotRollbackCmd)
+	return cmd
 }
 
 func runSnapshotRollback(cmd *cobra.Command, args []string) {

@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/obentoo/bentoolkit/internal/autoupdate/validate"
+	"github.com/obentoo/bentoolkit/internal/common/report"
 )
 
 // mixedReport carries one of every outcome, so a renderer that handles only the
@@ -172,6 +173,19 @@ func TestRender_JsonIsOneDocument(t *testing.T) {
 
 // TestRender_JsonKeysAreTheContract pins the wire names against the Go field
 // names. A rename on the Go side must not silently rename the wire key.
+//
+// # The one hop story 046 added, and what it did NOT change
+//
+// Every key below used to sit at the document root. Sub-task 8.1 moved the model
+// one level down under "payload" and put the envelope — schema, kind, title,
+// complete, not_evaluated — in its place, so that `overlay validate --json`
+// reads like every other export instead of like a second schema (R4.3, D8).
+//
+// The lookup below therefore goes through `payload` and asserts EXACTLY the same
+// keys underneath it. That is the assertion worth keeping: the break is the hop
+// and the envelope above it, and nothing was renamed or dropped in the move. A
+// test rewritten to expect fewer keys would have hidden the difference between
+// the migration that happened and one that also lost something.
 func TestRender_JsonKeysAreTheContract(t *testing.T) {
 	stubValidateRunner(t, mixedReport())
 
@@ -184,9 +198,23 @@ func TestRender_JsonKeysAreTheContract(t *testing.T) {
 		t.Fatalf("unmarshalling: %v", err)
 	}
 
-	results, ok := doc["results"].([]any)
+	// The envelope is read first because it is what a consumer reads first: the
+	// schema says which shape the rest is in, and the kind says which command
+	// wrote it (R4.1).
+	if got, ok := doc["schema"].(float64); !ok || int(got) != report.SchemaVersion {
+		t.Errorf("root %q = %v, want %d", "schema", doc["schema"], report.SchemaVersion)
+	}
+	if got, _ := doc["kind"].(string); got != string(report.KindOverlayValidate) {
+		t.Errorf("root %q = %q, want %q", "kind", got, report.KindOverlayValidate)
+	}
+
+	payload, ok := doc["payload"].(map[string]any)
 	if !ok {
-		t.Fatalf("top-level key \"results\" missing or not an array; got keys %v", jsonKeysOf(doc))
+		t.Fatalf("the document has no \"payload\" object; got keys %v", jsonKeysOf(doc))
+	}
+	results, ok := payload["results"].([]any)
+	if !ok {
+		t.Fatalf("payload key \"results\" missing or not an array; got keys %v", jsonKeysOf(payload))
 	}
 	if len(results) != 3 {
 		t.Fatalf("results: got %d entries, want 3", len(results))
@@ -236,24 +264,29 @@ func TestRender_JsonCarriesEveryGatesOwnReason(t *testing.T) {
 		captureExit(t, func() { runValidate(newValidateCmd(), []string{"--json"}) })
 	})
 
+	// The `payload` hop is story 046's sub-task 8.1: the model moved one level
+	// down under the envelope every export carries (R4.3, D8). Nothing below it
+	// changed, which is why the inner shape is the one this test always used.
 	var doc struct {
-		Results []struct {
-			Gates []struct {
-				Gate    string `json:"gate"`
-				Outcome string `json:"outcome"`
-				Reason  string `json:"reason"`
-			} `json:"gates"`
-		} `json:"results"`
+		Payload struct {
+			Results []struct {
+				Gates []struct {
+					Gate    string `json:"gate"`
+					Outcome string `json:"outcome"`
+					Reason  string `json:"reason"`
+				} `json:"gates"`
+			} `json:"results"`
+		} `json:"payload"`
 	}
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
 		t.Fatalf("unmarshalling: %v\n--- got ---\n%s", err, out)
 	}
-	if len(doc.Results) != 3 {
-		t.Fatalf("results: got %d, want 3", len(doc.Results))
+	if len(doc.Payload.Results) != 3 {
+		t.Fatalf("results: got %d, want 3", len(doc.Payload.Results))
 	}
 
 	reasons := map[string]string{}
-	for _, gate := range doc.Results[2].Gates {
+	for _, gate := range doc.Payload.Results[2].Gates {
 		if gate.Outcome != "SKIPPED" {
 			t.Errorf("gate %q: got outcome %q, want SKIPPED", gate.Gate, gate.Outcome)
 		}

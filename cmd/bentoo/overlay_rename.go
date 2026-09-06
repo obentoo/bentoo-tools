@@ -22,10 +22,12 @@ type RenameFlags struct {
 
 var renameFlags RenameFlags
 
-var renameCmd = &cobra.Command{
-	Use:   "rename <category>:<package-pattern>:<old-version> => <new-version>",
-	Short: "Bulk rename ebuilds from old version to new version",
-	Long: `Rename multiple ebuild files matching a pattern from an old version to a new version.
+// newRenameCmd builds `overlay rename`.
+func newRenameCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "rename <category>:<package-pattern>:<old-version> => <new-version>",
+		Short: "Bulk rename ebuilds from old version to new version",
+		Long: `Rename multiple ebuild files matching a pattern from an old version to a new version.
 
 The command accepts a pattern in the format:
   <category>:<package-pattern>:<old-version> => <new-version>
@@ -51,16 +53,14 @@ Examples:
 
   # Force rename even if version-specific files exist
   bentoo overlay rename --force media-plugins:gst-*:1.24.11 => 1.26.10`,
-	Args: cobra.ExactArgs(3),
-	Run:  runRename,
-}
-
-func init() {
-	renameCmd.Flags().BoolVarP(&renameFlags.DryRun, "dry-run", "n", false, "Show what would be renamed without making changes")
-	renameCmd.Flags().BoolVarP(&renameFlags.Yes, "yes", "y", false, "Skip confirmation prompts (except for global search without --force)")
-	renameCmd.Flags().BoolVar(&renameFlags.NoManifest, "no-manifest", false, "Skip Manifest updates after renaming")
-	renameCmd.Flags().BoolVar(&renameFlags.Force, "force", false, "Proceed despite version-specific files or conflicts")
-	overlayCmd.AddCommand(renameCmd)
+		Args: cobra.ExactArgs(3),
+		Run:  runRename,
+	}
+	cmd.Flags().BoolVarP(&renameFlags.DryRun, "dry-run", "n", false, "Show what would be renamed without making changes")
+	cmd.Flags().BoolVarP(&renameFlags.Yes, "yes", "y", false, "Skip confirmation prompts (except for global search without --force)")
+	cmd.Flags().BoolVar(&renameFlags.NoManifest, "no-manifest", false, "Skip Manifest updates after renaming")
+	cmd.Flags().BoolVar(&renameFlags.Force, "force", false, "Proceed despite version-specific files or conflicts")
+	return cmd
 }
 
 func runRename(cmd *cobra.Command, args []string) {

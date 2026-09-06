@@ -9,6 +9,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/obentoo/bentoolkit/internal/common/provider"
+	"github.com/obentoo/bentoolkit/internal/common/report"
 	"github.com/obentoo/bentoolkit/internal/overlay"
 	"github.com/obentoo/bentoolkit/internal/realign"
 )
@@ -114,7 +115,8 @@ func TestCompareCmd_HasTokenFlag(t *testing.T) {
 // Borrowed from other test files in package main, never re-declared:
 //
 //	withExitIntercept (run_functions_test.go:50) · captureStdout (snapshot_test.go:41)
-//	comparisonSummaryLines / verdictSummaryLines (overlay_compare_summary_test.go)
+//	verdictScopeLines (overlay_compare_summary_test.go; the summary builders it
+//	named beside this one were deleted by story 047, sub-task 8.1)
 //
 // PINNED CONTRACT
 //
@@ -298,11 +300,47 @@ func realignRun(t *testing.T, args []string) (stdout string, code int) {
 	return out, code
 }
 
-// realignExpectedRendering rebuilds, from the same fixture and with the options
-// the SHIPPED command builds today, the report bytes a run must produce. It is
-// deliberately written without reference to anything this story adds: if the new
-// code renders one extra character on the no-realign path, these bytes differ.
-func realignExpectedRendering(t *testing.T, fx realignFixture) (string, *overlay.CompareReport) {
+// realignExpectedRendering stood here and went with FormatReport (story 047,
+// sub-task 5.5, S047-R8.2).
+//
+// It rebuilt "the report bytes a run must produce" from the fixture and compared
+// them against the command's stdout, which was how R7.2's byte-identical promise
+// was checked. Story 047 redesigns that rendering on purpose, so bytes rebuilt
+// from the old printer are no longer the answer to any question — and it had
+// ALREADY lost its last caller: sub-task 4.1 replaced it with
+// realignShippedPayload below, which rebuilds the same run and takes it through
+// the adapter into the payload, so the claim is made about the report's values
+// rather than about a string. Nothing referenced it at the time of deletion.
+
+// TestCompareCmdHasRealignFlag pins the surface R7.1 chose: the review is a flag
+// on the existing command, not a fourth top-level verb.
+//
+// _Requirements: R7, R7.1_
+func TestCompareCmdHasRealignFlag(t *testing.T) {
+	flag := compareCmd.Flags().Lookup("realign")
+	if flag == nil {
+		t.Fatal("compare has no --realign flag; R7.1 puts the baseline review on the existing comparison command")
+	}
+	if flag.DefValue != "false" {
+		t.Errorf("--realign defaults to %q, want \"false\" — a review that ran by default would change the shipped behaviour of every invocation (R7.2)", flag.DefValue)
+	}
+}
+
+// realignShippedPayload rebuilds, from the same fixture and with the options
+// the SHIPPED command builds today, the comparison a run without --realign
+// produces, and takes it through the adapter into the payload the report
+// carries. It returns the producer's report beside it, for the one claim that
+// is about rows the producer made rather than rows the payload publishes.
+//
+// It is the report half of what realignExpectedRendering does, without the
+// rendering half: the property this fixture exists to pin is that adding
+// --realign changes nothing about a run without it, and that property is about
+// the FACTS a run establishes, not the bytes a printer chose for them
+// (S047-R8.2).
+//
+// The third argument to buildCompareReport is nil: no flag narrowed this
+// report, so its rows are already the whole run's.
+func realignShippedPayload(t *testing.T, fx realignFixture) (report.CompareRun, *overlay.CompareReport) {
 	t.Helper()
 	prov, err := provider.NewProvider(&provider.RepositoryInfo{Name: "gentoo", Provider: "local", Path: fx.gentooPath}, false)
 	if err != nil {
@@ -322,78 +360,105 @@ func realignExpectedRendering(t *testing.T, fx realignFixture) (string, *overlay
 		OverlayPath:   fx.overlayPath,
 		// IncludeNotInRemote is deliberately ABSENT. D1: switching it on
 		// unconditionally would give the Bentoo-only packages rows they do not
-		// have today and change `counted - len(report.Results)` under everyone.
+		// have today.
 	}
-	report, err := overlay.CompareWithProvider(scan.Packages, prov, opts)
+	rep, err := overlay.CompareWithProvider(scan.Packages, prov, opts)
 	if err != nil {
 		t.Fatalf("CompareWithProvider returned %v, want nil", err)
 	}
-	// The two annotation passes the shipped command runs before rendering. The
-	// reviewer is nil because PATH holds no `claude`, which is also the state
-	// the captured run is in.
-	overlay.AnnotateAuthorship(report, prov, opts)
-	overlay.AnnotateReviews(report, nil, prov, opts)
-	return overlay.FormatReport(report), report
+	// The two annotation passes the shipped command runs before it presents.
+	// The reviewer is nil because PATH holds no `claude`, which is also the
+	// state the captured run is in.
+	overlay.AnnotateAuthorship(rep, prov, opts)
+	overlay.AnnotateReviews(rep, nil, prov, opts)
+
+	return compareComparePayload(t, buildCompareReport(rep, "gentoo", nil)), rep
 }
 
-// TestCompareCmdHasRealignFlag pins the surface R7.1 chose: the review is a flag
-// on the existing command, not a fourth top-level verb.
-//
-// _Requirements: R7, R7.1_
-func TestCompareCmdHasRealignFlag(t *testing.T) {
-	flag := compareCmd.Flags().Lookup("realign")
-	if flag == nil {
-		t.Fatal("compare has no --realign flag; R7.1 puts the baseline review on the existing comparison command")
+// compareRowPackages is every package the payload gives a row to, whichever
+// verdict list holds it. The four lists are a partition of the run's rows, so
+// their union is the row set — and asking a list whether it holds a package is
+// the direct form of a question the rendered text could only be searched for.
+func compareRowPackages(payload report.CompareRun) []string {
+	var pkgs []string
+	for _, list := range [][]report.ComparePkg{payload.Redundant, payload.NeedsRebase, payload.Keep, payload.Unknown} {
+		for _, pkg := range list {
+			pkgs = append(pkgs, pkg.Package)
+		}
 	}
-	if flag.DefValue != "false" {
-		t.Errorf("--realign defaults to %q, want \"false\" — a review that ran by default would change the shipped behaviour of every invocation (R7.2)", flag.DefValue)
+	return pkgs
+}
+
+// assertCompareShippedFacts states, over the payload, everything a run without
+// --realign establishes about this fixture. BOTH cases below are held to the
+// same literal expectations, so the two trees agreeing is itself asserted
+// rather than assumed (S047-R8.2).
+func assertCompareShippedFacts(t *testing.T, payload report.CompareRun) {
+	t.Helper()
+
+	// The package set: the Bentoo-only package has no row today and must not
+	// gain one, because IncludeNotInRemote must not be switched on for everyone
+	// (D1).
+	rows := compareRowPackages(payload)
+	if len(rows) != 1 {
+		t.Errorf("the payload carries %d row(s) %q, want 1; the fixture has one package ::gentoo carries", len(rows), rows)
+	}
+	for _, pkg := range rows {
+		if strings.Contains(pkg, "zed") {
+			t.Errorf("%s has a row without --realign — IncludeNotInRemote was switched on for everyone (D1)", pkg)
+		}
+	}
+
+	// The summary arithmetic, as the three counters the payload carries rather
+	// than as the three lines a printer wrote from them. InBoth is summed from
+	// three producer counters, so a story that added a fourth without noticing
+	// would move it.
+	if payload.Scanned != 2 {
+		t.Errorf("Scanned is %d, want 2 — the fixture overlay carries two packages", payload.Scanned)
+	}
+	if payload.InBoth != 1 {
+		t.Errorf("InBoth is %d, want 1 — ::gentoo carries one of the two", payload.InBoth)
+	}
+	if payload.OnlyLocal != 1 {
+		t.Errorf("OnlyLocal is %d, want 1 — ::gentoo carries no version of app-editors/zed", payload.OnlyLocal)
 	}
 }
 
-// TestCompareWithoutRealignIsByteIdentical is the quality gate stated as a test.
+// TestCompareWithoutRealignIsUnchanged is the quality gate stated as a test:
+// adding --realign changes NOTHING about a run without it.
 //
-// _Requirements: R7, R7.2_
-func TestCompareWithoutRealignIsByteIdentical(t *testing.T) {
-	t.Run("the rendered report is the shipped bytes", func(t *testing.T) {
+// It used to state that as byte-identity of the whole rendering against a
+// rebuild of the old printer's output. That EXPRESSION died with the printer —
+// S047-R1.5 moved `compare` onto the shared report envelope — and a byte
+// comparison re-pinned to the new bytes would prove only that today's renderer
+// agrees with itself. So the property is re-stated where it survives the next
+// rendering change too: over the payload and the exit code, which no renderer
+// owns (S047-R8.2). What is asserted here is the same claim set as before,
+// minus the one claim that WAS the formatting.
+//
+// _Requirements: S047-R8.2, R7, R7.2_
+func TestCompareWithoutRealignIsUnchanged(t *testing.T) {
+	t.Run("the shipped run establishes the shipped facts", func(t *testing.T) {
 		fx := realignSetup(t, true, true)
 		realignFlags(t, false, false)
 
-		want, report := realignExpectedRendering(t, fx)
+		payload, rep := realignShippedPayload(t, fx)
 		got, code := realignRun(t, nil)
 
-		if got != want {
-			t.Errorf("the no-realign rendering changed.\n got:\n%s\nwant:\n%s", got, want)
-		}
 		if code != 0 {
 			t.Errorf("exit code is %d, want 0 — the shipped invocation exits 0 on a healthy overlay", code)
 		}
+		assertCompareShippedFacts(t, payload)
+		if len(rep.Results) != 1 {
+			t.Errorf("the shipped options produced %d rows, want 1; the fixture has one package ::gentoo carries", len(rep.Results))
+		}
 
-		// The package set, asserted where a reader can see it: the Bentoo-only
-		// package has no row today and must not gain one.
+		// The same package set, read off the output the operator actually gets.
+		// A substring check survives a rendering change the way the byte
+		// comparison it replaces did not: nothing about it depends on a column
+		// width, a heading or an order.
 		if strings.Contains(got, "zed") {
-			t.Error("app-editors/zed has a row without --realign — IncludeNotInRemote was switched on for everyone (D1)")
-		}
-		if len(report.Results) != 1 {
-			t.Errorf("the shipped options produced %d rows, want 1; the fixture has one package ::gentoo carries", len(report.Results))
-		}
-
-		// The summary arithmetic, pinned line for line. `Found in both` is
-		// derived from three counters, so a story that added a fourth without
-		// noticing would move it.
-		wantSummary := []string{
-			"\nSummary:",
-			"  Total packages scanned: 2",
-			"  Found in both repos: 1",
-			"  Only in Bentoo: 1",
-		}
-		gotSummary := comparisonSummaryLines(report)
-		if len(gotSummary) != len(wantSummary) {
-			t.Fatalf("summary has %d lines, want %d:\ngot  %q\nwant %q", len(gotSummary), len(wantSummary), gotSummary, wantSummary)
-		}
-		for i := range wantSummary {
-			if gotSummary[i] != wantSummary[i] {
-				t.Errorf("summary line %d is %q, want %q", i, gotSummary[i], wantSummary[i])
-			}
+			t.Errorf("app-editors/zed reached the operator's output without --realign — IncludeNotInRemote was switched on for everyone (D1).\noutput:\n%s", got)
 		}
 	})
 
@@ -404,14 +469,18 @@ func TestCompareWithoutRealignIsByteIdentical(t *testing.T) {
 		fx := realignSetup(t, true, false)
 		realignFlags(t, false, false)
 
-		want, _ := realignExpectedRendering(t, fx)
+		payload, _ := realignShippedPayload(t, fx)
 		got, code := realignRun(t, nil)
 
 		if code != 0 {
 			t.Errorf("exit code is %d without --realign, want 0 — the review's failure mode leaked into the shipped path", code)
 		}
-		if got != want {
-			t.Errorf("the no-realign rendering changed when the baseline tree was absent.\n got:\n%s\nwant:\n%s", got, want)
+		// The SAME expectations the healthy tree is held to, and that sameness
+		// is the assertion: a missing ::gentoo marker changes what --realign can
+		// do and nothing about what a run without it establishes.
+		assertCompareShippedFacts(t, payload)
+		if strings.Contains(got, "zed") {
+			t.Errorf("app-editors/zed reached the operator's output when the baseline tree was absent (D1).\noutput:\n%s", got)
 		}
 	})
 }

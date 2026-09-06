@@ -3,7 +3,6 @@ package overlay
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/obentoo/bentoolkit/internal/common/provider"
@@ -80,9 +79,15 @@ func writeVerifyEbuild(t *testing.T, root, category, pkg, version, body string) 
 	}
 }
 
-// verifyRun compares one package and returns its result together with the
-// rendered report, so a finding can be asserted where the operator reads it.
-func verifyRun(t *testing.T, overlayRoot string, prov provider.Provider, pkg PackageInfo, div map[string]Divergence) (CompareResult, string) {
+// verifyRun compares one package and returns its result together with what the
+// run ESTABLISHED, so a finding can be asserted where the operator receives it.
+//
+// Story 047, sub-task 5.5 (S047-R8.2): it returned the rendered report until
+// FormatReport was retired. The findings are what cmd/bentoo builds every row
+// and note from, and asking of them replaces a case-insensitive search for the
+// word "stale" — which the caveat prose and a package name could both satisfy —
+// with a check on the finding's Kind.
+func verifyRun(t *testing.T, overlayRoot string, prov provider.Provider, pkg PackageInfo, div map[string]Divergence) (CompareResult, []Finding) {
 	t.Helper()
 	report, err := CompareWithProvider([]PackageInfo{pkg}, prov, CompareOptions{
 		IncludeSynced:      true,
@@ -96,7 +101,8 @@ func verifyRun(t *testing.T, overlayRoot string, prov provider.Provider, pkg Pac
 	if len(report.Results) != 1 {
 		t.Fatalf("report holds %d results, want 1", len(report.Results))
 	}
-	return report.Results[0], FormatReport(report)
+	EstablishFindings(report)
+	return report.Results[0], report.Findings
 }
 
 const (
@@ -125,7 +131,7 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		writeVerifyEbuild(t, upstreamRoot, "app-editors", "zed", "1.0", zedEbuildStock)
 		prov := &localRootedFakeProvider{root: upstreamRoot, versions: map[string][]string{"app-editors/zed": {"1.0"}}}
 
-		got, out := verifyRun(t, overlayRoot, prov, pkg, declared)
+		got, findings := verifyRun(t, overlayRoot, prov, pkg, declared)
 
 		if got.Verified != VerifiedIdentical {
 			t.Errorf("Verified = %v, want VerifiedIdentical", got.Verified)
@@ -135,12 +141,12 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		if got.Verdict != VerdictKeep {
 			t.Errorf("Verdict = %v, want VerdictKeep; a finding must not change the verdict (R4.5)", got.Verdict)
 		}
-		low := strings.ToLower(out)
-		if !strings.Contains(low, "stale") {
-			t.Errorf("report reports no stale declaration; the divergence it describes no longer exists.\n--- report ---\n%s", out)
+		stale := findingOfKind(findings, FindingStaleDeclaration)
+		if stale == nil {
+			t.Fatalf("the run established no stale declaration; the divergence it describes no longer exists:\n%+v", findings)
 		}
-		if !strings.Contains(out, zedPatchedEntry) {
-			t.Errorf("report does not name the declaring entry %q.\n--- report ---\n%s", zedPatchedEntry, out)
+		if stale.Entry != zedPatchedEntry {
+			t.Errorf("the stale finding names %q as the declaring entry, want %q — that key is what the operator greps the registry for", stale.Entry, zedPatchedEntry)
 		}
 	})
 
@@ -150,7 +156,7 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		writeVerifyEbuild(t, upstreamRoot, "app-editors", "zed", "1.0", zedEbuildStock)
 		prov := &localRootedFakeProvider{root: upstreamRoot, versions: map[string][]string{"app-editors/zed": {"1.0"}}}
 
-		got, out := verifyRun(t, overlayRoot, prov, pkg, silent)
+		got, findings := verifyRun(t, overlayRoot, prov, pkg, silent)
 
 		if got.Verified != VerifiedDiffers {
 			t.Errorf("Verified = %v, want VerifiedDiffers", got.Verified)
@@ -161,8 +167,8 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		if got.Verdict != VerdictRedundant {
 			t.Errorf("Verdict = %v, want VerdictRedundant; a finding must not change the verdict (R4.5)", got.Verdict)
 		}
-		if low := strings.ToLower(out); !strings.Contains(low, "undeclared") {
-			t.Errorf("report reports no undeclared divergence, yet the package is about to be recommended for removal.\n--- report ---\n%s", out)
+		if findingOfKind(findings, FindingUndeclaredDivergence) == nil {
+			t.Errorf("the run established no undeclared divergence, yet the package is about to be recommended for removal:\n%+v", findings)
 		}
 	})
 
@@ -172,7 +178,7 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		writeVerifyEbuild(t, upstreamRoot, "app-editors", "zed", "1.0", zedEbuildStock)
 		prov := &localRootedFakeProvider{root: upstreamRoot, versions: map[string][]string{"app-editors/zed": {"1.0"}}}
 
-		got, out := verifyRun(t, overlayRoot, prov, pkg, silent)
+		got, findings := verifyRun(t, overlayRoot, prov, pkg, silent)
 
 		if got.Verified != VerifiedIdentical {
 			t.Errorf("Verified = %v, want VerifiedIdentical", got.Verified)
@@ -180,7 +186,7 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		if got.Verdict != VerdictRedundant {
 			t.Errorf("Verdict = %v, want VerdictRedundant (now verified rather than merely derived)", got.Verdict)
 		}
-		assertNoFinding(t, out)
+		assertNoFinding(t, findings)
 	})
 
 	t.Run("differing content with a declaration yields no finding", func(t *testing.T) {
@@ -189,7 +195,7 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		writeVerifyEbuild(t, upstreamRoot, "app-editors", "zed", "1.0", zedEbuildStock)
 		prov := &localRootedFakeProvider{root: upstreamRoot, versions: map[string][]string{"app-editors/zed": {"1.0"}}}
 
-		got, out := verifyRun(t, overlayRoot, prov, pkg, declared)
+		got, findings := verifyRun(t, overlayRoot, prov, pkg, declared)
 
 		if got.Verified != VerifiedDiffers {
 			t.Errorf("Verified = %v, want VerifiedDiffers", got.Verified)
@@ -197,7 +203,7 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		if got.Verdict != VerdictKeep {
 			t.Errorf("Verdict = %v, want VerdictKeep", got.Verdict)
 		}
-		assertNoFinding(t, out)
+		assertNoFinding(t, findings)
 	})
 
 	t.Run("a missing upstream ebuild leaves the declaration standing (R4.4)", func(t *testing.T) {
@@ -207,7 +213,7 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		// otherwise. Disagreeing with the provider is not this feature's job.
 		prov := &localRootedFakeProvider{root: upstreamRoot, versions: map[string][]string{"app-editors/zed": {"1.0"}}}
 
-		got, out := verifyRun(t, overlayRoot, prov, pkg, declared)
+		got, findings := verifyRun(t, overlayRoot, prov, pkg, declared)
 
 		if got.Verified != NotVerified {
 			t.Errorf("Verified = %v, want NotVerified; absence of evidence is not evidence", got.Verified)
@@ -215,7 +221,7 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		if got.Verdict != VerdictKeep {
 			t.Errorf("Verdict = %v, want VerdictKeep; the declaration stands", got.Verdict)
 		}
-		assertNoFinding(t, out)
+		assertNoFinding(t, findings)
 	})
 
 	t.Run("different versions are never content-compared (R4.1)", func(t *testing.T) {
@@ -224,7 +230,7 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		writeVerifyEbuild(t, upstreamRoot, "app-editors", "zed", "2.0", zedEbuildStock)
 		prov := &localRootedFakeProvider{root: upstreamRoot, versions: map[string][]string{"app-editors/zed": {"2.0"}}}
 
-		got, out := verifyRun(t, overlayRoot, prov, pkg, declared)
+		got, findings := verifyRun(t, overlayRoot, prov, pkg, declared)
 
 		if got.Status != StatusOutdated {
 			t.Fatalf("Status = %v, want StatusOutdated (fixture check)", got.Status)
@@ -235,7 +241,7 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		if got.Verdict != VerdictNeedsRebase {
 			t.Errorf("Verdict = %v, want VerdictNeedsRebase", got.Verdict)
 		}
-		assertNoFinding(t, out)
+		assertNoFinding(t, findings)
 	})
 
 	t.Run("a provider with no local root skips verification (R4.4)", func(t *testing.T) {
@@ -244,7 +250,7 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		// fakeProvider is the API-shaped double: no LocalRoot, so no content.
 		prov := &fakeProvider{versions: map[string][]string{"app-editors/zed": {"1.0"}}}
 
-		got, out := verifyRun(t, overlayRoot, prov, pkg, declared)
+		got, findings := verifyRun(t, overlayRoot, prov, pkg, declared)
 
 		if got.Verified != NotVerified {
 			t.Errorf("Verified = %v, want NotVerified; an API provider cannot supply content", got.Verified)
@@ -252,17 +258,31 @@ func TestVerifyAgainstLocalContent(t *testing.T) {
 		if got.Verdict != VerdictKeep {
 			t.Errorf("Verdict = %v, want VerdictKeep", got.Verdict)
 		}
-		assertNoFinding(t, out)
+		assertNoFinding(t, findings)
 	})
 }
 
-// assertNoFinding fails when the report speaks of either verification finding.
-func assertNoFinding(t *testing.T, out string) {
+// findingOfKind is the first finding of one kind, or nil.
+func findingOfKind(findings []Finding, kind FindingKind) *Finding {
+	for i := range findings {
+		if findings[i].Kind == kind {
+			return &findings[i]
+		}
+	}
+	return nil
+}
+
+// assertNoFinding fails when the run established either verification finding.
+//
+// It is checked by KIND rather than by the words "stale" and "undeclared"
+// (story 047, sub-task 5.5, S047-R8.2). The old string form had a real hole: the
+// section caveat and a package whose name contains either word would both trip
+// it, and a finding whose sentence was reworded would stop tripping it.
+func assertNoFinding(t *testing.T, findings []Finding) {
 	t.Helper()
-	low := strings.ToLower(out)
-	for _, word := range []string{"stale", "undeclared"} {
-		if strings.Contains(low, word) {
-			t.Errorf("report mentions %q but this case has no finding.\n--- report ---\n%s", word, out)
+	for _, kind := range []FindingKind{FindingStaleDeclaration, FindingUndeclaredDivergence} {
+		if f := findingOfKind(findings, kind); f != nil {
+			t.Errorf("the run established a %v finding (%q) but this case has none", kind, f.Detail)
 		}
 	}
 }

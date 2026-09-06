@@ -1,0 +1,66 @@
+## Overlay Comparison
+
+20 package(s) scanned in the Bentoo overlay. 15 also exist in ::gentoo and are compared below; 5 exist only here and have nothing to compare against.
+
+12 comparison(s) were never read: a review nobody requested, a review that was attempted and failed, or a version pair the content check refused. A row whose review failed is marked [reading failed] — the difference is real, the explanation is missing, and no row below was quietly downgraded to hide it.
+
+## Redundant — ::gentoo ships the version, and nothing cleared the content check
+
+4 package(s), of which 1 carry a reading. 1 were never compared at all, because the check refuses to diff two different versions; 1 had a review that was attempted and failed; 1 were never submitted for review. The recommendation to remove covers the 1 somebody read, and none of the rest.
+
+| PACKAGE | BENTOO | GENTOO | STATE | DIFF | REASON |
+| --- | --- | --- | --- | --- | --- |
+| dev-lang/go | 1.27.0 | 1.27.0 | up-to-date | +24/-0 | differs, and no entry declares why [reading failed] |
+| kde-plasma/breeze-gtk | 6.7.4 | 6.7.4-r1 | outdated | not compared |  |
+| net-libs/nodejs | 26.8.1 | 26.8.1 | up-to-date | identical | identical to the ::gentoo copy, line for line |
+| sys-apps/fwupd | 2.1.7 | 2.1.7 | up-to-date | +8/-29 |  |
+
+A difference is not proof of authorship: ::gentoo also revises ebuilds in place, without a revbump, so a small diff is often our copy having fallen behind rather than work of ours. Diff before removing or declaring.
+Beside the reason on each row, the run established more about these packages:
+dev-lang/go: KEYWORDS differs from ::gentoo — ours drops ~arm64
+
+## Needs Rebase — ::gentoo moved ahead of changes of ours, which must be re-applied
+
+2 package(s) listed: each carries changes of ours on top of a version ::gentoo has since moved past, so both a bump and a re-application are owed.
+
+| PACKAGE | BENTOO | GENTOO | STATE | DIFF | REASON |
+| --- | --- | --- | --- | --- | --- |
+| kde-plasma/kwin | 6.7.4 | 6.7.4-r2 | outdated | +3/-1 | ours: adds files/kwin-wayland-crash.patch on top of a version ::gentoo has moved past |
+| x11-base/xwayland | 24.1.6 | 24.1.8 | outdated | +11/-4 | [reading failed] |
+
+## Keep — the overlay copy is ahead
+
+7 package(s) listed, and the run recommends keeping every one of them.
+
+| PACKAGE | BENTOO | GENTOO | STATE | REASON |
+| --- | --- | --- | --- | --- |
+| media-plugins/gst-plugins-base | 1.29.2 | 1.26.11 | newer |  |
+| media-plugins/gst-plugins-good | 1.29.2 | 1.26.11 | newer |  |
+| media-libs/gst-libav | 1.29.2 | 1.26.11 | newer |  |
+| media-plugins/gst-plugins-ugly | 1.29.2 | 1.26.11 | newer | patched: applies files/gst-ugly-x264.patch, which ::gentoo does not ship |
+| dev-lang/rust | 1.98.0 | 1.97.1 | newer |  |
+| dev-lang/rust-bin | 1.98.0 | 1.97.1 | newer |  |
+| app-admin/ansible | 14.3.1 | 14.1.0 | newer |  |
+
+5 of the 7 share a version pair and would collapse into 2 group(s); --all listed every member above instead.
+Beside the reason on each row, the run established more about these packages:
+media-plugins/gst-plugins-ugly: inherit differs from ::gentoo — ours adds gstreamer-meson
+
+## Unknown — no recommendation
+
+2 package(s) listed. Nothing on record describes them, so neither advice is supported.
+
+| PACKAGE | BENTOO | GENTOO | STATE |
+| --- | --- | --- | --- |
+| sys-kernel/gentoo-kernel | 7.2.2 | 7.1.12 | newer |
+| virtual/dist-kernel | 7.2.2 | 7.1.12 | newer |
+
+## Summary
+
+20 scanned · 15 in both · 5 only here
+keep 7 · redundant 4 · needs rebase 2 · unknown 7
+Verdicts count every package scanned; 5 of 20 have no row above.
+
+3 of the 15 packages compared were found to have no ::gentoo counterpart — those are the overlay's own work rather than a divergence from anyone's, and no realignment is proposed for them.
+Classification: 9 of the 12 differences examined across 7 packages are version moves, 2 are ours, 1 could not be classified.
+Some packages are recommended for removal. Run `bentoo overlay prune` to act on them.

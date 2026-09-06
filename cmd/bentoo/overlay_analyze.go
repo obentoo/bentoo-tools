@@ -28,10 +28,12 @@ var (
 	analyzeDryRun bool
 )
 
-var analyzeCmd = &cobra.Command{
-	Use:   "analyze [category/package]",
-	Short: "Analyze package and generate autoupdate schema",
-	Long: `Analyze a package to determine the best way to check for upstream versions.
+// newAnalyzeCmd builds `overlay analyze`.
+func newAnalyzeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "analyze [category/package]",
+		Short: "Analyze package and generate autoupdate schema",
+		Long: `Analyze a package to determine the best way to check for upstream versions.
 
 The analyze command uses intelligent analysis to discover data sources and
 generate update schemas automatically. It supports multiple data sources
@@ -45,18 +47,15 @@ Examples:
   bentoo overlay analyze net-misc/foo --no-cache  Bypass caches
   bentoo overlay analyze net-misc/foo --force   Overwrite existing schema
   bentoo overlay analyze net-misc/foo --dry-run Show schema without saving`,
-	Run: runAnalyze,
-}
-
-func init() {
-	analyzeCmd.Flags().StringVar(&analyzeURL, "url", "", "Override URL for analysis")
-	analyzeCmd.Flags().StringVar(&analyzeHint, "hint", "", "Provide hint to LLM for guidance")
-	analyzeCmd.Flags().BoolVar(&analyzeAll, "all", false, "Analyze all packages without schema")
-	analyzeCmd.Flags().BoolVar(&analyzeNoCache, "no-cache", false, "Bypass all caches")
-	analyzeCmd.Flags().BoolVar(&analyzeForce, "force", false, "Overwrite existing schema")
-	analyzeCmd.Flags().BoolVar(&analyzeDryRun, "dry-run", false, "Show schema without saving")
-
-	overlayCmd.AddCommand(analyzeCmd)
+		Run: runAnalyze,
+	}
+	cmd.Flags().StringVar(&analyzeURL, "url", "", "Override URL for analysis")
+	cmd.Flags().StringVar(&analyzeHint, "hint", "", "Provide hint to LLM for guidance")
+	cmd.Flags().BoolVar(&analyzeAll, "all", false, "Analyze all packages without schema")
+	cmd.Flags().BoolVar(&analyzeNoCache, "no-cache", false, "Bypass all caches")
+	cmd.Flags().BoolVar(&analyzeForce, "force", false, "Overwrite existing schema")
+	cmd.Flags().BoolVar(&analyzeDryRun, "dry-run", false, "Show schema without saving")
+	return cmd
 }
 
 func runAnalyze(cmd *cobra.Command, args []string) {

@@ -123,10 +123,19 @@ func TestGlobalFlagsDefaults(t *testing.T) {
 	}
 }
 
-// TestRootCommandHasPersistentPreRun tests that PersistentPreRun is configured for global flags.
+// TestRootCommandHasPersistentPreRun tests that the root's pre-run hook is
+// configured for global flag handling.
+//
+// It asserts the ERROR-RETURNING variant. Story 046 sub-task 4.4 moved --ui
+// rejection into this hook (R3.2), and a rejection has to be able to stop the
+// run: cobra skips RunE only when the pre-run hook RETURNS an error, which the
+// PersistentPreRun signature has no way to do. The two fields are mutually
+// exclusive in practice — cobra runs PersistentPreRunE and ignores
+// PersistentPreRun when both are set — so checking the old field here would
+// assert the absence of the behaviour the story added.
 func TestRootCommandHasPersistentPreRun(t *testing.T) {
-	if rootCmd.PersistentPreRun == nil {
-		t.Error("rootCmd should have PersistentPreRun configured for global flag handling")
+	if rootCmd.PersistentPreRunE == nil {
+		t.Error("rootCmd should have PersistentPreRunE configured for global flag handling and --ui rejection")
 	}
 }
 

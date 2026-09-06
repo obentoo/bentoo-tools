@@ -26,7 +26,7 @@ import (
 	"github.com/obentoo/bentoolkit/internal/common/logger"
 	"github.com/obentoo/bentoolkit/internal/common/output"
 	"github.com/obentoo/bentoolkit/internal/common/provider"
-	"github.com/obentoo/bentoolkit/internal/common/report"
+	"github.com/obentoo/bentoolkit/internal/common/report/render"
 	"github.com/obentoo/bentoolkit/internal/common/tui"
 	"github.com/spf13/cobra"
 )
@@ -204,10 +204,12 @@ var autoupdateValidate autoupdateValidatePolicy
 // flattening them here would be flattening exactly what R7.2 needs.
 var autoupdateValidateCfg config.ValidateConfig
 
-var autoupdateCmd = &cobra.Command{
-	Use:   "autoupdate [package]",
-	Short: "Check and apply ebuild version updates",
-	Long: `Automatically check upstream sources for new versions and apply updates.
+// newAutoupdateCmd builds `overlay autoupdate`.
+func newAutoupdateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "autoupdate [package]",
+		Short: "Check and apply ebuild version updates",
+		Long: `Automatically check upstream sources for new versions and apply updates.
 
 Distfiles (--apply, --revive and --clean, which all regenerate a Manifest):
 
@@ -258,15 +260,13 @@ Examples:
                                                   once per registry; without --yes it prints the plan and stops
   bentoo overlay autoupdate --apply all --distdir /srv/distfiles   Download into a specific directory
   bentoo overlay autoupdate --apply all --distfiles-cache ""       Never reuse a cached distfile`,
-	Run: runAutoupdate,
-}
-
-func init() {
-	autoupdateCmd.Flags().BoolVar(&autoupdateCheck, "check", false, "Check for updates")
-	autoupdateCmd.Flags().BoolVar(&autoupdateList, "list", false, "List pending updates")
-	autoupdateCmd.Flags().StringVar(&autoupdateApply, "apply", "", "Apply update for specified package, or \"all\" for every pending update")
-	autoupdateCmd.Flags().BoolVar(&autoupdateForce, "force", false, "Ignore cache when checking")
-	autoupdateCmd.Flags().BoolVar(&autoupdateCompile, "compile", false, "Run compile test after apply. This PRIVILEGED gate stops at src_compile and never runs src_install: extending it would mean a second prompt, a second privilege escalation and a second copy of the repair loop (S042-D7). --depth=install is the unprivileged path that goes further, and the two are mutually exclusive")
+		Run: runAutoupdate,
+	}
+	cmd.Flags().BoolVar(&autoupdateCheck, "check", false, "Check for updates")
+	cmd.Flags().BoolVar(&autoupdateList, "list", false, "List pending updates")
+	cmd.Flags().StringVar(&autoupdateApply, "apply", "", "Apply update for specified package, or \"all\" for every pending update")
+	cmd.Flags().BoolVar(&autoupdateForce, "force", false, "Ignore cache when checking")
+	cmd.Flags().BoolVar(&autoupdateCompile, "compile", false, "Run compile test after apply. This PRIVILEGED gate stops at src_compile and never runs src_install: extending it would mean a second prompt, a second privilege escalation and a second copy of the repair loop (S042-D7). --depth=install is the unprivileged path that goes further, and the two are mutually exclusive")
 	// --depth is read OFF THE COMMAND rather than bound to a package variable
 	// (newValidateCmd's convention): the value is a rung of a ladder that has to
 	// be parsed and rejected by name, and a package variable would carry one
@@ -275,15 +275,15 @@ func init() {
 	// It is what gives S033-R2.7 a surface at all. Without it the resolver would
 	// be answering a question nobody could ask, and `--compile` would be the only
 	// way to reach a build gate.
-	autoupdateCmd.Flags().String("depth", "", "With --apply: validate every bump to this rung of the ladder instead of the one its class and the config select — none, options, patches, configure, compile or install, each including every rung before it. This REPLACES classification, the package tier and configuration, in either direction, and it is the only input allowed to ask for less. Anything above \"options\" starts a build and therefore applies one package at a time")
-	autoupdateCmd.Flags().BoolVar(&autoupdateRequireIsolation, "require-isolation", false, "With --compile: SKIP the compile test rather than run it without a verified network namespace. Without this an unisolated compile still runs, and its pass is labelled \"unverified isolation\" — creating the namespace needs privilege an ordinary user does not have, and Portage reports network-sandbox in FEATURES either way")
-	autoupdateCmd.Flags().BoolVarP(&autoupdateClean, "clean", "c", false, "With --apply: sweep that package's directory after a successful apply. WITHOUT --apply: sweep the whole overlay — every package directory holding an ebuild no registry entry claims — optionally narrowed by a positional <category> or <category/package>. The full plan is printed BEFORE the confirmation, and the ebuilds are DELETED from an overlay that auto-commits and pushes, which is why an unattended sweep requires --yes. A directory whose entry has no version pin, or that no entry claims, is reported and left alone")
-	autoupdateCmd.Flags().IntVar(&autoupdateConcurrency, "concurrency", autoupdate.DefaultConcurrency, "max parallel checks/applies (1-100). A standalone --clean sweep does NOT take this default: it runs one directory at a time unless the flag is passed explicitly, because whether concurrent pkgdev manifest runs contend on DISTDIR or on pkgdev's own locking was never measured")
-	autoupdateCmd.Flags().IntVar(&autoupdateTimeout, "timeout", 0, "per-request HTTP timeout in seconds for --check (0 = use config autoupdate.http_timeout, default 30)")
-	autoupdateCmd.Flags().StringVar(&autoupdateOnly, "only", "", "Restrict --check to packages of this type: \"bin\" or \"source\"")
-	autoupdateCmd.Flags().BoolVar(&autoupdateReviveList, "revive-list", false, "List disabled (orphaned) packages whose upstream is newer than ::gentoo")
-	autoupdateCmd.Flags().StringVar(&autoupdateRevive, "revive", "", "Revive an orphaned package by seeding from ::gentoo and bumping it, or \"all\" for every revivable orphan")
-	autoupdateCmd.Flags().BoolVar(&autoupdateRevivable, "revivable", false, "With --check, also report revivable orphans (disabled+absent, upstream newer than ::gentoo) in the same pass")
+	cmd.Flags().String("depth", "", "With --apply: validate every bump to this rung of the ladder instead of the one its class and the config select — none, options, patches, configure, compile or install, each including every rung before it. This REPLACES classification, the package tier and configuration, in either direction, and it is the only input allowed to ask for less. Anything above \"options\" starts a build and therefore applies one package at a time")
+	cmd.Flags().BoolVar(&autoupdateRequireIsolation, "require-isolation", false, "With --compile: SKIP the compile test rather than run it without a verified network namespace. Without this an unisolated compile still runs, and its pass is labelled \"unverified isolation\" — creating the namespace needs privilege an ordinary user does not have, and Portage reports network-sandbox in FEATURES either way")
+	cmd.Flags().BoolVarP(&autoupdateClean, "clean", "c", false, "With --apply: sweep that package's directory after a successful apply. WITHOUT --apply: sweep the whole overlay — every package directory holding an ebuild no registry entry claims — optionally narrowed by a positional <category> or <category/package>. The full plan is printed BEFORE the confirmation, and the ebuilds are DELETED from an overlay that auto-commits and pushes, which is why an unattended sweep requires --yes. A directory whose entry has no version pin, or that no entry claims, is reported and left alone")
+	cmd.Flags().IntVar(&autoupdateConcurrency, "concurrency", autoupdate.DefaultConcurrency, "max parallel checks/applies (1-100). A standalone --clean sweep does NOT take this default: it runs one directory at a time unless the flag is passed explicitly, because whether concurrent pkgdev manifest runs contend on DISTDIR or on pkgdev's own locking was never measured")
+	cmd.Flags().IntVar(&autoupdateTimeout, "timeout", 0, "per-request HTTP timeout in seconds for --check (0 = use config autoupdate.http_timeout, default 30)")
+	cmd.Flags().StringVar(&autoupdateOnly, "only", "", "Restrict --check to packages of this type: \"bin\" or \"source\"")
+	cmd.Flags().BoolVar(&autoupdateReviveList, "revive-list", false, "List disabled (orphaned) packages whose upstream is newer than ::gentoo")
+	cmd.Flags().StringVar(&autoupdateRevive, "revive", "", "Revive an orphaned package by seeding from ::gentoo and bumping it, or \"all\" for every revivable orphan")
+	cmd.Flags().BoolVar(&autoupdateRevivable, "revivable", false, "With --check, also report revivable orphans (disabled+absent, upstream newer than ::gentoo) in the same pass")
 	// --no-tui is DEPRECATED IN ITS HELP TEXT ONLY (S044-R3.5). Its behaviour is
 	// untouched: it still disables the live TUI, it still answers to NO_COLOR
 	// and BENTOO_NO_TUI, and it still outranks --ui and BENTOO_UI, because it is
@@ -296,12 +296,12 @@ func init() {
 	// change in what the flag does. A hidden flag is also the opposite of what a
 	// deprecation is for: the operator who still passes it is exactly the reader
 	// who needs to be told what replaced it.
-	autoupdateCmd.Flags().BoolVar(&autoupdateNoTUI, "no-tui", false, "DEPRECATED, use --ui=plain instead. It is still honoured and its behaviour has not changed: it disables the live TUI and streams plain output, it is exactly --ui=plain, and it OUTRANKS both --ui and BENTOO_UI — so --no-tui --ui=fullscreen renders plain, because an opt-out a flag could override would not be an opt-out. The two environment variables it has always answered to, NO_COLOR and BENTOO_NO_TUI, are unchanged and mean the same thing as passing it")
-	autoupdateCmd.Flags().BoolVar(&autoupdateLint, "lint", false, "Check packages.toml against the record model: layout (# END marker, comments field last, no floating comments), field set (unknown or retired keys, redundant enabled = true, canonical field order) and semantics (invalid or ambiguous entries, undeclared release lines, commit tracking with no base source)")
+	cmd.Flags().BoolVar(&autoupdateNoTUI, "no-tui", false, "DEPRECATED, use --ui=plain instead. It is still honoured and its behaviour has not changed: it disables the live TUI and streams plain output, it is exactly --ui=plain, and it OUTRANKS both --ui and BENTOO_UI — so --no-tui --ui=fullscreen renders plain, because an opt-out a flag could override would not be an opt-out. The two environment variables it has always answered to, NO_COLOR and BENTOO_NO_TUI, are unchanged and mean the same thing as passing it")
+	cmd.Flags().BoolVar(&autoupdateLint, "lint", false, "Check packages.toml against the record model: layout (# END marker, comments field last, no floating comments), field set (unknown or retired keys, redundant enabled = true, canonical field order) and semantics (invalid or ambiguous entries, undeclared release lines, commit tracking with no base source)")
 	// No back-quoted words in this usage string: pflag reads the first one as the
 	// flag's value placeholder and strips the quotes, which would render a bool
 	// flag as "--fix binary".
-	autoupdateCmd.Flags().BoolVar(&autoupdateFix, "fix", false, "With --lint: repair in place the violations that have a mechanical fix (the retired binary key, a redundant enabled = true, the canonical field order). The unified diff is printed BEFORE the confirmation, and packages.toml is PUBLISHED — this overlay auto-commits and pushes, so the write reaches origin — which is why an unattended repair requires --yes. Findings no repair can guess (an entry tracking commits with no base source) are reported and left to a human")
+	cmd.Flags().BoolVar(&autoupdateFix, "fix", false, "With --lint: repair in place the violations that have a mechanical fix (the retired binary key, a redundant enabled = true, the canonical field order). The unified diff is printed BEFORE the confirmation, and packages.toml is PUBLISHED — this overlay auto-commits and pushes, so the write reaches origin — which is why an unattended repair requires --yes. Findings no repair can guess (an entry tracking commits with no base source) are reported and left to a human")
 	// The presentation flags. All three change what this run SHOWS and none of
 	// them changes what it does: the same packages are scanned, validated and
 	// acted upon, and the exit status is the same, whichever way they are set
@@ -311,15 +311,12 @@ func init() {
 	// No back-quoted words in any of the three usage strings — see the --fix
 	// note above: pflag reads the first one as the flag's value placeholder, so
 	// a quoted ".md" here would render this as "--export .md".
-	autoupdateCmd.Flags().StringVar(&autoupdateUI, "ui", "", "Renderer for this run: auto, plain, inline or fullscreen. auto is the default and picks inline on a terminal and plain off one; it never picks fullscreen, because taking over somebody's screen is not something configuring nothing should do. plain contains no escape sequence at all and is what a pipe, a log file and a CI job want. This flag outranks the BENTOO_UI environment variable, which outranks the ui.mode configuration key; --no-tui outranks all three. A value outside that set is rejected and NOTHING runs")
-	autoupdateCmd.Flags().BoolVar(&autoupdateAll, "all", false, "List every package found up to date in the version-check section instead of reporting them as a count alone. It changes WHAT IS SHOWN and nothing else — the same packages are scanned, validated and acted upon either way. The count is the default because the up-to-date packages are the bulk of a 269-package overlay, and listing them is most of the reason a check that found four updates used to print 348 lines")
-	autoupdateCmd.Flags().StringVar(&autoupdateExport, "export", "", "Also write the report to this path. The format follows the extension: .md is Markdown, .json is JSON, anything else is plain text. The file always carries the COMPLETE report — every package, every reason in full, nothing shortened — whatever --all and --ui asked of the terminal, because a report is saved precisely for when the terminal is gone. A path that cannot be written is reported, and the run still renders to the terminal and still exits with the status it would have had")
 
 	// No back-quoted words in either usage string below — see the --fix note
 	// above: pflag reads the first one as the flag's value placeholder.
-	autoupdateCmd.Flags().BoolVar(&autoupdateMarkAutoDisabledFlag, "mark-auto-disabled", false, "ONE-SHOT MIGRATION: stamp disabled_by = \"auto\" on every entry the checker disabled before that key existed, so the reconciliation is free to re-enable them when their ebuild returns. Without it those entries state no origin, which now reads as a deliberate decision and freezes them for good. An entry that is held, already stamped, still enabled, or named in --except is left alone, and a second run changes nothing. The full plan is printed BEFORE the confirmation, and packages.toml is PUBLISHED — this overlay auto-commits and pushes, so the write reaches origin — which is why an unattended migration requires --yes")
-	autoupdateCmd.Flags().StringSliceVar(&autoupdateExcept, "except", nil, "With --mark-auto-disabled: the entries the migration must NOT stamp, comma-separated or repeated. These are the pins a maintainer disabled ON PURPOSE — for this overlay, dev-libs/icu-compat and media-libs/libjxl-compat — and stamping one hands it back to the reconciliation that re-enabled and bumped it before. An entry naming no record in packages.toml ABORTS the run: a typo protects nothing and would otherwise pass in silence")
-	autoupdateCmd.Flags().BoolVarP(&autoupdateYes, "yes", "y", false, "Approve without prompting whatever this run would otherwise stop and ask about: the post-check registry reconciliation, a --lint --fix repair, a --mark-auto-disabled migration, and a standalone --clean sweep. REQUIRED for any non-interactive write — without it, a piped or scripted run prints what it would do and changes nothing. Note the reach: with --clean this DELETES ebuilds, and with --fix or --mark-auto-disabled it rewrites packages.toml, in an overlay that auto-commits and pushes")
+	cmd.Flags().BoolVar(&autoupdateMarkAutoDisabledFlag, "mark-auto-disabled", false, "ONE-SHOT MIGRATION: stamp disabled_by = \"auto\" on every entry the checker disabled before that key existed, so the reconciliation is free to re-enable them when their ebuild returns. Without it those entries state no origin, which now reads as a deliberate decision and freezes them for good. An entry that is held, already stamped, still enabled, or named in --except is left alone, and a second run changes nothing. The full plan is printed BEFORE the confirmation, and packages.toml is PUBLISHED — this overlay auto-commits and pushes, so the write reaches origin — which is why an unattended migration requires --yes")
+	cmd.Flags().StringSliceVar(&autoupdateExcept, "except", nil, "With --mark-auto-disabled: the entries the migration must NOT stamp, comma-separated or repeated. These are the pins a maintainer disabled ON PURPOSE — for this overlay, dev-libs/icu-compat and media-libs/libjxl-compat — and stamping one hands it back to the reconciliation that re-enabled and bumped it before. An entry naming no record in packages.toml ABORTS the run: a typo protects nothing and would otherwise pass in silence")
+	cmd.Flags().BoolVarP(&autoupdateYes, "yes", "y", false, "Approve without prompting whatever this run would otherwise stop and ask about: the post-check registry reconciliation, a --lint --fix repair, a --mark-auto-disabled migration, and a standalone --clean sweep. REQUIRED for any non-interactive write — without it, a piped or scripted run prints what it would do and changes nothing. Note the reach: with --clean this DELETES ebuilds, and with --fix or --mark-auto-disabled it rewrites packages.toml, in an overlay that auto-commits and pushes")
 
 	// The two distfile directories. The names are byte-identical to `overlay
 	// manifest`'s and so is what they mean; the DEFAULT of --distdir is not,
@@ -336,12 +333,11 @@ func init() {
 	// pflag reads the first one as the flag's value placeholder and strips the
 	// quotes, so "portageq distdir" in back-quotes would render this as
 	// "--distdir portageq distdir".
-	autoupdateCmd.Flags().StringVar(&autoupdateDistdir, "distdir", "", "Distfiles directory used by pkgdev (default: the host's own DISTDIR, as reported by portageq distdir; overrides the autoupdate.distdir config key)")
-	autoupdateCmd.Flags().StringVar(&autoupdateDistfilesCache, "distfiles-cache", distfiles.DefaultCache, "Read-only distfiles cache consulted before download (\"\" disables; overrides the autoupdate.distfiles_cache config key)")
-	autoupdateCmd.Flags().BoolVar(&autoupdateNoFetchCache, "no-fetch-cache", false, "Fetch each URL per record instead of sharing one response across records that declare it")
-	autoupdateCmd.Flags().BoolVar(&autoupdateLLM, "llm", false, "With --apply: let the configured claude-code agent take part in validation. It enables BOTH capabilities — the bump reviewer, which reads what changed between the two versions and may ask for MORE validation than the depth policy chose, and the build fixer, which repairs the STAGED ebuild after a failed build and re-runs the same gate to decide. Set autoupdate.validate.review or fix_on_failure to false to switch one of them back off; neither key enables anything without this flag. Requires the claude CLI on PATH and provider = \"claude-code\" — otherwise the run warns once and proceeds exactly as it would have without the flag")
-
-	overlayCmd.AddCommand(autoupdateCmd)
+	cmd.Flags().StringVar(&autoupdateDistdir, "distdir", "", "Distfiles directory used by pkgdev (default: the host's own DISTDIR, as reported by portageq distdir; overrides the autoupdate.distdir config key)")
+	cmd.Flags().StringVar(&autoupdateDistfilesCache, "distfiles-cache", distfiles.DefaultCache, "Read-only distfiles cache consulted before download (\"\" disables; overrides the autoupdate.distfiles_cache config key)")
+	cmd.Flags().BoolVar(&autoupdateNoFetchCache, "no-fetch-cache", false, "Fetch each URL per record instead of sharing one response across records that declare it")
+	cmd.Flags().BoolVar(&autoupdateLLM, "llm", false, "With --apply: let the configured claude-code agent take part in validation. It enables BOTH capabilities — the bump reviewer, which reads what changed between the two versions and may ask for MORE validation than the depth policy chose, and the build fixer, which repairs the STAGED ebuild after a failed build and re-runs the same gate to decide. Set autoupdate.validate.review or fix_on_failure to false to switch one of them back off; neither key enables anything without this flag. Requires the claude CLI on PATH and provider = \"claude-code\" — otherwise the run warns once and proceeds exactly as it would have without the flag")
+	return cmd
 }
 
 // resolveAutoupdateDistfileDirs decides which directories the Manifest step
@@ -404,7 +400,7 @@ func sanitizeConfiguredDir(key, path string) string {
 }
 
 // tuiEnabledForApply is the apply-path gate: the live region is on iff the mode
-// this run resolved to draws one (autoupdateUsesTUI, S044-R3.8).
+// this run resolved to draws one (autoupdateUsesTUI, S046-R3.3).
 //
 // It no longer calls tui.Enabled. The decision moved to report.ResolveMode so
 // that one ui.mode governs this command AND `overlay manifest` instead of each
@@ -603,25 +599,48 @@ func runAutoupdate(cmd *cobra.Command, args []string) {
 	// function of the flags, the config and the terminal, so whoever needs the
 	// mode asks for it where it is used and gets the same value; see its doc
 	// comment for why a package variable holding it would be worse than the
-	// three os.Getenv calls it saves. What this call is for is the two things
-	// that must happen BEFORE any package work:
+	// three os.Getenv calls it saves.
 	//
-	//   - S044-R3.9 — a --ui that does not name a mode stops the run here, with
-	//     no scan, no validation and no write behind it. Falling back to a
-	//     default would render in a mode the operator did not ask for, which is
-	//     doing work they did not ask for.
-	//   - S044-R3.6 — the downgrade sentence reaches stderr, and warnUIDowngrade
-	//     keeps it to one line however many times the mode is resolved after
-	//     this.
 	// The apply path's gate is two call frames below runApply and carries no
 	// config of its own, so the value it resolves against is parked here — the
 	// same once-per-run hand-down the three decisions above use.
+	//
+	// # This call had two jobs and now has one
+	//
+	// It used to end the run on any error, citing S044-R3.9: "IF --ui is given a
+	// value outside the accepted set … SHALL NOT run the check" — the flag, and
+	// nothing else. resolveAutoupdateUIMode resolves the whole precedence chain,
+	// so the gate fired on all four sources while claiming the authority of one.
+	// Story 046's Task 4 made that gap total: root.go's PersistentPreRunE now
+	// validates --ui for all 30 commands before any run function, so by the time
+	// this line runs the flag has already been judged, and every rejection left
+	// here is an AMBIENT one — a BENTOO_UI or a ui.mode, inherited from a shell
+	// profile or a config file rather than typed for this run, which S046-R3.7
+	// answers the opposite way: the report renders in plain and says so, and the
+	// run keeps the status it would have had.
+	//
+	// Two things went wrong while the exit stood here, both measured: an
+	// unusable BENTOO_UI cost this command its entire report, and on a run that
+	// was going to fail for a reason of its own it replaced the operator's real
+	// diagnostic — "packages.toml not found in overlay" — with one about a
+	// display key that could not have caused it.
+	//
+	// What survives is the job the citation never covered, and it is why the
+	// call is not simply deleted: S044-R3.6's downgrade sentence reaches stderr
+	// HERE, before any package work, because resolving is what routes it — and
+	// warnUIDowngrade keeps it to one line however many times the mode is
+	// resolved after this.
 	autoupdateUIConfig = appCtx.Config
 
 	if _, err := resolveAutoupdateUIMode(appCtx.Config); err != nil {
-		logger.Error("%v", err)
-		osExit(1)
-		return
+		// Debug, not Error, and that is R3.6 rather than indifference. The
+		// refusal is stated once per run, at Warn, by whoever produces a report
+		// — presentCheckReport, through reportModeOrPlain — naming the source,
+		// the value and the mode used instead. One typo answered in two voices
+		// is the duplication 11.1 already paid for once at the root. The line is
+		// kept so a --verbose run can still see where the resolution first
+		// failed, which is several frames earlier than where it is announced.
+		logger.Debug("the ambient UI mode did not resolve before the package work: %v", err)
 	}
 
 	// Handle different modes
@@ -784,8 +803,14 @@ func runCheck(ctx context.Context, overlayPath, configDir string, args []string,
 		// D6 keeps the return below: only the batch path may reconcile the
 		// registry, and moving the render past this point must not move the
 		// return with it.
+		//
+		// It validated nothing, so it planned nothing, so it left nothing
+		// unreached — which is what nothingValidated states, and what
+		// checkReport answers for an empty plan on a batch run whose plan came
+		// out empty too.
 		const noPlanWasPrinted = false
-		presentCheckReport(checkReport([]autoupdate.CheckResult{*result}, report.Report{}), noPlanWasPrinted)
+		single := checkReport([]autoupdate.CheckResult{*result}, nothingValidated())
+		presentCheckReport(single, noPlanWasPrinted)
 		return
 	}
 
@@ -859,7 +884,13 @@ func runCheck(ctx context.Context, overlayPath, configDir string, args []string,
 	// line. planPrinted travels into render.Options.SkipPlan so the plan the
 	// operator read before the confirmation prompt is not drawn to them a
 	// second time (S045-R2.3).
-	presentCheckReport(checkReport(result.Items, validated), planPrinted)
+	//
+	// "The run reached the end of its plan" needs no parameter of its own: it
+	// is the envelope's fact, established by buildReport above and carried
+	// inside the very value being joined here — so the screen and the export
+	// state it once, from one place (D1).
+	joined := checkReport(result.Items, validated)
+	presentCheckReport(joined, planPrinted)
 
 	// S021-R3.2/R3.3/R3.4: compare the registry against the overlay and, behind
 	// ONE confirmation, write the pins back. It runs here, at the very end of the
@@ -1075,32 +1106,67 @@ func displayDivergences(divs []autoupdate.Divergence, writable int) {
 	// overlay print the identical list.
 	// Returns how many lines the group printed, so a caller can append a
 	// follow-up line only to a group that actually appeared (R7.1).
-	printGroup := func(kind autoupdate.DivergenceKind, heading string, line func(autoupdate.Divergence) string) int {
-		var body []string
+	//
+	// # The key column is measured here, which is why `line` is handed its key
+	//
+	// All three line formats below used to open with %-45s. Nobody measured 45,
+	// and it is wrong in both directions at once. Too wide: a group of registry
+	// keys shaped like `net-libs/webkit-gtk:4.1` — 23 cells — pays 22 cells of
+	// empty air on every row. Too narrow: the longest atom this overlay
+	// actually holds, `media-plugins/gst-plugins-adaptivedemux2`, is 40 cells,
+	// so the guess is five cells from the day a key overruns the column and
+	// pushes the second field right on that row alone, which is worse than no
+	// alignment at all. Neither error is visible where the number is typed,
+	// because the width that is correct depends on the keys THIS run produced
+	// (R6.2).
+	//
+	// The width a group needs is the widest key IN THAT GROUP, which is knowable
+	// only once the group's members have been collected. This closure already
+	// collected them; it just threw the keys away by formatting each line as it
+	// went. So it now collects the divergences rather than their finished lines,
+	// measures the column over them, and hands each `line` its key already laid
+	// into it — the loop-that-prints-as-it-goes being exactly how a typed width
+	// survives.
+	//
+	// Per group, not across all three: a group is a table under its own heading,
+	// and "Pins to write" should not be widened by one long key from a list
+	// printed further down that no reader is comparing it against column by
+	// column.
+	printGroup := func(kind autoupdate.DivergenceKind, heading string, line func(d autoupdate.Divergence, key string) string) int {
+		var members []autoupdate.Divergence
+		var keys []string
 		for _, d := range divs {
 			if d.Kind == kind {
-				body = append(body, line(d))
+				members = append(members, d)
+				keys = append(keys, d.Key)
 			}
 		}
-		if len(body) == 0 {
+		if len(members) == 0 {
 			return 0
 		}
-		fmt.Printf("  %s (%d):\n", heading, len(body))
-		for _, l := range body {
-			fmt.Printf("    %s\n", l)
+		// Display cells, never bytes (R6.1): the width and the padding are the
+		// same measurement, so a key and the column holding it cannot disagree
+		// about how wide it is. The space that separates the key from what
+		// follows stays in each format string below, where it is a gap between
+		// two columns and not part of either (R6.3).
+		width := render.ColumnWidth(keys)
+
+		fmt.Printf("  %s (%d):\n", heading, len(members))
+		for _, d := range members {
+			fmt.Printf("    %s\n", line(d, padColumn(d.Key, width)))
 		}
 		fmt.Println()
-		return len(body)
+		return len(members)
 	}
 
-	_ = printGroup(autoupdate.StalePin, "Pins to write", func(d autoupdate.Divergence) string {
+	_ = printGroup(autoupdate.StalePin, "Pins to write", func(d autoupdate.Divergence, key string) string {
 		if d.Pin == "" {
-			return fmt.Sprintf("%-45s (no pin) → %s", d.Key, d.Disk)
+			return fmt.Sprintf("%s (no pin) → %s", key, d.Disk)
 		}
-		return fmt.Sprintf("%-45s %s → %s", d.Key, d.Pin, d.Disk)
+		return fmt.Sprintf("%s %s → %s", key, d.Pin, d.Disk)
 	})
-	unclaimed := printGroup(autoupdate.UnclaimedEbuild, "Ebuilds no entry keeps — NOT written", func(d autoupdate.Divergence) string {
-		return fmt.Sprintf("%-45s %s", d.Key, d.Disk)
+	unclaimed := printGroup(autoupdate.UnclaimedEbuild, "Ebuilds no entry keeps — NOT written", func(d autoupdate.Divergence, key string) string {
+		return fmt.Sprintf("%s %s", key, d.Disk)
 	})
 	if unclaimed > 0 {
 		// R7.1: this report used to end at the finding. Naming the command that
@@ -1110,11 +1176,11 @@ func displayDivergences(divs []autoupdate.Divergence, writable int) {
 		output.Info.Println("  Remove them with: bentoo overlay autoupdate --clean")
 		fmt.Println()
 	}
-	_ = printGroup(autoupdate.NoEbuild, "Entries whose directory holds no ebuild — NOT written", func(d autoupdate.Divergence) string {
+	_ = printGroup(autoupdate.NoEbuild, "Entries whose directory holds no ebuild — NOT written", func(d autoupdate.Divergence, key string) string {
 		if d.Pin == "" {
-			return fmt.Sprintf("%-45s (no pin)", d.Key)
+			return fmt.Sprintf("%s (no pin)", key)
 		}
-		return fmt.Sprintf("%-45s pins %s", d.Key, d.Pin)
+		return fmt.Sprintf("%s pins %s", key, d.Pin)
 	})
 
 	if writable == 0 {
@@ -1248,9 +1314,24 @@ func printLintTally(issues []autoupdate.LintIssue) {
 	}
 	sort.Strings(rules)
 
+	// The rule column is as wide as the widest rule name THIS run reported, in
+	// display cells (R6.2). The 26 that used to be typed here was a guess about
+	// a vocabulary that belongs to internal/autoupdate's lint rules and not to
+	// this printer: two cells past `bracket-line-in-comments`, the longest of
+	// the thirteen, which makes it 15 cells of empty air on a tally that
+	// reported only `field-order` and one longer rule name away from
+	// overflowing without anyone here noticing. Every rule this run found is in
+	// hand before the first line is printed, so there was never anything to
+	// guess about.
+	//
+	// The single space in the format is the gap to the count beside it — the
+	// air BETWEEN two columns, which nothing in a run's data can make wider, so
+	// it is written down where a width is measured (R6.3).
+	width := render.ColumnWidth(rules)
+
 	fmt.Println()
 	for _, rule := range rules {
-		fmt.Printf("  %-26s %d\n", rule, counts[rule])
+		fmt.Printf("  %s %d\n", padColumn(rule, width), counts[rule])
 	}
 	fmt.Println()
 }

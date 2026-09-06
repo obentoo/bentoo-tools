@@ -12,16 +12,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var initCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Initialize bentoo configuration",
-	Long: `Initialize bentoo configuration interactively.
+// newInitCmd builds `overlay init`.
+func newInitCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize bentoo configuration",
+		Long: `Initialize bentoo configuration interactively.
 Creates a config file with overlay path and git settings.`,
-	Run: runInit,
-}
-
-func init() {
-	overlayCmd.AddCommand(initCmd)
+		Run: runInit,
+	}
+	return cmd
 }
 
 func runInit(cmd *cobra.Command, args []string) {

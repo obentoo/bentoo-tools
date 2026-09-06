@@ -6,11 +6,119 @@ import (
 
 	"github.com/obentoo/bentoolkit/internal/autoupdate"
 	"github.com/obentoo/bentoolkit/internal/autoupdate/validate"
+	"github.com/obentoo/bentoolkit/internal/common/logger"
 	"github.com/obentoo/bentoolkit/internal/common/report"
 )
 
+// checkEnvelope puts one check run's facts inside the envelope every exported
+// document carries: the schema version, the kind of run that produced it, the
+// reader's label for it, and how far down its plan the run got (R4.1, R1.4).
+//
+// # It is the ONE place this command builds a report.Run
+//
+// The two values it stamps unconditionally are fixed per COMMAND rather than
+// per run. A kind that varied with what a run found would be a discriminator
+// nobody could filter on, and a schema version typed at each producer is the
+// same defect as a column width typed into a format string: several places to
+// find on the day it changes, and nothing that fails when one is missed. One
+// construction site makes both true by construction instead of by agreement
+// between call sites.
+//
+// # Complete and NotEvaluated are ARGUMENTS, never read off the payload
+//
+// Deriving them — len(Results) against len(Plan) — is a different rule wearing
+// the same answer: it reads any report whose result list is shorter than its
+// plan as interrupted, including one a caller built by hand to describe a run
+// that never validated. Completeness is established by the run that did the
+// work, and it travels from there to here.
+func checkEnvelope(payload report.AutoupdateCheck, complete bool, notEvaluated int) report.Run {
+	return report.Run{
+		Schema: report.SchemaVersion,
+		Kind:   report.KindAutoupdateCheck,
+		// A fixed label, exactly like the kind: it names the command that
+		// produced the document in a reader's own words and is derived from
+		// nothing the run established. report.Run.Title is documented as a
+		// label rather than as something to match on — a title that varied
+		// with the contents would be prose — and Kind is what a consumer
+		// discriminates with.
+		Title:        "Autoupdate check",
+		Complete:     complete,
+		NotEvaluated: notEvaluated,
+		Payload:      payload,
+	}
+}
+
+// nothingValidated is the run a `--check` that ran no gate contributes: the
+// envelope, around the payload's zero value.
+//
+// Five paths reach it. Four are runPendingValidation's — the `--llm` gate, an
+// unreadable or empty pending list, a declined confirmation, an applier that
+// would not build — and the fifth is the single-package path, which validates
+// nothing by design. Every one of them established the same two things: no
+// facts, and no gap.
+//
+// # It is COMPLETE, and the empty plan is why
+//
+// Nothing was planned, so nothing was left unreached, which is precisely what
+// Complete means (S045-R4.2). A false here would draw the `Run Interrupted`
+// block over a run that finished, telling an operator their run was cut short
+// when it was not.
+//
+// # The payload is the ZERO value, and the nil slices in it are the point
+//
+// A nil slice reaches the JSON export as null and an empty one as [], and the
+// two say different things: the first is a producer that established nothing,
+// the second one that established an empty list. This run validated nothing, so
+// the absence is carried rather than replaced with an invented empty collection
+// (S045-R4.1, S045-R4.3).
+func nothingValidated() report.Run {
+	// Nothing was planned, so nothing was left unreached: complete, with a gap
+	// of zero.
+	return checkEnvelope(report.AutoupdateCheck{}, true, 0)
+}
+
+// checkPayload is this command's own facts, read back out of the run that
+// carries them.
+//
+// # The type assertion belongs HERE and nowhere below
+//
+// report.Run.Payload is an interface precisely so that nothing in
+// internal/common/report, and nothing in its renderers, has to name a concrete
+// payload — a type switch over payloads is the edit-per-kind that interface
+// exists to prevent (R7.4). cmd/bentoo is the other side of that seam: it is
+// where this command's payload is BUILT, so it is the one place that already
+// knows which concrete type is in there.
+//
+// # A payload of another type answers the zero value, and SAYS SO
+//
+// checkEnvelope is the only writer of that field today, so the assertion
+// cannot fail yet — but checkReport takes a report.Run of ANY kind, and tasks
+// 5, 6 and 8 of this story add three more of them. A manifest or snapshot run
+// reaching here would merge into a zero payload, and the operator would then
+// be told "No packages configured for autoupdate" about a run that scanned
+// plenty: wrong output, and nothing in the code that would have had to be
+// edited for it to happen.
+//
+// So it is reported rather than discarded. Debug, not Warn, because it is
+// unreachable in a real run and a line an operator cannot act on is noise; the
+// kind that arrived is what makes it actionable when it is not.
+//
+// The zero value is still returned. It reads as "nothing scanned, nothing
+// planned", which routes presentCheckReport to its silent arm — and a report is
+// the thing an operator gets INSTEAD of a crash (R1.4), so reading one must not
+// be the moment the crash arrives. report.Run.Sections tolerates a nil payload
+// for the same reason.
+func checkPayload(run report.Run) report.AutoupdateCheck {
+	payload, ok := run.Payload.(report.AutoupdateCheck)
+	if !ok {
+		logger.Debug("check: the run carries kind %q with a %T payload, want %q and report.AutoupdateCheck — reporting it as empty",
+			run.Kind, run.Payload, report.KindAutoupdateCheck)
+	}
+	return payload
+}
+
 // buildReport turns one run's plan and the results its gates produced into the
-// view model, whole, before anything is printed (R1, R1.4).
+// run it reports, whole, before anything is printed (R1, R1.3, R1.4).
 //
 // This is the seam between the producer and the view: internal/common/report
 // must not import internal/autoupdate, so the conversion from validate's types
@@ -31,22 +139,33 @@ import (
 // nil Scanned therefore says "the producer did not fill this in", which the
 // JSON export deliberately carries through as null rather than rewriting into
 // an empty list. Whoever holds the scan results assigns them.
-func buildReport(plan validationPlan, results []validate.EbuildResult) report.Report {
+//
+// # The whole run comes back, envelope included
+//
+// "How far down the plan the run got" is established right here, and this is
+// the one place it is established — so this is where it is stated, on the
+// envelope that carries it rather than on the payload, which would carry it a
+// second time and let one document disagree with itself about the run it
+// describes (D1). Handing back the payload alone would leave those two facts to
+// travel beside it as a second value, and every function between here and the
+// render would then thread a pair that nothing could look up from the report.
+func buildReport(plan validationPlan, results []validate.EbuildResult) report.Run {
+	// planned is R5.5's denominator, named once. It is the number every count
+	// below is taken against — the tally reconciles against the PLAN, never
+	// against the rows, because a package that produced no row still had to be
+	// counted somewhere.
+	planned := len(plan.Entries)
+
 	// How far down the plan the run actually got. A result past the end of the
 	// plan has nothing to be classified against — policy, the depth request and
 	// the reason all live on the entry — and the contract above says it cannot
 	// happen; bounding here is what keeps it from being papered over with an
 	// invented entry.
-	reached := min(len(results), len(plan.Entries))
+	reached := min(len(results), planned)
 
-	out := report.Report{
-		Plan:    make([]report.PlanEntry, 0, len(plan.Entries)),
+	out := report.AutoupdateCheck{
+		Plan:    make([]report.PlanEntry, 0, planned),
 		Results: make([]report.ValidationRow, 0, reached),
-		// R5.5's denominator is the plan. A complete run answered for every
-		// planned package, so the tally reconciles; an interrupted one names
-		// the gap instead of closing it.
-		NotEvaluated: len(plan.Entries) - reached,
-		Complete:     reached == len(plan.Entries),
 		// Carried across rather than recomputed, because it CANNOT be
 		// recomputed: it means "the entries above the shallowest depth", and
 		// the model has no ladder to compare a depth string against. Dropping
@@ -65,7 +184,9 @@ func buildReport(plan validationPlan, results []validate.EbuildResult) report.Re
 		countInExactlyOneColumn(&out.Tally, row.Outcome)
 	}
 
-	return out
+	// A complete run answered for every planned package, so its tally
+	// reconciles; an interrupted one names the gap instead of closing it.
+	return checkEnvelope(out, reached == planned, planned-reached)
 }
 
 // scannedFacts is what the version check found, as the model spells it — the
@@ -122,9 +243,14 @@ func scannedFacts(results []autoupdate.CheckResult) []report.PackageResult {
 // joined with whatever the validation contributed (S045-R1.1, S045-R1.2, D1).
 //
 // Both entry paths of runCheck go through it — the batch scan with the half
-// runPendingValidation handed back, the single package with the zero report,
-// because that path validates nothing — so "one report per run" is a property
-// of this function rather than of two call sites kept in agreement.
+// runPendingValidation handed back, the single package with nothingValidated's
+// run, because that path validates nothing — so "one report per run" is a
+// property of this function rather than of two call sites kept in agreement.
+//
+// Every caller hands it a run BUILT here in the adapter, by buildReport or by
+// nothingValidated, which is what leaves the envelope's identity — the schema,
+// the kind, the title — stamped in exactly one place. This function joins a
+// half onto a run; it does not name one.
 //
 // # The two halves meet here and nowhere else
 //
@@ -136,20 +262,27 @@ func scannedFacts(results []autoupdate.CheckResult) []report.PackageResult {
 //
 // # A run that planned nothing is COMPLETE
 //
-// The validation half arrives as the zero report on every path that validated
-// nothing — the `--llm` gate, an unreadable or empty pending list, a declined
-// confirmation, an applier that would not build — and the zero report carries
-// Complete false. Rendered as it stands that draws the `Run Interrupted`
-// section, telling the operator that a run which finished was interrupted. An
-// empty plan left nothing unevaluated, which is precisely what Complete means,
-// so it is stated here (S045-R4.2).
+// An empty plan left nothing unevaluated, which is precisely what Complete
+// means (S045-R4.2), and a false there would draw the `Run Interrupted` block
+// over a run that finished — telling the operator that a run which had nothing
+// to do was cut short.
 //
-// The condition is read off the REPORT rather than off autoupdateLLM: an
-// operator can decline the confirmation with `--llm` set, and that run
-// validated nothing either. It agrees with the model instead of overriding it
-// — buildReport derives Complete from the plan the same way (reached ==
-// len(plan.Entries)), so a validated run whose plan came out empty is already
-// complete and this changes nothing about it.
+// The condition is read off the PLAN rather than off autoupdateLLM: an operator
+// can decline the confirmation with `--llm` set, and that run validated nothing
+// either. It agrees with the producer instead of overriding it — both
+// buildReport and nothingValidated already answer complete for an empty plan
+// (reached == len(plan.Entries) is 0 == 0) — so on every path this command
+// takes today the branch below changes nothing. What it still covers is a run
+// assembled by hand, which is the only way one can arrive here saying it was
+// interrupted over a plan it never had.
+//
+// # The two envelope facts pass through, and are corrected in exactly one case
+//
+// A short results slice is the case that matters: the plan is non-empty, the
+// branch below does not fire, and the run stays incomplete with the count
+// buildReport established. Only a run with NO plan is overridden, and it is
+// overridden to the one answer that is true of it — nothing was planned, so
+// nothing was left unreached.
 //
 // # It never invents a section
 //
@@ -164,12 +297,16 @@ func scannedFacts(results []autoupdate.CheckResult) []report.PackageResult {
 // omitting its heading. Nothing here should ever start deciding that — a
 // producer that pruned sections to suit one screen would be the second place
 // the run's contents are decided.
-func checkReport(scanned []autoupdate.CheckResult, validated report.Report) report.Report {
+func checkReport(scanned []autoupdate.CheckResult, validated report.Run) report.Run {
 	joined := validated
-	joined.Scanned = scannedFacts(scanned)
 
-	if len(joined.Plan) == 0 {
+	facts := checkPayload(validated)
+	facts.Scanned = scannedFacts(scanned)
+	joined.Payload = facts
+
+	if len(facts.Plan) == 0 {
 		joined.Complete = true
+		joined.NotEvaluated = 0
 	}
 
 	return joined

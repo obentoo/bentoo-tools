@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"github.com/obentoo/bentoolkit/internal/autoupdate/validate"
 	"github.com/obentoo/bentoolkit/internal/common/distfiles"
 	"github.com/obentoo/bentoolkit/internal/common/output"
+	"github.com/obentoo/bentoolkit/internal/common/report/render"
 	"github.com/spf13/cobra"
 )
 
@@ -112,7 +112,16 @@ Examples:
 		Args: cobra.MaximumNArgs(1),
 		Run:  runValidate,
 	}
-	cmd.Flags().Bool("json", false, "Write the whole report to stdout as a single JSON document")
+	// NO BACK-QUOTE IN THE SENTENCE BELOW, and that is load-bearing rather than
+	// stylistic: pflag reads the first back-quoted substring of a usage string as
+	// the flag's VALUE PLACEHOLDER and prints it after the flag name
+	// (UnquoteUsage, flag.go:594; FlagUsagesWrapped, flag.go:725). Quoting
+	// jq '.kind' here made --help advertise "--json jq '.kind'" on a boolean that
+	// rejects every argument — and stripped the quotes out of the sentence anyway,
+	// so it bought nothing and cost the flag its own signature. The damage exists
+	// only in rendered help and never in this line, which is why the guard is a
+	// test rather than a reading of this file: flag_usage_test.go.
+	cmd.Flags().Bool("json", false, "Write the whole report to stdout as a single JSON document. It is the same document --export=<path>.json writes to a file, at stdout instead: schema and kind at the root, and this command's own model one level down under payload. A consumer that already reads an exported report reads this one, and jq '.kind' says which command wrote it")
 	cmd.Flags().String("distdir", "", "Read distfiles from this directory (never created, never written to)")
 	// The default is the shipped behaviour, spelled out rather than left empty
 	// (R11.3): `--depth` absent and `--depth=options` are the same run, and the
@@ -121,10 +130,6 @@ Examples:
 		"Validate to this rung of the ladder — none, options, patches, configure, compile or install, each including every rung before it. "+
 			"Above \"options\" the gates need a tree to build in, and that tree is a staged copy; the published overlay is never built in")
 	return cmd
-}
-
-func init() {
-	overlayCmd.AddCommand(newValidateCmd())
 }
 
 // runValidate drives the gate and exits with the report's code.
@@ -286,11 +291,12 @@ func runValidate(cmd *cobra.Command, args []string) {
 		// run and a run that produced no output were indistinguishable to the `|
 		// jq` the flag exists for.
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			if asJSON {
-				renderValidateJSON(report, diag)
-			} else {
-				renderValidateText(report)
-			}
+			// complete=false, and this is the one call site that passes it. The
+			// envelope's Complete means "the run reached the end of its plan",
+			// and this branch is reached precisely because it did not — so the
+			// exported document says so in the key every kind of run answers,
+			// beside the diagnostic below that only a human reads.
+			presentValidateReport(report, false, asJSON, diag)
 			_, _ = fmt.Fprintf(diag, "  %v\n", err)
 			// 128 + SIGINT, the shell's own convention — and deliberately NOT 2.
 			// Report.ExitCode documents 2 as "the selector matched nothing", and
@@ -305,11 +311,11 @@ func runValidate(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	if asJSON {
-		renderValidateJSON(report, diag)
-	} else {
-		renderValidateText(report)
-	}
+	presentValidateReport(report, true, asJSON, diag)
+	// The status is the RUN's, computed from what the gates said. It is read
+	// after the export deliberately and is unaffected by it: exportReport
+	// returns nothing, so a path that could not be written has no value to
+	// travel back through (R3.5).
 	osExit(report.ExitCode())
 }
 
@@ -495,18 +501,28 @@ func overlayLabel(path string) string {
 	return path
 }
 
-// renderValidateJSON writes the whole report as ONE document (R5.8).
+// renderValidateJSON moved to overlay_validate_report.go with story 046's
+// sub-task 8.1, and its encoder went with it (R4.3, design D8). It used to build
+// a json.Encoder here and write validate.Report.Normalized() at the document
+// ROOT — the project's second JSON schema, which `--export` could not produce
+// and no consumer of `--export` could read. It now writes the same report.Run
+// every other command exports, through the same renderExport, with the model one
+// level down under "payload".
 //
-// One document and not a stream: a caller piping this into jq must not have to
-// reassemble it. Normalized turns nil slices into empty ones first, so
-// `.results[].findings[]` works on every entry.
-func renderValidateJSON(report validate.Report, diag io.Writer) {
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(report.Normalized()); err != nil {
-		_, _ = fmt.Fprintf(diag, "  writing the JSON report: %v\n", err)
-	}
-}
+// The note is left rather than deleted because this is where the JSON write path
+// has been since the flag was added, and it is where a reader looking for it will
+// come. What is still HERE is the human renderer below: this command's report
+// content migrates onto the shared model in story 047, and until it does, the
+// text a person reads is this file's own.
+
+// infoCountLabel labels the line that stands in for the option-gate info
+// findings this renderer collapses into a count.
+//
+// It is a constant because it is used twice — once as a value the severity
+// column is measured over, once as the value laid into that column — and two
+// spellings of one label is how a column comes to be sized for a word it does
+// not print, or to print a word it was not sized for.
+const infoCountLabel = "info:"
 
 // renderValidateText prints the human report.
 //
@@ -522,14 +538,56 @@ func renderValidateText(report validate.Report) {
 
 	output.Header.Printf("Validating %s\n\n", overlayLabel(report.Overlay))
 
+	// validateLine is one ebuild's block, established before any of it is
+	// printed.
+	//
+	// # Why the render is now two passes and not one
+	//
+	// It was one loop that printed each ebuild as it reached it, and that is
+	// exactly why its two columns carried typed widths — %-14s for the outcome
+	// word, %-8s for a finding's severity. A loop that prints its first row
+	// before it has seen its last cannot know how wide either column has to be,
+	// so both were guessed, and a guess is wrong in both directions at once: 14
+	// cells for a word that is never longer than SKIPPED's seven, and an
+	// overflow the day a sixth outcome is spelled longer than the guess (R6.2).
+	//
+	// Collecting first is the whole of the fix. The values are the same values
+	// in the same order and the printing below is the same printing; what
+	// changed is that the widths are now measured from what THIS run produced.
+	//
+	// The type is local because it describes a layout and not a run: what a run
+	// found is validate.Report's business, and a shape that exists so a printer
+	// can measure its own columns has no business outliving the function that
+	// prints them.
+	type validateLine struct {
+		result validate.EbuildResult
+		// worst is the headline. One column, five gates: the headline is the
+		// WORST of them, so a configure failure can never hide behind an
+		// option-gate pass. The per-gate outcomes follow on the same line,
+		// because R4.4 asks for each gate's own answer and not just the summary
+		// of them.
+		worst validate.Outcome
+		// findings are the ones this block PRINTS, in gate order and then in
+		// the order each gate reported them — the order the single loop
+		// printed them in, kept because a report whose lines reorder between
+		// runs cannot be diffed.
+		findings []validate.Finding
+		// infos is how many option-gate info findings were collapsed into the
+		// count line instead of printed.
+		infos int
+	}
+
 	var failed, passed, skipped, qaFindings int
+	lines := make([]validateLine, 0, len(report.Results))
+	// The values each column will hold, gathered as the lines are. Nothing is
+	// deduplicated: a column is as wide as its widest value, and a repeated
+	// value cannot change which one that is.
+	outcomes := make([]string, 0, len(report.Results))
+	var severities []string
+
 	for _, res := range report.Results {
-		// One column, five gates: the headline is the WORST of them, so a
-		// configure failure can never hide behind an option-gate pass. The
-		// per-gate outcomes follow on the same line, because R4.4 asks for each
-		// gate's own answer and not just the summary of them.
-		worst := res.WorstOutcome()
-		switch worst {
+		line := validateLine{result: res, worst: res.WorstOutcome()}
+		switch line.worst {
 		case validate.OutcomeFailed:
 			failed++
 		case validate.OutcomePass:
@@ -538,24 +596,6 @@ func renderValidateText(report validate.Report) {
 			// SKIPPED, and anything nobody set. Counting the leftovers here is
 			// what keeps the three tallies summing to the number of ebuilds.
 			skipped++
-		}
-
-		outcomeColor(worst).Printf("  %-14s", string(worst))
-		output.Package.Printf("%s-%s", res.Package, res.Version)
-		if summary := gateSummary(res.Gates); summary != "" {
-			output.Dim.Printf("   %s", summary)
-		}
-		fmt.Println()
-
-		// Every gate names its OWN reason, prefixed by the gate it belongs to
-		// (R4.4, R5.3). One shared reason line is what this replaces, and it was
-		// wrong in the ordinary case: an option gate skipping for a missing
-		// distfile and a QA gate skipping for a missing pkgcheck are two facts,
-		// and the operator has to act on a different one of them each time.
-		for _, gate := range res.Gates {
-			if gate.Reason != "" {
-				output.Dim.Printf("      %s: %s\n", gate.Gate, gate.Reason)
-			}
 		}
 
 		// info findings are counted here and printed in full only by --json.
@@ -570,33 +610,85 @@ func renderValidateText(report validate.Report) {
 		// Nothing is lost: the finding is emitted, carried on the Report, and
 		// written in full by --json. This is a rendering choice about the human
 		// surface, not a filter on what the gate reports.
-		var infos int
 		for _, gate := range res.Gates {
 			for _, f := range gate.Findings {
 				if f.Gate == validate.GateQA {
 					qaFindings++
 				}
 				// Only the OPTION gate's infos are collapsed into the count,
-				// since that is what the line below describes. pkgcheck findings
+				// since that is what the count line describes. pkgcheck findings
 				// are also carried at info — its records have no level at all —
 				// and folding them in here would make the number claim
 				// something it is not.
 				if f.Gate == validate.GateOptions && f.Severity == validate.SeverityInfo {
-					infos++
+					line.infos++
 					continue
 				}
-				severityColor(f.Severity).Printf("      %-8s", string(f.Severity))
-				fmt.Println(f.Detail)
+				line.findings = append(line.findings, f)
+				severities = append(severities, string(f.Severity))
 			}
 		}
-		if infos > 0 {
-			output.Dim.Printf("      info:   %d option(s) upstream declares and this ebuild does not pass — see --json\n", infos)
+		// The count line's label sits in the severity column too, so it is
+		// measured with the rest of it. It used to be kept in line by hand —
+		// "info:" followed by three typed spaces, which came to 8 because %-8s
+		// did — and an agreement between two hands about a number neither
+		// states is one edit from being a misalignment nobody notices.
+		if line.infos > 0 {
+			severities = append(severities, infoCountLabel)
+		}
+
+		outcomes = append(outcomes, string(line.worst))
+		lines = append(lines, line)
+	}
+
+	// Both columns, measured in display cells and never in bytes (R6.1): a cell
+	// is the unit the terminal aligns on, and it is the one unit that survives a
+	// value carrying a rune wider or narrower than its byte count suggests.
+	//
+	// The severity column is measured over what this run will PRINT rather than
+	// over the three words the vocabulary holds: a run whose findings are all
+	// errors gets a five-cell column, and one that printed no finding at all
+	// gets none, because the loop that would have used it never runs.
+	outcomeWidth := render.ColumnWidth(outcomes)
+	severityWidth := render.ColumnWidth(severities)
+
+	for _, line := range lines {
+		// The single space after each padded word is the gap between two
+		// columns — air that belongs to neither, which nothing in a run's data
+		// can make wider, so it is written down where a width is measured
+		// (R6.3). %-14s folded the two together, which is how seven cells of
+		// separator ended up inside a number nobody could account for.
+		outcomeColor(line.worst).Printf("  %s ", padColumn(string(line.worst), outcomeWidth))
+		output.Package.Printf("%s-%s", line.result.Package, line.result.Version)
+		if summary := gateSummary(line.result.Gates); summary != "" {
+			output.Dim.Printf("   %s", summary)
+		}
+		fmt.Println()
+
+		// Every gate names its OWN reason, prefixed by the gate it belongs to
+		// (R4.4, R5.3). One shared reason line is what this replaces, and it was
+		// wrong in the ordinary case: an option gate skipping for a missing
+		// distfile and a QA gate skipping for a missing pkgcheck are two facts,
+		// and the operator has to act on a different one of them each time.
+		for _, gate := range line.result.Gates {
+			if gate.Reason != "" {
+				output.Dim.Printf("      %s: %s\n", gate.Gate, gate.Reason)
+			}
+		}
+
+		for _, f := range line.findings {
+			severityColor(f.Severity).Printf("      %s ", padColumn(string(f.Severity), severityWidth))
+			fmt.Println(f.Detail)
+		}
+		if line.infos > 0 {
+			output.Dim.Printf("      %s %d option(s) upstream declares and this ebuild does not pass — see --json\n",
+				padColumn(infoCountLabel, severityWidth), line.infos)
 		}
 		// The evidence, printed even on a PASS. A pass whose sources are not
 		// shown cannot be told apart from a pass that found no source to read,
 		// which is the complaint this whole command answers.
-		if len(res.Sources) > 0 {
-			output.Dim.Printf("      read: %s\n", strings.Join(res.Sources, ", "))
+		if len(line.result.Sources) > 0 {
+			output.Dim.Printf("      read: %s\n", strings.Join(line.result.Sources, ", "))
 		}
 	}
 

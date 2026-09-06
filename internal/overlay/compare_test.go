@@ -232,49 +232,32 @@ func TestCompareStatus(t *testing.T) {
 	}
 }
 
-func TestFormatReport(t *testing.T) {
-	report := &CompareReport{
-		TotalPackages:    5,
-		ComparedPackages: 4,
-		OutdatedCount:    2,
-		Results: []CompareResult{
-			{Category: "app-editors", Package: "vscode", LocalVersion: "1.107.1", RemoteVersion: "1.108.0", Status: StatusOutdated},
-			{Category: "www-client", Package: "firefox", LocalVersion: "128.0", RemoteVersion: "129.0", Status: StatusOutdated},
-		},
-	}
-
-	output := FormatReport(report)
-
-	// Check that output contains expected elements
-	if !strings.Contains(output, "vscode") {
-		t.Error("Output should contain vscode")
-	}
-	if !strings.Contains(output, "firefox") {
-		t.Error("Output should contain firefox")
-	}
-	if !strings.Contains(output, "1.107.1") {
-		t.Error("Output should contain version 1.107.1")
-	}
-	if !strings.Contains(output, "1.108.0") {
-		t.Error("Output should contain version 1.108.0")
-	}
-	if !strings.Contains(output, "2") {
-		t.Error("Output should contain count 2")
-	}
-}
-
-func TestFormatReportEmpty(t *testing.T) {
-	report := &CompareReport{
-		TotalPackages: 5,
-		Results:       []CompareResult{},
-	}
-
-	output := FormatReport(report)
-
-	if !strings.Contains(output, "up-to-date") {
-		t.Error("Empty report should indicate all packages are up-to-date")
-	}
-}
+// Story 047, sub-task 5.5 — S047-R8.2: TestFormatReport and
+// TestFormatReportEmpty stood here and were RETIRED, not lost.
+//
+// Both asserted over FormatReport's text, which sub-task 4.2 deletes.
+//
+//   - TestFormatReport checked that a row printed its package name and its two
+//     versions, and that the outdated count "2" appeared somewhere in the
+//     output. The row shape is pinned far harder by
+//     internal/common/report/render/testdata/TestCompareGoldenPlain.golden,
+//     which pins the whole PACKAGE/BENTOO/GENTOO/STATE table rather than four
+//     substrings; TestCompareJSONGolden pins the same three fields on the wire.
+//     The count assertion was `strings.Contains(output, "2")` over a report
+//     whose versions include "128.0" and "129.0", so it could not have failed
+//     and pinned nothing.
+//   - TestFormatReportEmpty checked the sentence "All packages are up-to-date!".
+//     That early return is deliberately gone: runCompare now sends the empty run
+//     down the SAME tail as the full one, so an emptiness the renderer cannot
+//     explain is no longer announced as a clean bill of health. The empty run is
+//     covered by TestBuildCompareReport's "a nil report is an empty run, not a
+//     crash" and "an empty list reaches the WIRE as [] and never as null" in
+//     cmd/bentoo, and the empty SECTIONS' wording by
+//     testdata/TestCompareGoldenPlainNoneRead.golden.
+//
+// The per-status counters those two exercised (OutdatedCount, NewerCount,
+// UpToDateCount) keep their own tests below and in compare_verdict_test.go;
+// they are asserted on the report, which is where they live.
 
 func TestTruncateString(t *testing.T) {
 	tests := []struct {
@@ -300,152 +283,18 @@ func TestTruncateString(t *testing.T) {
 	}
 }
 
-func TestGetStatusColor(t *testing.T) {
-	tests := []struct {
-		name   string
-		status CompareStatus
-		isNil  bool
-	}{
-		{"up-to-date has color", StatusUpToDate, false},
-		{"outdated has color", StatusOutdated, false},
-		{"newer has color", StatusNewer, false},
-		{"not-in-remote has color", StatusNotInRemote, false},
-		{"error has color", StatusError, false},
-		{"unknown status returns nil", CompareStatus(99), true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			color := getStatusColor(tt.status)
-			if tt.isNil && color != nil {
-				t.Errorf("expected nil color for %v, got %v", tt.status, color)
-			}
-			if !tt.isNil && color == nil {
-				t.Errorf("expected non-nil color for %v, got nil", tt.status)
-			}
-		})
-	}
-}
-
-func TestFormatTableLine(t *testing.T) {
-	tests := []struct {
-		name     string
-		position string
-		contains []string
-	}{
-		{
-			name:     "top line",
-			position: "top",
-			contains: []string{"┌", "┬", "┐", "─"},
-		},
-		{
-			name:     "mid line",
-			position: "mid",
-			contains: []string{"├", "┼", "┤", "─"},
-		},
-		{
-			name:     "bottom line",
-			position: "bottom",
-			contains: []string{"└", "┴", "┘", "─"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := formatTableLine(10, 10, 10, 10, tt.position)
-			for _, expected := range tt.contains {
-				if !strings.Contains(result, expected) {
-					t.Errorf("formatTableLine(%q) should contain %q, got %q", tt.position, expected, result)
-				}
-			}
-		})
-	}
-}
-
-func TestFormatTableRow(t *testing.T) {
-	t.Run("header row", func(t *testing.T) {
-		result := formatTableRow(10, 10, 10, 10, "Package", "Category", "1.0", "2.0", true)
-		if !strings.Contains(result, "Package") {
-			t.Error("header row should contain Package")
-		}
-		if !strings.Contains(result, "Category") {
-			t.Error("header row should contain Category")
-		}
-		if !strings.Contains(result, "│") {
-			t.Error("header row should contain table borders")
-		}
-	})
-
-	t.Run("data row", func(t *testing.T) {
-		result := formatTableRow(10, 10, 10, 10, "hello", "app-misc", "1.0", "2.0", false)
-		if !strings.Contains(result, "hello") {
-			t.Error("data row should contain hello")
-		}
-		if !strings.Contains(result, "app-misc") {
-			t.Error("data row should contain app-misc")
-		}
-		if !strings.Contains(result, "1.0") {
-			t.Error("data row should contain 1.0")
-		}
-		if !strings.Contains(result, "2.0") {
-			t.Error("data row should contain 2.0")
-		}
-	})
-}
-
-func TestFormatSummary(t *testing.T) {
-	report := &CompareReport{
-		TotalPackages:    10,
-		ComparedPackages: 8,
-		OutdatedCount:    3,
-		NewerCount:       2,
-		UpToDateCount:    3,
-		NotInRemoteCount: 2,
-	}
-
-	result := FormatSummary(report)
-
-	// Check that summary contains expected information
-	if !strings.Contains(result, "10") {
-		t.Error("summary should contain total packages count")
-	}
-	if !strings.Contains(result, "6") { // ComparedPackages - NotInRemoteCount = 8 - 2 = 6
-		t.Error("summary should contain compared packages count")
-	}
-	if !strings.Contains(result, "Outdated: 3") {
-		t.Error("summary should contain outdated count")
-	}
-	if !strings.Contains(result, "Newer in Bentoo: 2") {
-		t.Error("summary should contain newer count")
-	}
-	if !strings.Contains(result, "Up-to-date: 3") {
-		t.Error("summary should contain up-to-date count")
-	}
-}
-
-func TestFormatSummaryZeroCounts(t *testing.T) {
-	report := &CompareReport{
-		TotalPackages:    5,
-		ComparedPackages: 5,
-		OutdatedCount:    0,
-		NewerCount:       0,
-		UpToDateCount:    5,
-	}
-
-	result := FormatSummary(report)
-
-	// Should only show non-zero counts
-	if !strings.Contains(result, "Up-to-date: 5") {
-		t.Error("summary should contain up-to-date count")
-	}
-	// Outdated and Newer should not appear when zero
-	if strings.Contains(result, "Outdated: 0") {
-		t.Error("summary should not show zero outdated count")
-	}
-	if strings.Contains(result, "Newer in Bentoo: 0") {
-		t.Error("summary should not show zero newer count")
-	}
-}
+// TestGetStatusColor is GONE, together with the function it exercised
+// (S046-R5.2, story 046 sub-task 7.1).
+//
+// It asserted that this package answers "what colour is `outdated`?" for every
+// CompareStatus — which is the defect, stated as a contract. A library that
+// picks the colour has decided how its facts look before its caller has seen
+// them, and a value that arrives carrying an escape sequence cannot be exported
+// to JSON, written into Markdown or logged plain.
+//
+// Nothing replaces it, because nothing replaced the function: Status is a value
+// with a String(), TestCompareStatus above pins that word for all five, and what
+// the word looks like belongs to whoever renders it.
 
 // =============================================================================
 // Task T15 / R4 — Parallel CompareWithProvider
@@ -458,6 +307,10 @@ func TestFormatSummaryZeroCounts(t *testing.T) {
 type fakeProvider struct {
 	delay    time.Duration
 	versions map[string][]string // keyed by "category/pkg"
+	// errs makes a package fail with something other than provider.ErrNotFound,
+	// which is how a caller reaches StatusError. It is keyed like versions and
+	// consulted first; a nil map (the usual case) changes nothing.
+	errs map[string]error
 
 	inFlight    atomic.Int64
 	maxInFlight atomic.Int64
@@ -477,6 +330,9 @@ func (f *fakeProvider) GetPackageVersions(category, pkg string) ([]string, error
 	}
 	if f.delay > 0 {
 		time.Sleep(f.delay)
+	}
+	if err, ok := f.errs[category+"/"+pkg]; ok {
+		return nil, err
 	}
 	v, ok := f.versions[category+"/"+pkg]
 	if !ok {

@@ -60,7 +60,7 @@ func TestResolveModePrecedence(t *testing.T) {
 	}
 }
 
-// TestResolveModeAutoResolvesByInteractivity pins R3.7 at its source: with
+// TestResolveModeAutoResolvesByInteractivity pins S044-R3.7 at its source: with
 // nothing configured, the answer is exactly what tui.Enabled gives today —
 // inline on a TTY, plain off one. That is what makes "no change for a user who
 // configured nothing" hold by construction rather than by a compatibility
@@ -107,7 +107,7 @@ func TestAutoNeverFullscreen(t *testing.T) {
 }
 
 // TestResolveModeExplicitFullscreenOffATTYDowngradesAndWarns asserts BOTH
-// halves of R3.6. A downgrade with no sentence leaves the operator wondering
+// halves of S044-R3.6. A downgrade with no sentence leaves the operator wondering
 // why the screen they asked for never appeared.
 func TestResolveModeExplicitFullscreenOffATTYDowngradesAndWarns(t *testing.T) {
 	in := ModeInputs{Flag: "fullscreen", Interactive: false}
@@ -120,7 +120,7 @@ func TestResolveModeExplicitFullscreenOffATTYDowngradesAndWarns(t *testing.T) {
 		t.Errorf("ResolveMode(%+v) = %q, want %q", in, got, ModePlain)
 	}
 	if strings.TrimSpace(warning) == "" {
-		t.Error("ResolveMode downgraded fullscreen to plain and said nothing; R3.6 requires the sentence")
+		t.Error("ResolveMode downgraded fullscreen to plain and said nothing; S044-R3.6 requires the sentence")
 	}
 }
 
@@ -157,7 +157,7 @@ func TestResolveModeNoTUIBeatsConfigAndEnv(t *testing.T) {
 	}
 }
 
-// TestResolveModeUnknownValueErrors pins R3.9. An error that does not name the
+// TestResolveModeUnknownValueErrors pins S044-R3.9. An error that does not name the
 // legal set leaves the operator guessing which four words are accepted.
 func TestResolveModeUnknownValueErrors(t *testing.T) {
 	in := ModeInputs{Flag: "bogus", Interactive: true}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,10 +26,12 @@ type ManifestFlags struct {
 
 var manifestFlags ManifestFlags
 
-var manifestCmd = &cobra.Command{
-	Use:   "manifest [<category> | <category>/<package>]",
-	Short: "Regenerate Manifest files for overlay packages",
-	Long: `Regenerate Manifest files for one or more packages in the overlay.
+// newManifestCmd builds `overlay manifest`.
+func newManifestCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "manifest [<category> | <category>/<package>]",
+		Short: "Regenerate Manifest files for overlay packages",
+		Long: `Regenerate Manifest files for one or more packages in the overlay.
 
 By default, the existing Manifest is moved aside before pkgdev runs so a
 fresh file is produced (clean regeneration). The backup is restored
@@ -81,17 +84,15 @@ Examples:
 
   # Disable the system distfiles cache lookup
   bentoo overlay manifest --distfiles-cache ""`,
-	Args: cobra.MaximumNArgs(1),
-	Run:  runManifest,
-}
-
-func init() {
-	manifestCmd.Flags().BoolVar(&manifestFlags.Keep, "keep", false, "Keep existing Manifest in place (skip clean regen)")
-	manifestCmd.Flags().BoolVarP(&manifestFlags.DryRun, "dry-run", "n", false, "Show what would be processed without running pkgdev")
-	manifestCmd.Flags().StringVar(&manifestFlags.Distdir, "distdir", "", "Distfiles directory used by pkgdev (default: temporary directory removed after run)")
-	manifestCmd.Flags().IntVarP(&manifestFlags.Jobs, "jobs", "j", overlay.DefaultManifestJobs, "Maximum parallel pkgdev workers")
-	manifestCmd.Flags().StringVar(&manifestFlags.DistfilesCache, "distfiles-cache", overlay.DefaultDistfilesCache, "Read-only distfiles cache consulted before download (\"\" disables)")
-	overlayCmd.AddCommand(manifestCmd)
+		Args: cobra.MaximumNArgs(1),
+		Run:  runManifest,
+	}
+	cmd.Flags().BoolVar(&manifestFlags.Keep, "keep", false, "Keep existing Manifest in place (skip clean regen)")
+	cmd.Flags().BoolVarP(&manifestFlags.DryRun, "dry-run", "n", false, "Show what would be processed without running pkgdev")
+	cmd.Flags().StringVar(&manifestFlags.Distdir, "distdir", "", "Distfiles directory used by pkgdev (default: temporary directory removed after run)")
+	cmd.Flags().IntVarP(&manifestFlags.Jobs, "jobs", "j", overlay.DefaultManifestJobs, "Maximum parallel pkgdev workers")
+	cmd.Flags().StringVar(&manifestFlags.DistfilesCache, "distfiles-cache", overlay.DefaultDistfilesCache, "Read-only distfiles cache consulted before download (\"\" disables)")
+	return cmd
 }
 
 func runManifest(cmd *cobra.Command, args []string) {
@@ -137,22 +138,56 @@ func runManifest(cmd *cobra.Command, args []string) {
 		Jobs:           manifestFlags.Jobs,
 		DistfilesCache: manifestFlags.DistfilesCache,
 		Reporter:       reporter,
+		Summary:        manifestLiveSummary,
 		Ctx:            runCtx,
 	}
 
-	updates := overlay.RegenerateManifests(ctx.OverlayPath, targets, opts)
-	result := &overlay.ManifestResult{Updates: updates}
+	result := overlay.RegenerateManifests(ctx.OverlayPath, targets, opts)
 
 	// Tear the UI down (stop the program, restore the terminal) before any
 	// further logging or exit so the summary is not swallowed by the TUI.
 	finishUI()
 
-	logger.Info("%s", overlay.FormatManifestResult(result, opts.DryRun))
+	// The run ends in a report, and it ends in exactly one (S046-R1.1).
+	//
+	// What stood here was logger.Info over overlay.FormatManifestResult — the
+	// same facts, formatted by the library, on stderr, in one mode, exportable
+	// by nothing. That sentence is what story 046 replaces: the counts are
+	// values now (ManifestResult.Ok/Failed), the report is assembled whole
+	// before any of it is displayed (R1.3), and the same value is rendered in
+	// the mode the run resolved and written to --export if one was named.
+	//
+	// It is not printed AS WELL. Two statements of one run's outcome, in two
+	// voices on two streams, is the defect rather than a safety net: an
+	// operator would read the list of targets twice and have no way to tell
+	// which of the two was authoritative the day they disagreed.
+	//
+	// AFTER finishUI() and not one line before it. The live region owns the
+	// terminal until the program is stopped, and the report writes to that same
+	// stdout — rendering first would draw it into a frame the TUI then redraws
+	// over. This is the point in the run where the terminal has been handed
+	// back, so it is the first point the report may be drawn.
+	presentManifestReport(ctx.Config, buildManifestReport(&result, opts.DryRun))
 
 	if opts.DryRun {
 		return
 	}
-	for _, u := range updates {
+
+	// An interrupted run does not exit 0, and saying so explicitly is what KEEPS
+	// today's behaviour rather than changing it. Until this sub-task, a
+	// cancelled run drained its queue against a dead context and came back with
+	// every remaining target marked failed, so the loop below always found one
+	// and the status was 1. Those fabricated failures are gone — that is the
+	// point of R1.4 — and without this line their disappearance would silently
+	// turn a ctrl+c into a success for any script reading the status.
+	//
+	// It is checked BEFORE the rows, not instead of them: the two answer
+	// different questions, and the first one to say "not a clean run" wins.
+	if result.Interrupted {
+		osExit(1)
+		return
+	}
+	for _, u := range result.Updates {
 		if !u.Success {
 			osExit(1)
 			return
@@ -183,4 +218,39 @@ func chooseManifestReporter(cfg *config.Config, dryRun bool, ctx context.Context
 		return r, func() { prog.Stop(); _ = prog.Wait() }
 	}
 	return tui.NewPlainReporter(os.Stderr, time.Second), func() {}
+}
+
+// manifestLiveSummary is the sentence the live region ends on: the two counts a
+// regeneration run established, in the words THIS layer chose (S046-R5.2,
+// design.md D5).
+//
+// # It is here because choosing words is the command's job
+//
+// overlay.RegenerateManifests used to hold this format string, which made the
+// end of a run a report squeezed through a progress channel: text, composed
+// inside a package that has no business composing any, that nothing downstream
+// could count, export, shorten or draw a second time in another mode. The
+// producer returns its facts now and this function turns them into a sentence,
+// so a run's numbers exist as values first and as wording second.
+//
+// # It reads the SAME value the report is built from
+//
+// Its argument is the ManifestResult that reaches buildManifestReport a few
+// lines later, and Ok and Failed are derived from that value's own rows. The
+// live region's last line and the report drawn under it therefore cannot
+// disagree about how the run went — which was the whole of the argument the
+// library made for keeping the sentence, kept intact and carried across the
+// boundary rather than lost with it.
+//
+// # From the result, not from the built payload
+//
+// D5 words the destination as the payload, and the counts are identical either
+// way: report.ManifestRun's Ok and Failed are set from these very two calls.
+// Building a payload to read them would copy one row per target, which is a
+// whole-overlay target list allocated to produce two integers and then thrown
+// away. The preview case settles it — a --dry-run returns before the run opens
+// a batch, so this is never called for one, and the DryRun flag that only the
+// payload carries has nothing to answer for here.
+func manifestLiveSummary(result overlay.ManifestResult) string {
+	return fmt.Sprintf("%d ok, %d failed", result.Ok(), result.Failed())
 }

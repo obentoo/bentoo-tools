@@ -91,8 +91,8 @@ func TestBox_TopAndBottomEdgesAreTheSameWidth(t *testing.T) {
 	}
 }
 
-// TestTable_MeasuresInsteadOfAssumingAWidth is the defect behind "%-45s": a
-// hand-picked width misaligns the moment a cell exceeds it.
+// TestTable_MeasuresInsteadOfAssumingAWidth is the defect behind a hand-picked
+// column width: it misaligns the moment a cell exceeds it.
 func TestTable_MeasuresInsteadOfAssumingAWidth(t *testing.T) {
 	long := strings.Repeat("x", 60)
 	out := component.Table{Rows: [][]string{

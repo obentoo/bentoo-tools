@@ -36,21 +36,30 @@ var reviewCacheDirFor = defaultReviewCacheDir
 //
 // It returns NOTHING, exactly as AnnotateAuthorship does. Every failure here is
 // a way of having no reading — a reviewer that errored, ran out of time, or
-// answered with nothing usable — and design.md's error table answers all of them
-// with one warning naming the package and then the deterministic report (R5.5).
-// None is fatal and none changes the exit status: the report the operator asked
-// for is already complete without the commentary.
+// answered with nothing usable — and all of them are answered the same way: the
+// affected row records ReadingFailed and the deterministic report goes out
+// unchanged (R5.5). None is fatal and none changes the exit status: the report
+// the operator asked for is already complete without the commentary.
+//
+// It WARNS ABOUT NO REVIEW OUTCOME (S047-R4.2). Every one of those outcomes is
+// now a fact on the result — Reading — and therefore a row the operator is
+// already reading; a warning above the report that repeated it would be noise
+// printed above the thing it duplicates, and a library that formats for an
+// operator is the boundary story 046 closed. The one warning left here is about
+// the CACHE having nowhere to live, which is a fact about this machine and
+// belongs to no row.
 //
 // Nothing it writes can change a Verdict, a count or the grouping (R5.8). It
-// writes exactly one field, Review, onto results the comparison has finished
-// with, and reads no other.
+// writes exactly two fields — Review and Reading — onto results the comparison
+// has finished with, and reads no other.
 //
 // It writes NO FILE (R5.4). The declaration it may attach is a PROPOSAL for the
 // operator to apply: the overlay repository auto-commits and pushes within
 // minutes, so a declaration written here would be published before anyone could
 // read it.
 //
-// _Requirements: R5.1, R5.2, R5.3, R5.4, R5.5, R5.8_
+// _Requirements: R5.1, R5.2, R5.3, R5.4, R5.5, R5.8, S047-R3.3, S047-R3.4,
+// S047-R4.1, S047-R4.2_
 func AnnotateReviews(report *CompareReport, reviewer DivergenceReviewer, prov provider.Provider, opts CompareOptions) {
 	if report == nil || reviewer == nil {
 		return
@@ -58,14 +67,33 @@ func AnnotateReviews(report *CompareReport, reviewer DivergenceReviewer, prov pr
 
 	// The findings R5.1 submits, collected BEFORE anything is opened. The
 	// predicate is the report's own (isUndeclaredDivergence, compare.go), so the
-	// set the model sees cannot drift from the set the report warns about; and
+	// set the model sees cannot drift from the set the report reports on; and
 	// knowing the set is empty here is what keeps a run with nothing to review
 	// from touching the cache at all — and therefore from warning about one.
+	//
+	// The same walk RE-ASSERTS ReadingNotComparable on the results the CONTENT
+	// CHECK REFUSED (S047-R3.3), by calling the one function that states that
+	// rule — noteContentRefusal, in compare.go, beside the check that refuses.
+	//
+	// It re-asserts rather than decides, because deciding here was a bug: this
+	// function returns above when the reviewer is nil, and a machine without
+	// `claude` on PATH has no reviewer without anyone having narrowed anything.
+	// Six of the measured run's eleven redundant packages are refused pairs, and
+	// on such a machine all six read as "nobody asked" — the exact conflation
+	// this vocabulary exists to remove. So the producer records them now, and
+	// the call kept here covers a report some other caller assembled; it writes
+	// the value that is already there and can write no other.
+	//
+	// It cannot collide with the pending set below. isUndeclaredDivergence
+	// requires VerifiedDiffers and noteContentRefusal acts on NotVerified, so no
+	// result is in both.
 	var pending []int
 	for i := range report.Results {
 		if isUndeclaredDivergence(report.Results[i]) {
 			pending = append(pending, i)
+			continue
 		}
+		noteContentRefusal(&report.Results[i])
 	}
 	if len(pending) == 0 {
 		return
@@ -98,18 +126,25 @@ func AnnotateReviews(report *CompareReport, reviewer DivergenceReviewer, prov pr
 	cache := newReviewCache(dir)
 
 	for n, i := range pending {
-		// Indexed rather than ranged over a copy: this pass exists to write one
-		// field back onto the report the caller is holding.
+		// Indexed rather than ranged over a copy: this pass exists to write two
+		// fields back onto the report the caller is holding.
 		r := &report.Results[i]
-		atom := r.Category + "/" + r.Package
 
-		if err := ctx.Err(); err != nil {
+		if ctx.Err() != nil {
 			// Ctrl-C. Every remaining call would fail on this same context, so
-			// carrying on would bury the report under one identical warning per
-			// package. Stopping leaves the rest carrying the zero note, which reads
-			// as "nothing was said" — which is true.
-			warnLogf("overlay: the review stopped (%v); %d of %d undeclared divergences carry no reading, and the report is otherwise complete",
-				err, len(pending)-n, len(pending))
+			// carrying on would ask the model once per package for an answer that
+			// cannot arrive.
+			//
+			// EVERY REMAINING PENDING RESULT is marked, not only the one the loop
+			// stopped on (S047-R4.1: the state is recorded on EACH CompareResult,
+			// not on the ones the loop happened to reach). Leaving the rest at the
+			// zero would say "nobody asked" about reviews this run DID request and
+			// then abandoned — the exact conflation this field exists to remove —
+			// and ReadingFailed is "a reading was attempted and did not come
+			// back", which a cancellation is.
+			for _, j := range pending[n:] {
+				report.Results[j].Reading = ReadingFailed
+			}
 			return
 		}
 
@@ -117,10 +152,13 @@ func AnnotateReviews(report *CompareReport, reviewer DivergenceReviewer, prov pr
 		if !ok {
 			// Rare by construction — the comparison read both of these files a
 			// moment ago to conclude they differ — so this is a file that moved
-			// underneath the run, and the operator is better told than left
-			// wondering why one finding carries no reading.
-			warnLogf("overlay: the two %s ebuilds for %s could not be re-read for review; its finding carries no reading, and the report is otherwise complete",
-				r.LocalVersion, atom)
+			// underneath the run.
+			//
+			// It reads as FAILED and not as ReadingNotComparable: the content
+			// check did not refuse this pair, it found a difference in it, and the
+			// row still says VerifiedDiffers. A reading was requested here and did
+			// not happen, which is what ReadingFailed means.
+			r.Reading = ReadingFailed
 			continue
 		}
 
@@ -129,24 +167,29 @@ func AnnotateReviews(report *CompareReport, reviewer DivergenceReviewer, prov pr
 		// have. An entry that says nothing is treated as a miss — a hand-edited or
 		// half-written one must not suppress a question forever, and nothing here
 		// expires.
+		//
+		// A hit is ReadingDone like any other answer: the state records that the
+		// difference WAS explained, not that a model was invoked, so two runs over
+		// an unchanged overlay cannot disagree about whether anybody read it.
 		if note, hit := cache.get(req); hit && reviewNoteSpeaks(note) {
 			r.Review = note
+			r.Reading = ReadingDone
 			continue
 		}
 
+		// ONE branch for both ways of not getting an answer. A reply that parsed
+		// and said nothing — no classification (R5.2 unanswered) or no summary
+		// (R5.3 unanswered) — leaves the operator exactly where an error does, and
+		// R5.5's four failures are one answer to them; two branches here would be
+		// two spellings of one state, and the pair could then drift.
 		note, err := reviewer.ReviewDivergence(ctx, req)
-		if err != nil {
-			// The error is an ARGUMENT, never a format string: it may carry a
-			// model's or a CLI's own text.
-			warnLogf("overlay: the review of %s failed (%v); its finding carries no reading, and the report is otherwise complete", atom, err)
-			continue
-		}
-		if !reviewNoteSpeaks(note) {
-			warnLogf("overlay: the review of %s came back without a classification or a summary; its finding carries no reading, and the report is otherwise complete", atom)
+		if err != nil || !reviewNoteSpeaks(note) {
+			r.Reading = ReadingFailed
 			continue
 		}
 
 		r.Review = note
+		r.Reading = ReadingDone
 		// Stored only once it is worth storing. A cache with no expiry would keep
 		// an empty answer for as long as neither ebuild changed, which is the one
 		// failure that would not heal itself on the next run.

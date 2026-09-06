@@ -143,9 +143,9 @@ var uiIsTerminal = output.IsTerminal
 // without first deciding how to render it.
 //
 // It is one function rather than the same three lines in each caller so that
-// the nil reading cannot come to differ between the two commands R3.8 joins:
+// the nil reading cannot come to differ between the two commands S044-R3.8 joins:
 // "no config" and "no ui.mode" must reach ResolveMode as the same empty string
-// from both, or R3.7 would hold for one command and not the other.
+// from both, or S044-R3.7 would hold for one command and not the other.
 func configuredUIMode(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
@@ -164,7 +164,7 @@ func configuredUIMode(cfg *config.Config) string {
 // and a switch. A package variable holding the first answer would be a cache
 // keyed on nothing: it would hand the second caller the FIRST caller's config,
 // which is a defect that only shows up once two commands share this path — and
-// sharing it is the whole point (R3.8). What genuinely must happen once is the
+// sharing it is the whole point (S044-R3.8). What genuinely must happen once is the
 // downgrade sentence, and warnUIDowngrade is what holds that line.
 //
 // A nil config is read as "nothing configured" rather than as a failure; see
@@ -182,6 +182,104 @@ func resolveAutoupdateUIMode(cfg *config.Config) (report.Mode, error) {
 
 	warnUIDowngrade(warning)
 	return mode, nil
+}
+
+// reportModeOrPlain is the rung of the resolution ladder that CANNOT fail: the
+// renderer a report producer draws in, with an unusable ambient mode refused out
+// loud and answered with plain (R3.7).
+//
+// The ladder below it is report.ResolveMode (the accepted set, the precedence
+// and the downgrade, over pure data), then resolveUIMode (adds the environment),
+// then resolveAutoupdateUIMode (adds the flags, the config key, the terminal,
+// and routes the downgrade sentence). Each of those three can return an error.
+// This one turns that error into a mode and a sentence, which is what every
+// producer of a REPORT wants and what none of them should decide for itself.
+//
+// # Why an unusable value can still arrive here at all
+//
+// The root rejects --ui and says so eleven lines above the check it performs:
+// validating the environment and the config there would make `bentoo version`
+// fail on a host whose shell profile has a typo, so it deliberately looks at the
+// flag alone. Measured on a binary built from HEAD, `bentoo version --ui=bogus`
+// exits 1 with the sentence and `BENTOO_UI=bogus bentoo version` exits 0 in
+// silence. So the error is reachable, and this is where it arrives.
+//
+// The SOURCE is what decides the answer, and the split is the design:
+//
+//   - --ui is explicit — the operator typed it for this run — so it stops the
+//     run before any work, once, and the sentence comes from the ROOT rather
+//     than from here: newRootCmd's PersistentPreRunE in root.go, at the
+//     ResolveMode call whose comment opens "an unusable --ui stops ANY command
+//     before it does work" (S046-R3.2, S046-R3.6).
+//   - BENTOO_UI and ui.mode are ambient, inherited from a shell profile or a
+//     config file rather than typed for this run, so failing every invocation on
+//     one would break the commands that render nothing. They are refused HERE
+//     instead: the render falls back to plain, the mode that always works, the
+//     exit status is untouched, and the refusal is stated on stderr.
+//
+// What must never happen is the third option, which is what shipped: the value
+// dropped and nothing said, because every producer handed this error to
+// logger.Debug, which sits below the default LevelInfo and reaches no one.
+//
+// The check producer shipped a FOURTH answer, worse than all three, and 12.3
+// removed it. runAutoupdate resolved the mode before any package work and exited
+// 1 on the error, citing a rule about the --ui flag; measured on a seeded
+// overlay, `BENTOO_UI=bogus bentoo overlay autoupdate --check` lost not a
+// sentence but the whole report, and on a run already failing for a reason of
+// its own it replaced the operator's real diagnostic with one about a display
+// key that could not have caused it.
+//
+// # The sentence carries three facts, and only two of them existed
+//
+// parseMode's message already names the source and the value it refused. The
+// third — the mode used INSTEAD — is what the clause here adds, because listing
+// plain among the accepted values is not the same as saying the report below was
+// rendered in it.
+//
+// Warn rather than Debug, on the same stream and at the same level as
+// warnUIDowngrade, and the two must stay tellable apart: both end in plain, but
+// a downgrade is a device limit with nothing to fix, while this is a typo that
+// costs the operator every run until they find it. The source and the value are
+// what separate them, and they are exactly the two facts a downgrade can never
+// carry.
+//
+// # It is ONE function and not four identical lines per producer
+//
+// The two producers that grew a report in this story carried the same block and
+// the same doc comment, so the cheapest fix touched one of them and left the
+// other as silent as before — which is the failure
+// TestAmbientModeRefusalReachesTheSnapshotProducerToo exists to catch. R3.7 is a
+// rule about reports, not about one command's file, so a producer inherits it by
+// calling this rather than by being reviewed for it.
+//
+// EVERY producer of a report calls it. That is the rule, and it is stated as a
+// rule rather than as a count on purpose: this comment read "All THREE producers
+// call it now" and named them, while presentValidateReport
+// (overlay_validate_report.go) built the same report.Run through the same
+// envelope and resolved no mode at all. Measured on one fixture, same overlay,
+// same BENTOO_UI=bogus, all exit 0 — `overlay manifest --dry-run` stated the
+// refusal once, `overlay validate` stated it zero times, with and without
+// --json. A number in a doc comment goes stale the moment a fourth call site
+// lands and says nothing when it does, which is the same silence R3.7 forbids,
+// one level up.
+//
+// `overlay validate` calls it for the SENTENCE alone: its human half is a
+// printer of its own until story 047, so the mode it gets back has no consumer
+// there and is dropped at the call. That is the rule holding rather than an
+// exception to it — R3.7 is about what the operator is told, and a command with
+// one renderer is already rendering in the mode it would have fallen back to.
+//
+// The check producer is why the rule was worth spending a function on. Its own
+// file called this shape "already correct" while the run died over the same key
+// on the way in; nothing about that file said otherwise, and only asking here
+// rather than deciding there could have caught it.
+func reportModeOrPlain(cfg *config.Config) report.Mode {
+	mode, err := resolveAutoupdateUIMode(cfg)
+	if err != nil {
+		logger.Warn("%v — this report is rendered in plain instead", err)
+		return report.ModePlain
+	}
+	return mode
 }
 
 // modeUsesLiveRegion answers the only question the two live-region call sites
@@ -226,11 +324,17 @@ func modeUsesLiveRegion(mode report.Mode) bool {
 //
 // nil is a legal value and reads as "nothing configured". That is what makes a
 // binary that never ran runAutoupdate — every test binary, for one — behave
-// exactly as it did before this key existed (R3.7).
+// exactly as it did before this key existed (S044-R3.7).
 var autoupdateUIConfig *config.Config
 
 // autoupdateUsesTUI is the `--apply` path's live-region gate, read as a boolean
-// from the mode this run resolved to (R3.8).
+// from the mode this run resolved to (S046-R3.3).
+//
+// The citation is deliberately NOT S044-R3.8: that requirement is about
+// `overlay manifest` resolving its presentation from the shared mode, and this
+// gate is neither `overlay manifest` nor a report. What it obeys is the rule
+// that the mode is resolved ONCE per run and every consumer reads that one
+// answer.
 //
 // It shares resolveAutoupdateUIMode with everything else this command renders,
 // which is the point: one resolution, so the report and the apply progress
@@ -238,19 +342,32 @@ var autoupdateUIConfig *config.Config
 func autoupdateUsesTUI(cfg *config.Config) bool {
 	mode, err := resolveAutoupdateUIMode(cfg)
 	if err != nil {
-		// Unreachable in a real run: R3.9 stops an unusable --ui, BENTOO_UI or
-		// ui.mode in runAutoupdate, before any package work. Debug rather than
-		// Warn because the operator has already been told, as a fatal error,
-		// and one run answering the same thing twice in two voices is worse
-		// than a line in a log. Plain is the fallback because plain is the mode
-		// that always works.
+		// Reachable, and only from the two AMBIENT sources. S044-R3.9 stops an
+		// unusable --ui and says nothing about the other two; the root has
+		// enforced that rule for all 30 commands since Task 4, and the gate in
+		// runAutoupdate has stopped exiting on what it never governed. So what
+		// arrives here is a BENTOO_UI or a ui.mode that does not name a mode,
+		// which S046-R3.7 answers with plain rather than with a failure.
+		//
+		// Debug rather than Warn, and that is a decision about WHO SPEAKS. R3.7
+		// is a rule about REPORTS; this is a live-region boolean on the apply
+		// path, which streams a worker's progress instead of drawing one (see
+		// modeUsesLiveRegion). Where the same command produces a report,
+		// presentCheckReport states the refusal once through reportModeOrPlain,
+		// naming the source, the value and the mode used instead — and a second
+		// sentence from here would answer one typo in two voices, which is the
+		// duplication R3.6 forbids. On a path that draws no report the refusal
+		// is therefore recorded rather than announced.
+		//
+		// False is the fallback for the same reason plain is: it is the answer
+		// that assumes nothing about the terminal.
 		logger.Debug("apply: the UI mode did not resolve, rendering in plain: %v", err)
 		return false
 	}
 	return modeUsesLiveRegion(mode)
 }
 
-// manifestUsesTUI is `overlay manifest`'s live-region gate, and R3.8 itself:
+// manifestUsesTUI is `overlay manifest`'s live-region gate, and S044-R3.8 itself:
 // the command stops deciding on its own and reads the answer the same
 // resolution hands autoupdate, so ONE setting governs both rather than an
 // operator having to learn a different switch per command.
@@ -259,30 +376,72 @@ func autoupdateUsesTUI(cfg *config.Config) bool {
 // overlay_manifest.go, so that "both callers resolve through the same path" is
 // something a reader can see instead of having to take on trust.
 //
-// # Neither flag is passed, on purpose
+// # One of the two flags is passed now; the other still is not
 //
-// Flag and NoTUI stay at their zero values because `overlay manifest` registers
-// neither --ui nor --no-tui. Reading autoupdateUI or autoupdateNoTUI here would
-// be a cross-command leak: those hold whatever the autoupdate command was given
-// and a manifest run never parses them at all. The two ENVIRONMENT opt-outs are
-// a different matter — resolveUIMode folds NO_COLOR and BENTOO_NO_TUI in for
-// every caller, which is exactly what keeps this identical to the
-// tui.Enabled(tui.Options{}) it replaces (R3.7).
+// This comment used to say both stayed at their zero values because `overlay
+// manifest` registers neither --ui nor --no-tui. Half of that premise expired
+// two sub-tasks after it was written: sub-task 4.3 moved --ui onto the ROOT's
+// persistent flags, so a manifest run DOES parse it, and autoupdateUI holds
+// what THIS run was given rather than another command's answer.
+//
+// Leaving Flag at zero meant one run resolving its mode TWICE from different
+// inputs. The report obeyed --ui=plain and the live region did not, so on a
+// terminal an operator who asked for the one mode whose help text promises "no
+// escape sequence at all" got them anyway (S046-R3.3). Off a terminal the
+// Interactive input degrades the mode regardless and the two answers agreed by
+// accident, which is why nothing here failed for two sub-tasks.
+//
+// NoTUI stays at zero, for the half that did NOT expire. --no-tui is declared
+// on `overlay autoupdate` alone, by the decision recorded in `func newRootCmd`
+// in root.go — the comment beginning "--no-tui deliberately stays on
+// autoupdate", beside the persistent-flag registration — so autoupdateNoTUI
+// holds whatever THAT command was given. Reading it here
+// would still be exactly the cross-command leak this comment has always
+// described.
+//
+// The two ENVIRONMENT opt-outs are a different matter again — resolveUIMode
+// folds NO_COLOR and BENTOO_NO_TUI in for every caller, which is what keeps
+// this identical to the tui.Enabled(tui.Options{}) it replaces (S046-R3.7).
 //
 // A nil config reads as "nothing configured" here too; see configuredUIMode.
 func manifestUsesTUI(cfg *config.Config) bool {
 	mode, warning, err := resolveUIMode(uiInputs{
+		Flag:        autoupdateUI,
 		Config:      configuredUIMode(cfg),
 		Interactive: uiIsTerminal(),
 	})
 	if err != nil {
-		// Unlike the apply path there is no earlier gate to have reported this
-		// — `overlay manifest` has no --ui flag to reject — so this is the one
-		// place an operator can learn their ui.mode is not a mode. It warns
-		// rather than fails: regenerating a Manifest is not a rendering
-		// question, and refusing to do it over a display key would be a worse
-		// answer than doing it in plain.
-		logger.Warn("%v — this run renders in plain", err)
+		// What reaches here is an AMBIENT mode alone, and only one that
+		// nothing outranks. The root has rejected an unusable --ui for every
+		// command since Task 4, so the flag wired in above cannot arrive
+		// unusable; a BENTOO_UI or a ui.mode that does not name a mode can, and
+		// since sub-task 15.1 one that a higher-precedence source overrules
+		// comes back as a warning instead. It records rather than fails:
+		// regenerating a Manifest is not a rendering question, and refusing to
+		// do it over a display key would be a worse answer than doing it in
+		// plain (S046-R3.7).
+		//
+		// Debug rather than Warn, for the reason autoupdateUsesTUI states above
+		// it: this is a live-region boolean, not a report, and `overlay
+		// manifest` DOES produce a report — presentManifestReport resolves
+		// through reportModeOrPlain, which states the refusal naming the source,
+		// the value and the mode used instead. A second sentence from here
+		// answers one typo in two voices, which is the duplication R3.6 forbids.
+		//
+		// This comment used to claim to be "the one place an operator learns
+		// it". That was true when it was written and stopped being true at
+		// sub-task 12.1, which routed `overlay manifest` through
+		// reportModeOrPlain — and a comment that is confidently false is worse
+		// than none in a package this comment-dense, because a reader has more
+		// reason to believe it.
+		//
+		// WHY FIVE AUDITS READ THIS AS SINGLE-VOICED: every one of them measured
+		// with `--dry-run`, and chooseManifestReporter returns tui.Noop() before
+		// this gate is reached on a dry run. The one flag used to make the
+		// measurement cheap is the one flag that hides the second voice, so the
+		// evidence was real and the conclusion was not. TestManifestSingleVoice
+		// asserts on a REAL run for exactly that reason.
+		logger.Debug("manifest: the UI mode did not resolve, rendering in plain: %v", err)
 		return false
 	}
 
@@ -381,14 +540,14 @@ func exportFormatFor(path string) exportFormat {
 // disk, and a function that ignored it would report success for a file that is
 // truncated. The deferred close is the fallback for the error paths above it;
 // closing twice returns os.ErrClosed, which is exactly the nothing it should be.
-func writeExport(path string, r report.Report) error {
+func writeExport(path string, run report.Run) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("creating the export %s: %w", path, err)
 	}
 	defer func() { _ = file.Close() }()
 
-	if err := renderExport(file, r, exportFormatFor(path)); err != nil {
+	if err := renderExport(file, run, exportFormatFor(path)); err != nil {
 		return fmt.Errorf("writing the export %s: %w", path, err)
 	}
 	if err := file.Close(); err != nil {
@@ -397,23 +556,83 @@ func writeExport(path string, r report.Report) error {
 	return nil
 }
 
-// renderExport writes r to w in one export syntax.
+// renderExport writes run to w in one export syntax.
 //
 // exportPlain is the DEFAULT rather than a case of its own, in both senses of
 // the word: it is the format R9.2 gives every extension that is not one of the
 // two named above, and it is what a format this switch has not been taught
 // about still produces — a whole report in the least demanding syntax there is,
 // rather than an empty file.
-func renderExport(w io.Writer, r report.Report, format exportFormat) error {
+//
+// # The sections are built ONCE, above the switch
+//
+// It is the same move presentCheckReport makes for the three screen modes, for
+// the same reason: it turns "the export formats differ in syntax and not in
+// content" into a fact about this call rather than a promise about three
+// renderers. A branch that built its own could quietly ask for less, which is
+// exactly what the plain export did until story 046's sub-task 4.5 — it counted
+// the packages found up to date where Markdown listed them, and an export whose
+// completeness depends on the extension is a rule the operator has to know and
+// nobody wrote down (S046-R3.4).
+//
+// JSON does not consume them, and building them on that path costs a slice of
+// rows this function then drops. That is the price of the invariant above, and
+// it is worth it: render.JSON serializes the whole run, so the completeness it
+// arrives at is the same one from the other direction, and there is nothing in
+// its signature to shorten either.
+func renderExport(w io.Writer, run report.Run, format exportFormat) error {
+	blocks := run.Sections(exportContent())
+
 	switch format {
 	case exportMarkdown:
-		return render.Markdown(w, r)
+		return render.Markdown(w, blocks)
 	case exportJSON:
-		return render.JSON(w, r)
+		return render.JSON(w, run)
 	default:
-		return render.Plain(w, r, render.Options{Width: unshortenedWidth})
+		return render.Plain(w, blocks, render.Options{Width: unshortenedWidth})
 	}
 }
+
+// The two values an export asks for when it builds its sections. They are
+// constants rather than fields read back from a caller: an export never asks
+// what the terminal was told, so there is nothing here for a screen setting to
+// arrive through (R9.3, R2.4, S046-R3.4).
+//
+// They are named rather than written as bare literals because
+// `r.Sections(report.SectionOptions{true, false})` says only that something was
+// on and something else was off. exportContent lives in
+// overlay_autoupdate_check.go, beside the screen's own options, because building
+// a report.SectionOptions means writing down the field that omits the plan — and
+// a source-text guard over this file forbids that name here, precisely so an
+// export can never acquire one. These two constants are already what
+// report.Payload.Sections is asked, so sub-task 3.1's rename leaves them
+// untouched.
+//
+// There were THREE until story 046's sub-task 4.5. The third, countTheUpToDate,
+// was everyScannedPackage's opposite and was what the PLAIN export asked for —
+// a disagreement inherited verbatim from the renderer that path replaced, and
+// deliberately left open at the time. S046-R3.4 answers it: the file carries the
+// complete report whatever the terminal was told, so both formats now ask for
+// everyScannedPackage and the constant that shortened one of them is gone.
+const (
+	// everyScannedPackage lists every package the run looked at, instead of
+	// counting the ones found up to date. It is what EVERY export asks for: a
+	// record is kept precisely because the terminal is gone, and one that named
+	// only the interesting packages could not answer "was this one checked at
+	// all".
+	everyScannedPackage = true
+
+	// keepThePlan states the validation-plan section, whatever the screen was
+	// told to do with it (R2.4).
+	//
+	// A report is kept precisely BECAUSE the terminal is gone, so a record
+	// missing the plan the terminal had already shown answers no question later
+	// — the plan is where a package's reason is stated at all (R7.2), so
+	// dropping it from a file would not shorten the record, it would empty it.
+	// A named false says that at the call site; a bare false would only say
+	// something was off.
+	keepThePlan = false
+)
 
 // renderCheckReportIn writes the report to the terminal through the renderer
 // the resolved mode names (R2, R2.4).
@@ -428,11 +647,14 @@ func renderExport(w io.Writer, r report.Report, format exportFormat) error {
 // compare what came out — measured at the command, which is where the defect
 // this story removes actually lived.
 //
-// # Every mode receives the SAME report and the SAME Options
+// # Every mode receives the SAME sections and the SAME Options
 //
-// Both are parameters and neither is touched here. A mode that filtered its own
-// report, or quietly widened its own budget, would be the R2.4 failure arriving
-// as a helpful special case; there is no branch here that could hold one.
+// Both are parameters and neither is touched here — and the first is now a
+// finished []report.Section rather than a report each branch converts for
+// itself, so "the modes differ in presentation and not in content" is settled
+// before this function is entered. A mode that filtered its own report, or
+// quietly widened its own budget, would be the R2.4 failure arriving as a
+// helpful special case; there is no branch here that could hold one.
 //
 // # Plain is the default, not a case
 //
@@ -450,16 +672,19 @@ func renderExport(w io.Writer, r report.Report, format exportFormat) error {
 // three modes write to a single place. Reading os.Stdout here rather than
 // capturing it in a variable is what lets a test swap the descriptor and see
 // what an operator would have seen.
-func renderCheckReportIn(mode report.Mode, r report.Report, opts render.Options) error {
+func renderCheckReportIn(mode report.Mode, blocks []report.Section, opts render.Options) error {
 	var err error
 
+	// All three renderers take sections rather than a report (story 046, Task
+	// 2), and the caller built them once. Nothing below knows what a package is,
+	// so a mode cannot decide to say something the others do not.
 	switch mode {
 	case report.ModeInline:
-		err = render.Inline(r, opts)
+		err = render.Inline(blocks, opts)
 	case report.ModeFullscreen:
-		err = render.Fullscreen(r, opts)
+		err = render.Fullscreen(blocks, opts)
 	default:
-		err = render.Plain(os.Stdout, r, opts)
+		err = render.Plain(os.Stdout, blocks, opts)
 	}
 
 	if err != nil {

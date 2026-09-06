@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/obentoo/bentoolkit/internal/common/logger"
-	"github.com/obentoo/bentoolkit/internal/common/output"
 	"github.com/obentoo/bentoolkit/internal/common/provider"
 )
 
@@ -181,11 +180,6 @@ type RealignReviewer interface {
 // the width of the whole report.
 const realignBaselineTextCap = 240
 
-// realignSummaryLead opens the run-level line that says how many divergences
-// went unjudged. It is a constant so a test can name it without copying the
-// wording, on the same argument that made undeclaredDivergenceCaveat one.
-const realignSummaryLead = "Realignment verdicts: "
-
 // realignCandidateReadingLead introduces the model's words inside a candidate
 // declaration, and SAYS WHOSE THEY ARE.
 //
@@ -254,7 +248,7 @@ func realignDeclarationHolds(declared []DeclaredDivergence) bool {
 // a run that asked for no verdicts and a machine with no `claude` on PATH reach
 // one no-op path instead of two conditions in cmd/ that could disagree.
 //
-// # It returns NOTHING, and that is R4.4
+// # It returns NO ERROR, and that is R4.4 — but it does leave its FINDINGS behind
 //
 // An unreachable model is EXIT 0 (D9). The deterministic half of the report — the
 // baseline, the structural axes, the declarations, the reduction — is complete
@@ -263,6 +257,12 @@ func realignDeclarationHolds(declared []DeclaredDivergence) bool {
 // that returned an error would hand the caller something to exit on, and an
 // overlay whose model was briefly unreachable would fail a pipeline for a reason
 // that has nothing to do with the overlay.
+//
+// What it does NOT leave to a renderer is what it established. Like
+// AnnotateBaseline, it finishes by asking EstablishFindings to rebuild
+// report.Findings, so the model's readings are values the caller holds the
+// moment the pass returns rather than strings somebody has to know to print
+// (S046-R5.1).
 //
 // Every failure here is a way of HAVING NO VERDICT — a reviewer that errored, ran
 // out of time, answered with nothing usable, or an ebuild that moved underneath
@@ -437,6 +437,18 @@ func AnnotateRealignVerdicts(report *CompareReport, rev RealignReviewer, prov pr
 	}
 
 	report.RealignAsked, report.RealignNoVerdict = asked, unanswered
+
+	// And the verdicts reach the caller as FINDINGS, not only as a field on each
+	// result (S046-R5.1). Until this call they exist as RealignVerdict strings a
+	// renderer has to know to look at, so a consumer walking report.Findings —
+	// an export, a count, a second renderer — is told a model judged nothing.
+	//
+	// It is EstablishFindings rather than an append for the reason AnnotateBaseline
+	// gives: the findings are a pure function of the report, so a rebuild after
+	// this pass produces the list the earlier one would have produced had the
+	// verdicts been there, and it never doubles. The early returns above skip it
+	// on purpose — a pass that judged nothing changed nothing to re-establish.
+	EstablishFindings(report)
 }
 
 // realignBaselineIsAnnotated reports whether the baseline review has already
@@ -557,29 +569,6 @@ func formatRealignVerdict(note RealignNote) string {
 		return "NOT justified — " + why + " (the model named no " + axisBaselineLabel + " text to replace it with)"
 	}
 	return "NOT justified — " + why + "; the " + axisBaselineLabel + " text that would replace it: " + baseline
-}
-
-// formatRealignSummary renders the run-level line that says how many divergences
-// came back with NO VERDICT, with the number they are a share of (R4.4).
-//
-// This line is R4.4 itself. An unreachable model exits 0 (D9), so the exit code
-// says nothing, and every affected package carries an empty RealignVerdict —
-// which renders as silence, and silence here reads as "every divergence was
-// judged and none objected". The denominator is the point for the reason
-// formatBaselineSummary's is: "12 packages went unjudged" is a different claim
-// out of 12 than out of 237.
-//
-// It renders NOTHING at zero, which is every run that produced a verdict for
-// everything it asked about AND every run that asked about nothing — including
-// every run that requested no review at all, which is what keeps R7.2's
-// byte-identical promise mechanical.
-func formatRealignSummary(report *CompareReport) string {
-	if report == nil || report.RealignNoVerdict <= 0 {
-		return ""
-	}
-	return output.Sprintf(output.Warning,
-		"\n%s%d of the %d divergences put to the model came back with no verdict — they were not judged, and an unjudged divergence is not a justified one. Everything above was established by reading files and stands without a model.\n",
-		realignSummaryLead, report.RealignNoVerdict, report.RealignAsked)
 }
 
 // CandidateDeclarationsWithVerdict is CandidateDeclarations enriched with the

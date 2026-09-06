@@ -79,11 +79,11 @@ func stubRunProgram(fake func(tea.Model, ...tea.ProgramOption) (tea.Model, error
 // a heading that exists in plain but not here is precisely the divergence the
 // view model was introduced to make impossible.
 func TestFullscreenViewHasEverySectionHeading(t *testing.T) {
-	model := newModel(fixtureReport(), Options{Width: 100})
+	model := newModel(screenSections(fixtureReport(), report.SectionOptions{}), Options{Width: 100})
 	sized, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 60})
 
 	view := ansi.Strip(sized.View())
-	plain := ansi.Strip(renderPlain(t, Options{Width: 100}))
+	plain := ansi.Strip(renderPlain(t, Options{Width: 100}, report.SectionOptions{}))
 
 	// Every heading the plain render produces must appear here too. Headings
 	// are taken from the plain output rather than hard-coded, so renaming a
@@ -113,7 +113,7 @@ func headingsIn(plain string) []string {
 	return headings
 }
 
-// TestFullscreenOmissionIsVisible pins R2.5. Silently truncating is the failure
+// TestFullscreenOmissionIsVisible pins S044-R2.5. Silently truncating is the failure
 // mode: an operator reading a screen that shows four rows has no way to know
 // the run produced forty, and a report that hides its own incompleteness is
 // worse than one that will not fit.
@@ -130,7 +130,7 @@ func TestFullscreenOmissionIsVisible(t *testing.T) {
 		})
 	}
 
-	model := newModel(tall, Options{Width: 100, ShowAll: true})
+	model := newModel(screenSections(tall, report.SectionOptions{ShowAll: true}), Options{Width: 100})
 	sized, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 8})
 	view := ansi.Strip(sized.View())
 
@@ -141,7 +141,7 @@ func TestFullscreenOmissionIsVisible(t *testing.T) {
 	// Some count of what is not on screen has to appear. The wording is the
 	// renderer's to choose; the presence of a number is not.
 	if !strings.ContainsAny(view, "0123456789") || !mentionsOmission(view) {
-		t.Errorf("a viewport too small for the report says nothing about what it left out (R2.5)\n--- view ---\n%s", view)
+		t.Errorf("a viewport too small for the report says nothing about what it left out (S044-R2.5)\n--- view ---\n%s", view)
 	}
 }
 
@@ -175,7 +175,7 @@ func TestDumpOnNormalExit(t *testing.T) {
 			return m, nil
 		})()
 
-		if err := Fullscreen(fixtureReport(), Options{Width: 100}); err != nil {
+		if err := Fullscreen(screenSections(fixtureReport(), report.SectionOptions{}), Options{Width: 100}); err != nil {
 			t.Errorf("Fullscreen returned an error on the normal path: %v", err)
 		}
 	})
@@ -197,7 +197,7 @@ func TestDumpOnQuit(t *testing.T) {
 			return quit, nil
 		})()
 
-		if err := Fullscreen(fixtureReport(), Options{Width: 100}); err != nil {
+		if err := Fullscreen(screenSections(fixtureReport(), report.SectionOptions{}), Options{Width: 100}); err != nil {
 			t.Errorf("Fullscreen returned an error on the quit path: %v", err)
 		}
 	})
@@ -223,7 +223,7 @@ func TestDumpOnPanic(t *testing.T) {
 			panic("View() blew up")
 		})()
 
-		_ = Fullscreen(fixtureReport(), Options{Width: 100})
+		_ = Fullscreen(screenSections(fixtureReport(), report.SectionOptions{}), Options{Width: 100})
 	})
 
 	if !reportWasDumped(out) {
@@ -248,7 +248,7 @@ func TestDumpOnInterrupt(t *testing.T) {
 			return interrupted, nil
 		})()
 
-		_ = Fullscreen(fixtureReport(), Options{Width: 100})
+		_ = Fullscreen(screenSections(fixtureReport(), report.SectionOptions{}), Options{Width: 100})
 	})
 
 	if !reportWasDumped(out) {
@@ -267,7 +267,7 @@ func TestFullscreenJoinsTheProgramError(t *testing.T) {
 			return m, boom
 		})()
 
-		if err := Fullscreen(fixtureReport(), Options{Width: 100}); !errors.Is(err, boom) {
+		if err := Fullscreen(screenSections(fixtureReport(), report.SectionOptions{}), Options{Width: 100}); !errors.Is(err, boom) {
 			t.Errorf("Fullscreen returned %v, want an error wrapping %v", err, boom)
 		}
 	})
@@ -305,7 +305,7 @@ func TestIncompleteIsLabelledOnTheInterruptPath(t *testing.T) {
 			return interrupted, nil
 		})()
 
-		_ = Fullscreen(fixtureReport(), Options{Width: 100})
+		_ = Fullscreen(screenSections(fixtureReport(), report.SectionOptions{}), Options{Width: 100})
 	})
 
 	stripped := ansi.Strip(out)
@@ -323,7 +323,7 @@ func TestCompleteRunIsNotLabelledOnTheFullscreenPath(t *testing.T) {
 			return m, nil
 		})()
 
-		_ = Fullscreen(fixtureReport(), Options{Width: 100})
+		_ = Fullscreen(screenSections(fixtureReport(), report.SectionOptions{}), Options{Width: 100})
 	})
 
 	if saysIncomplete(ansi.Strip(out)) {
@@ -381,16 +381,16 @@ func unframe(view string) string {
 func TestAllThreeModesAgreeOnContent(t *testing.T) {
 	opts := Options{Width: 100}
 
-	plain := strings.TrimRight(ansi.Strip(renderPlain(t, opts)), "\n")
+	plain := strings.TrimRight(ansi.Strip(renderPlain(t, opts, report.SectionOptions{})), "\n")
 
 	inline := strings.TrimRight(trimTrailing(ansi.Strip(captureStdout(t, func() error {
-		return Inline(fixtureReport(), opts)
+		return Inline(screenSections(fixtureReport(), report.SectionOptions{}), opts)
 	}))), "\n")
 
 	// A viewport tall enough that nothing is paginated away — pagination is a
-	// property of the screen, not of the report, and R2.5 covers the case where
+	// property of the screen, not of the report, and S044-R2.5 covers the case where
 	// it does have to omit.
-	model := newModel(fixtureReport(), opts)
+	model := newModel(screenSections(fixtureReport(), report.SectionOptions{}), opts)
 	sized, _ := model.Update(tea.WindowSizeMsg{Width: 104, Height: 200})
 	fullscreen := strings.TrimRight(unframe(ansi.Strip(sized.View())), "\n")
 

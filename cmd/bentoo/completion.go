@@ -6,10 +6,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var completionCmd = &cobra.Command{
-	Use:   "completion [bash|zsh|fish|powershell]",
-	Short: "Generate shell completion scripts",
-	Long: `Generate shell completion scripts for bentoo.
+// newCompletionCmd builds `completion`.
+func newCompletionCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "completion [bash|zsh|fish|powershell]",
+		Short: "Generate shell completion scripts",
+		Long: `Generate shell completion scripts for bentoo.
 
 To load completions:
 
@@ -40,23 +42,26 @@ PowerShell:
   PS> bentoo completion powershell > bentoo.ps1
   # and source this file from your PowerShell profile.
 `,
-	DisableFlagsInUseLine: true,
-	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
-	Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-	Run: func(cmd *cobra.Command, args []string) {
-		switch args[0] {
-		case "bash":
-			rootCmd.GenBashCompletion(os.Stdout) //nolint:errcheck // stdout write errors are not actionable
-		case "zsh":
-			rootCmd.GenZshCompletion(os.Stdout) //nolint:errcheck // stdout write errors are not actionable
-		case "fish":
-			rootCmd.GenFishCompletion(os.Stdout, true) //nolint:errcheck // stdout write errors are not actionable
-		case "powershell":
-			rootCmd.GenPowerShellCompletionWithDesc(os.Stdout) //nolint:errcheck // stdout write errors are not actionable
-		}
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(completionCmd)
+		DisableFlagsInUseLine: true,
+		ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
+		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+		// The completions are generated from THIS command's own root, not from the
+		// package-level rootCmd. Since newRootCmd builds a fresh tree per call, a
+		// global reference here would make an in-process run emit completions for a
+		// tree it is not part of — and it would also make rootCmd's initialiser
+		// depend on itself, which Go rejects as an initialisation cycle.
+		Run: func(cmd *cobra.Command, args []string) {
+			switch args[0] {
+			case "bash":
+				cmd.Root().GenBashCompletion(os.Stdout) //nolint:errcheck // stdout write errors are not actionable
+			case "zsh":
+				cmd.Root().GenZshCompletion(os.Stdout) //nolint:errcheck // stdout write errors are not actionable
+			case "fish":
+				cmd.Root().GenFishCompletion(os.Stdout, true) //nolint:errcheck // stdout write errors are not actionable
+			case "powershell":
+				cmd.Root().GenPowerShellCompletionWithDesc(os.Stdout) //nolint:errcheck // stdout write errors are not actionable
+			}
+		},
+	}
+	return cmd
 }
