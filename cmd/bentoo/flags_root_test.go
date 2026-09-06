@@ -20,6 +20,8 @@ package main
 // so `overlay manifest --ui=plain` is rejected as an unknown flag.
 
 import (
+	"github.com/obentoo/bentoolkit/internal/snapshot"
+	"os"
 	"strings"
 	"testing"
 )
@@ -67,16 +69,20 @@ func TestRootFlagsAreHonouredWithoutDeclaration(t *testing.T) {
 // make between them. One command honouring the flags is exactly what the story
 // starts from; what R3.1 asks is that a command NOT REMEMBERED still honours
 // them, which is only observable across more than one.
-// It is NOT every report producer, and the gap is named rather than closed
-// here. This repository has five: `overlay manifest`, `overlay autoupdate
-// --check`, `overlay validate`, `snapshot run` and — since story 047 — `overlay
-// compare`, each one a `func present*Report` calling `func exportReport` in
-// report_export.go. Two of the five were listed when 046 wrote this, which is
-// how `overlay compare` could join the envelope in 047 without a single
-// assertion noticing. Story 047, sub-task 5.4 adds the fifth because that is its
-// scope; `overlay validate` and `snapshot run` stay unlisted and stay named
-// here, so the next reader inherits a measured gap instead of a guard whose
-// title outruns its table.
+// It IS every report producer now, and it took three stories to become one.
+// This repository has five: `overlay manifest`, `overlay autoupdate --check`,
+// `overlay validate`, `snapshot run` and `overlay compare`, each a
+// `func present*Report` calling `func exportReport` in report_export.go. Two
+// were listed when 046 wrote this, which is how `overlay compare` could join
+// the envelope in 047 without a single assertion noticing; 047 added the third
+// and named the remaining two as a measured gap rather than closing them,
+// because their seeds were outside its scope. They are closed here: `overlay
+// validate` through stubValidateRunner, and `snapshot run` through the same
+// mocked pipeline snapshot_report_test.go drives.
+//
+// A row whose seed needs a path returns it, because `snapshot run` reaches its
+// runner only through a config file written into a temp dir and no table above
+// a t.Run can spell that.
 //
 // The seed is per row from 5.4 onward. `func seedCheckOverlay` gives the first
 // two rows the packages and the upstream stub they need; `overlay compare`
@@ -87,29 +93,70 @@ func TestRootFlagsAreHonouredWithoutDeclaration(t *testing.T) {
 func TestRootFlagsReachEveryReportProducer(t *testing.T) {
 	for _, tc := range []struct {
 		command []string
-		seed    func(t *testing.T, c *testCLI)
+		// seed prepares the row and returns any FURTHER arguments it needs.
+		// `snapshot run` reaches its runner only through a config file written
+		// into a temp dir, so its path cannot be spelled in the table above it.
+		seed func(t *testing.T, c *testCLI) []string
 	}{
 		{command: []string{"overlay", "manifest", "--dry-run"}},
 		{command: []string{"overlay", "autoupdate", "--check", "--force"}},
 		{
 			command: []string{"overlay", "compare", "--no-review"},
-			seed:    func(t *testing.T, c *testCLI) { seedCompareFixture(t, c, true) },
+			seed: func(t *testing.T, c *testCLI) []string {
+				seedCompareFixture(t, c, true)
+				return nil
+			},
+		},
+		{
+			command: []string{"overlay", "validate"},
+			seed: func(t *testing.T, _ *testCLI) []string {
+				stubValidateRunner(t, mixedReport())
+				return nil
+			},
+		},
+		{
+			command: []string{"snapshot", "run"},
+			seed: func(t *testing.T, _ *testCLI) []string {
+				stubBinariesOnPath(t, "btrbk", "ssh")
+				_, configPath := writeSnapshotConfig(t, validSnapshotTOML)
+				redirectStateDir(t)
+				snapshotRunner = &snapshot.MockRunner{}
+				return []string{"--config=" + configPath}
+			},
 		},
 	} {
 		t.Run(strings.Join(tc.command, " "), func(t *testing.T) {
 			c := newTestCLI(t)
 			seedCheckOverlay(t, c, "1.7.1", "1.8.0", "app-misc/jq")
+			var extra []string
 			if tc.seed != nil {
-				tc.seed(t, c)
+				extra = tc.seed(t, c)
 			}
 
 			export := t.TempDir() + "/report.json"
-			args := append(append([]string{}, tc.command...), "--ui=plain", "--export="+export)
+			args := append(append([]string{}, tc.command...), extra...)
+			args = append(args, "--ui=plain", "--export="+export)
 
 			_, stderr, _ := c.Run(args...)
 
 			if strings.Contains(stderr, "unknown flag") {
 				t.Errorf("%v rejected a root flag (R3.1): %s", tc.command, stderr)
+			}
+			// The assertion the one above cannot make. A flag has not been
+			// REACHED merely because cobra declined to call it unknown: a local
+			// flag shadowing a root one is refused as an "invalid argument"
+			// instead, and every row stays green while the run dies. Measured,
+			// on a local --ui bool added to `overlay compare` — the realistic
+			// mistake of somebody adding a sixth producer — the string check
+			// above says nothing and this one fails.
+			//
+			// The export file is the flag having ARRIVED and done its work,
+			// which is the whole of what this guard's name claims. All five
+			// rows already satisfied it before it was written, so nothing was
+			// widened to fit.
+			if _, err := os.Stat(export); err != nil {
+				t.Errorf("%v honoured no --export, so a root flag did not reach it (S046-R3.1): %v\nstderr:\n%s",
+					tc.command, err, stderr)
 			}
 		})
 	}
