@@ -1193,23 +1193,6 @@ func isUndeclaredDivergence(r CompareResult) bool {
 	return r.Verified == VerifiedDiffers && !r.Patched
 }
 
-// The two openings a model's reading is printed under, indented beneath the
-// finding they qualify.
-//
-// Both SAY WHOSE WORDS FOLLOW, and that is the whole reason they are worded at
-// all. Everything else in this report is something the tool established: two
-// files compared byte for byte, a registry entry consulted, a filename stat'ed.
-// What comes after these two openings is a guess by a language model. An
-// operator who cannot tell the two apart will act on the wrong one — and the
-// line that invites an action, "declare this patched", is the guess.
-//
-// They are constants so a test can name them without copying the wording, on the
-// same argument that made undeclaredDivergenceCaveat one.
-const (
-	reviewReadingLead  = "  ↳ model reading, not a finding of this report: "
-	reviewProposalLead = "  ↳ proposed declaration, nothing here writes it — apply it yourself: "
-)
-
 // compareFindings is where every finding this comparison establishes is written
 // down, once, as a value (S046-R5.1). It is the ONE definition of what the
 // report has to say about a package, and the rendered lines beneath each table
@@ -1448,32 +1431,6 @@ func declaringEntry(r CompareResult) string {
 		return r.PatchedBy
 	}
 	return r.Category + "/" + r.Package
-}
-
-// declaredReasonTail renders the ": <reason>" tail of a declaration line, or ""
-// when there is no reason to state.
-//
-// It reads the finding's Effect rather than the result's PatchedReason, and only
-// where the MAINTAINER is the one speaking: a model's reading is printed under
-// its own labelled lead (renderReviewCommentary) precisely so a guess is never
-// mistaken for a commitment, and appending one here would undo that in the one
-// place an operator is most likely to act on it.
-//
-// The empty case is reachable in production, not defensive padding: R1.3 rejects
-// a whitespace-only reason at validation time, but LoadPackagesConfig
-// (config.go:552-567) never calls ValidatePackageConfig, so the compare path
-// sees entries that validation never judged. A dangling colon introducing
-// nothing would read as a truncation bug rather than as the missing text it is.
-//
-// The CAP is applied HERE and not on the finding. A width is a terminal's
-// business: a value truncated on its way into the report would reach the JSON
-// export truncated too, where there is no width to respect and nothing to
-// restore it from (S046-R5.2).
-func declaredReasonTail(f Finding) string {
-	if f.Effect.Source != EffectDeclared || f.Effect.Text == "" {
-		return ""
-	}
-	return ": " + truncateString(f.Effect.Text, patchedReasonCap)
 }
 
 // oneLine collapses every run of whitespace into a single space, so a model's

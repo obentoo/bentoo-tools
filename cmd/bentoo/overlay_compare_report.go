@@ -558,14 +558,147 @@ func comparePackageFindings(findings []overlay.Finding) (map[string]string, map[
 		if finding.Kind == overlay.FindingCompared || finding.Atom == "" {
 			continue
 		}
+		// The declared reason travels as a TAIL on the producer's own sentence,
+		// which is the shape it has always had: `patched — declared by <entry>` is
+		// the finding, and what the entry claims the divergence does completes it.
+		// Composed per finding rather than across them, so a report whose findings
+		// arrive in another order still puts each reason on its own line.
+		line := finding.Detail + compareDeclaredTail(finding)
 		if _, seen := reasons[finding.Atom]; !seen {
-			reasons[finding.Atom] = finding.Detail
-			continue
+			reasons[finding.Atom] = line
+		} else {
+			extra[finding.Atom] = append(extra[finding.Atom], line)
 		}
-		extra[finding.Atom] = append(extra[finding.Atom], finding.Detail)
+		// A model's words follow the finding they are about, under their own leads.
+		// Nil at every zero value, which is every run no review reached.
+		extra[finding.Atom] = append(extra[finding.Atom], compareReviewLines(finding)...)
 	}
 	return reasons, extra
 }
+
+// compareEffectCap bounds a declared reason and a proposed declaration on the
+// lines below.
+//
+// It mirrors internal/overlay's patchedReasonCap, which is unexported and stays
+// that way: a width is THIS layer's business. The export carries both values at
+// full length, and a value capped on its way into the report would reach the
+// JSON truncated, where there is no width to respect and nothing to restore it
+// from (S047-R5.2).
+const compareEffectCap = 72
+
+// compareCapped bounds s at compareEffectCap, counting RUNES and not bytes.
+//
+// The text is a maintainer's or a model's prose and reaches a JSON export as
+// well as a terminal. A cut through the middle of a multi-byte rune would put
+// invalid UTF-8 in both, which is why this does not reuse internal/overlay's
+// byte-wise truncateString.
+func compareCapped(s string) string {
+	runes := []rune(s)
+	if len(runes) <= compareEffectCap {
+		return s
+	}
+	return string(runes[:compareEffectCap-1]) + "…"
+}
+
+// compareDeclaredTail renders the ": <reason>" tail of a declaration line, or
+// "" when nobody stated one.
+//
+// It reads Effect and ONLY where the maintainer is the one speaking. A model's
+// reading is printed under its own labelled lead by compareReviewLines,
+// precisely so a guess is never mistaken for a commitment, and appending one
+// here would undo that in the one place an operator is most likely to act on it.
+//
+// The empty case is reachable in production and is not defensive padding:
+// S025-R1.3 rejects a whitespace-only reason at validation time, but
+// LoadPackagesConfig never calls ValidatePackageConfig, so the compare path sees
+// entries validation never judged. A dangling colon introducing nothing would
+// read as a truncation bug rather than as the missing text it is.
+func compareDeclaredTail(finding overlay.Finding) string {
+	if finding.Effect.Source != overlay.EffectDeclared || finding.Effect.Text == "" {
+		return ""
+	}
+	return ": " + compareCapped(finding.Effect.Text)
+}
+
+// compareOriginProse is the report's sentence for a model's classification, or
+// "" for one that says nothing (S032-R5.2).
+//
+// It is spelled here rather than taken from ReviewOrigin.String(). Those four
+// words — unknown, overlay, upstream, both — are the feature's wire and storage
+// vocabulary: the review cache persists one and the CLI adapter decodes one from
+// the model's reply, so changing them would change what every note already on
+// disk means. "::gentoo" is what an operator calls upstream, and it appears in
+// no stored file.
+func compareOriginProse(o overlay.ReviewOrigin) string {
+	switch o {
+	case overlay.OriginOverlay:
+		return "originates in the overlay"
+	case overlay.OriginUpstream:
+		return "originates in ::gentoo"
+	case overlay.OriginBoth:
+		return "originates on both sides"
+	default:
+		// OriginUnknown, and any value a later constant adds without a sentence
+		// here. Both mean nothing was said, and a line about an origin nobody
+		// defined is worse than no line at all.
+		return ""
+	}
+}
+
+// compareReviewLines is what a MODEL said about one divergence: which side it
+// reads the difference as coming from and what it does (S032-R5.2, S032-R5.3),
+// followed by the `patched` declaration it offers for a difference it read as
+// ours (S032-R5.4).
+//
+// Every line SAYS WHOSE WORDS THESE ARE. Everything else the report prints is
+// something this tool established by comparing two files; these are a guess, and
+// EffectReviewed exists so a renderer can tell an operator which of the two they
+// are reading. Dropping the distinction invites them to act on the guess.
+//
+// It writes NO FILE: R5.4 proposes and the operator applies. The overlay
+// repository auto-commits within minutes, so a declaration this program wrote
+// would be published before anyone could read it.
+//
+// Nothing here can change a verdict, a count or which table a package sits in
+// (S032-R5.8): it turns one finished Finding into lines the report would
+// otherwise not have printed.
+func compareReviewLines(finding overlay.Finding) []string {
+	// A note missing its classification or its summary has answered neither
+	// S032-R5.2 nor S032-R5.3, and a finding-shaped line stating nothing is worse
+	// than no line. The producer already refuses such a note; this refuses it
+	// again, on the same terms, for a Finding that reached here by another route.
+	if finding.Effect.Source != overlay.EffectReviewed || finding.Effect.Text == "" {
+		return nil
+	}
+	prose := compareOriginProse(finding.Origin)
+	if prose == "" {
+		return nil
+	}
+
+	lines := []string{compareReviewReadingLead + prose + " — " + finding.Effect.Text}
+	// R5.4 attaches a proposal to ONE classification. `both` is deliberately not
+	// it: a copy that carries work of ours AND has fallen behind ::gentoo needs the
+	// rebase first, and declaring `patched` on it would record the whole difference
+	// as intentional, permanently suppressing the recommendation for the half that
+	// is merely stale.
+	//
+	// The producer already refuses to carry a proposal for any other origin. This
+	// refuses it AGAIN rather than trusting that, so a model that fills the field in
+	// anyway cannot get it onto the line. An empty proposal is not printed either: a
+	// lead introducing nothing would read as a truncation bug.
+	if finding.Origin == overlay.OriginOverlay && finding.Proposal != "" {
+		lines = append(lines, compareReviewProposalLead+compareCapped(finding.Proposal))
+	}
+	return lines
+}
+
+// The two leads a model's words travel under. They carry no glyph and no indent:
+// what an operator sees in front of a further finding is decided by the renderer
+// in internal/common/report, over the notes this file builds from the findings.
+const (
+	compareReviewReadingLead  = "model reading, not a finding of this report: "
+	compareReviewProposalLead = "proposed declaration, nothing here writes it — apply it yourself: "
+)
 
 // compareOneLine collapses every run of whitespace in s to a single space.
 //
