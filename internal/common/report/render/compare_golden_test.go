@@ -77,6 +77,8 @@ import (
 	"bytes"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/obentoo/bentoolkit/internal/common/report"
 )
 
@@ -314,4 +316,40 @@ func TestCompareGoldenPlainNoneRead(t *testing.T) {
 		t.Fatalf("Plain returned an error: %v", err)
 	}
 	golden(t, "TestCompareGoldenPlainNoneRead", buf.Bytes())
+}
+
+// TestCompareGoldenFullscreen is the mode S047-R8.3 asks for that this file did
+// not have.
+//
+// Plain and markdown were pinned above; fullscreen was not, and it is the mode
+// most exposed to a layout change — it is the only one that measures a viewport,
+// paginates, and draws a frame. TestFullscreenSectionsGoldenFrame in
+// fullscreen_sections_test.go pins the frame over a GENERIC fixture, and
+// TestFullscreenAgreesWithPlainOnContent proves the two modes agree over that
+// same fixture. Neither has ever seen a comparison payload, so a section shape
+// only this report produces — a group row, a detail line under a row, a
+// four-state redundant lead — could stop rendering here with every existing
+// golden still green. That is exactly the silence S047-R8.3 names.
+//
+// # The viewport is deliberately taller than the report
+//
+// Pagination is a property of the SCREEN and TestFullscreenStatesWhatItCouldNotShow
+// already covers it. A height that truncated would pin whichever rows happened
+// to fit, so the next person to add a section would regenerate a golden that
+// silently dropped an older one off the bottom.
+//
+// The view is stripped of ANSI before it is pinned, for the reason the frame
+// golden strips it: a colour change is not a content change, and a golden that
+// failed on one would be regenerated unread.
+//
+// Regenerate with:
+//
+//	go test ./internal/common/report/render/ -run TestCompareGoldenFullscreen -update
+//
+// and READ the diff.
+func TestCompareGoldenFullscreen(t *testing.T) {
+	model := newModel(comparePopulatedRun().Sections(report.SectionOptions{}), Options{Width: 100})
+	sized, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 200})
+
+	golden(t, "TestCompareGoldenFullscreen", []byte(ansi.Strip(sized.View())))
 }
