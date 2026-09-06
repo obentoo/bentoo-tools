@@ -300,6 +300,16 @@ func TestKeepGroupLabelIsTheSharedStem(t *testing.T) {
 			want:  "gst",
 		},
 		{
+			// The real overlay's biggest group, and the case the fallback used to
+			// swallow: gstreamer spells the stem without a separator, so the prefix
+			// ends a token in neither of the other two by the strict rule and there
+			// is no boundary inside "gst" to cut back to. Naming 81 packages after
+			// whichever one sorted first is not a label.
+			name:  "one member runs past the stem without a separator",
+			atoms: []string{"dev-python/gst-python", "media-plugins/gst-plugins-good", "media-libs/gstreamer"},
+			want:  "gst",
+		},
+		{
 			name:  "a whole name that another extends",
 			atoms: []string{"dev-lang/rust", "dev-lang/rust-bin"},
 			want:  "rust",
