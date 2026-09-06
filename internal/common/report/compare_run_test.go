@@ -690,3 +690,46 @@ func TestCompareRunSummaryScopeIsMeasuredOnTheView(t *testing.T) {
 		}
 	})
 }
+
+// TestCompareRunRedundantLeadRefusesToGuessTheCause is the other half of
+// S047-R3.3, and the half the requirement is easiest to fail while looking
+// satisfied.
+//
+// The producer's NotVerified collapses at least six exits — no overlay path, no
+// local version, a differing version pair, a provider that resolves no package
+// directory, and either ebuild failing to open — and `func noteContentRefusal`
+// writes readingNotComparable on ALL of them. Naming the version pair over that
+// whole count states a cause the run never established for five of the six,
+// which is the ambiguity S047-R3.3 exists to REMOVE rather than to paper over with a
+// confident answer.
+//
+// Exactly one of the six is provable from the row: `func resolvePackagePaths`
+// refuses a differing pair at its second statement, before any exit that could
+// stand for another cause. So that one is named and the rest are not.
+func TestCompareRunRedundantLeadRefusesToGuessTheCause(t *testing.T) {
+	const (
+		pairCause = "because the check refuses to diff two different versions"
+		unstated  = "and this run did not record why"
+	)
+
+	run := compareFixture()
+	// dev-lang/go carries the SAME version on both sides, so whatever refused it,
+	// it was not the version pair.
+	run.Redundant[1].Reading = readingNotComparable
+	run.Redundant[1].Diff = "not compared"
+
+	lead := strings.Join(run.Sections(SectionOptions{})[1].Lead, "\n")
+
+	if !strings.Contains(lead, "1 were never compared at all, "+pairCause) {
+		t.Errorf("the one refusal the row PROVES is no longer named:\n%s", lead)
+	}
+	if !strings.Contains(lead, "1 were never compared at all, "+unstated) {
+		t.Errorf("a refusal with no provable cause went unreported, so the counts an operator is "+
+			"given no longer account for the list:\n%s", lead)
+	}
+	if strings.Contains(lead, "2 were never compared at all, "+pairCause) {
+		t.Errorf("a package whose two versions are IDENTICAL was reported as refused for having two "+
+			"different versions. That is S047-R3.3's ambiguity replaced by a wrong answer, which is worse: "+
+			"an operator cannot tell it from the case the sentence is true of.\n%s", lead)
+	}
+}

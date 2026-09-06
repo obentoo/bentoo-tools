@@ -1174,18 +1174,43 @@ func compareRedundantSection(r CompareRun) Section {
 // ComparePkg.Reading is the field that keeps them apart, and this is where the
 // run's own numbers are attached to the word.
 //
+// # Only ONE of those causes may be NAMED, and the rest are counted apart
+//
+// `func noteContentRefusal` writes readingNotComparable on every NotVerified, so
+// one sentence naming the version pair over the whole count asserts, for every
+// other cause, something the run never established. The pair is the one cause a
+// reader here can PROVE — resolvePackagePaths refuses a differing pair before
+// any other exit — so it is read off the ROW, and every other refusal gets a
+// clause that names no cause at all.
+//
+// Stating no cause is the honest answer. Stating the wrong one is worse than the
+// ambiguity S047-R3.3 set out to remove, because an operator cannot tell it from the
+// case the sentence is true of. This is the objection `func compareDiffCell` in
+// cmd/bentoo/overlay_compare_report.go already makes about printing "unreadable"
+// for a state it cannot observe, applied to the sentence beside the table.
+//
 // Every clause is conditional on its count, and that is not a stylistic choice:
 // a sentence claiming that six packages were never compared, in a run where all
 // of them were, is false in the direction that matters — it invites an operator
 // to distrust a list with nothing wrong with it.
 func compareRedundantLead(pkgs []ComparePkg) string {
-	var read, notComparable, failed, notRequested int
+	var read, versionsDiffer, refusedUnstated, failed, notRequested int
 	for _, p := range pkgs {
 		switch p.Reading {
 		case readingRead:
 			read++
 		case readingNotComparable:
-			notComparable++
+			// The producer collapsed the cause, but ONE of the four is provable
+			// from the row itself. `func resolvePackagePaths` in
+			// internal/overlay/compare.go refuses a differing version pair at its
+			// SECOND statement, before any exit that could stand for another
+			// cause, so a row whose two versions differ was refused for exactly
+			// that reason and no other. Everything else stays unattributed.
+			if p.Local != "" && p.Remote != "" && p.Local != p.Remote {
+				versionsDiffer++
+			} else {
+				refusedUnstated++
+			}
 		case readingFailed:
 			failed++
 		case readingNotRequested:
@@ -1194,9 +1219,19 @@ func compareRedundantLead(pkgs []ComparePkg) string {
 	}
 
 	var clauses []string
-	if notComparable > 0 {
+	if versionsDiffer > 0 {
 		clauses = append(clauses, fmt.Sprintf(
-			"%d were never compared at all, because the check refuses to diff two different versions", notComparable))
+			"%d were never compared at all, because the check refuses to diff two different versions", versionsDiffer))
+	}
+	if refusedUnstated > 0 {
+		// The remaining causes — no overlay path, a provider that cannot resolve
+		// a package directory, an ebuild that would not open — are indistinguishable
+		// here, so this names none of them. Borrowing the clause above would state
+		// a cause the run never established, which is the objection `func
+		// compareDiffCell` in cmd/bentoo/overlay_compare_report.go already makes
+		// about printing "unreadable" for a state it cannot observe.
+		clauses = append(clauses, fmt.Sprintf(
+			"%d were never compared at all, and this run did not record why", refusedUnstated))
 	}
 	if failed > 0 {
 		// "the other" is only true when the two clauses account for every
@@ -1204,7 +1239,7 @@ func compareRedundantLead(pkgs []ComparePkg) string {
 		// the target rendering was written from. Any other arrangement gets the
 		// count on its own, because a reader cannot subtract what they were not
 		// given.
-		if notComparable > 0 && notComparable+failed == len(pkgs) {
+		if versionsDiffer > 0 && refusedUnstated == 0 && versionsDiffer+failed == len(pkgs) {
 			clauses = append(clauses, fmt.Sprintf("the review died on the other %d", failed))
 		} else {
 			clauses = append(clauses, fmt.Sprintf("%d had a review that was attempted and failed", failed))
