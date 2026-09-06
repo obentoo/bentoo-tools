@@ -864,6 +864,18 @@ func compareGroupLabel(atoms []string) string {
 // or a digit — all ASCII — and the cut path returns the prefix up to an ASCII
 // separator or digit. A Gentoo package name is ASCII by the package manager's
 // own grammar; this is the guarantee for the string that is not.
+// compareSeparatorAt reports whether name has an explicit token separator at i.
+//
+// It is compareTokenBoundary minus its two implicit openings — the end of the
+// string, and the first digit of a run — because a stem accepted on those would
+// name a group after one member's tail rather than after what they share.
+func compareSeparatorAt(name string, i int) bool {
+	if i >= len(name) {
+		return false
+	}
+	return name[i] == '-' || name[i] == '_' || name[i] == '.'
+}
+
 func compareSharedStem(names []string) string {
 	if len(names) == 0 {
 		return ""
@@ -891,6 +903,32 @@ func compareSharedStem(names []string) string {
 	}
 	if whole {
 		return prefix
+	}
+
+	// A stem is not debris if it is a whole token SOMEWHERE in the group, even
+	// where one member runs on past it. gst-python, gst-plugins-good and
+	// gstreamer share "gst": it ends a token in the first two and is a fragment
+	// of a word in the third, and cutting back inside it finds no boundary at
+	// all, so the whole group fell back to naming one member. "gst" is what they
+	// are named after, and one member spelling it without a separator does not
+	// make it less so.
+	//
+	// A SEPARATOR and not any boundary, which is the whole of the narrowing.
+	// compareTokenBoundary also opens on end-of-string and on the first digit of a
+	// run, and both would be wrong here: python3 and python311 share "python3",
+	// which ends the first name and continues the second's NUMBER, so the group
+	// is named after python and not after one member's version. Only an explicit
+	// separator says a human wrote a token break there.
+	//
+	// This does NOT weaken the rule above it. The case that doc names --
+	// gst-plugins-good and gst-python sharing "gst-p" -- is still refused here,
+	// because "gst-p" ends a token in neither, and still falls to the cut below
+	// which returns "gst". What changes is only the group that has no cut to
+	// make.
+	for _, name := range names {
+		if compareSeparatorAt(name, len(prefix)) {
+			return prefix
+		}
 	}
 
 	for i := len(prefix) - 1; i > 0; i-- {

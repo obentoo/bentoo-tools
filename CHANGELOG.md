@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A `overlay compare` group whose stem one member spells without a separator
+  is named after the stem again, not after whichever member sorted first.** The
+  label is the longest package-name prefix the members share, cut back so that
+  it ends where a token ends — the cut is what stops a label reading as debris,
+  since `gst-plugins-good` and `gst-python` share `gst-p`, which is a piece of a
+  word rather than a word.
+
+  The rule required that ending in EVERY member, and `gstreamer` spells `gst`
+  with nothing after it. So the shared prefix stopped at `gst`, ended a token in
+  neither of the others by that rule, offered no boundary inside itself to cut
+  back to, and the group fell back to naming one member: `dev-python/gst-python
+  (81 packages)` on the overlay this was measured against — the largest group in
+  the report, labelled after an arbitrary member of itself.
+
+  A stem is now kept when an explicit separator follows it in at least one
+  member. A SEPARATOR and not any boundary: `python3` and `python311` share
+  `python3`, which ends the first name and continues the second's number, and
+  that group is still named `python` rather than after one member's version. The
+  case the original rule was written for is also unchanged — `gst-p` ends a
+  token in no member, so it is still cut back to `gst`.
+
+  `KeepGroup.Label` is prose and nothing matches on it, so no consumer breaks.
+
 ## [0.29.0] - 2026-09-06
 
 ### Changed
