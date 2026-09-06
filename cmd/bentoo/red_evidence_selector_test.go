@@ -279,6 +279,13 @@ func classifyRedEvidence(claim testsClaim, index map[string][]string) (string, s
 		}
 	}
 
+	// EVERY delegation must resolve, not just the first. This loop used to return
+	// on all of its paths, so a sub-task declaring two delegations had only
+	// delegations[0] judged and the rest waved through — a hollow gate inside the
+	// very guard that exists to stop hollow Red evidence. A failure still answers
+	// immediately; the detail reports the first delegation that resolved, and the
+	// claim is delegated only once the whole list has passed.
+	delegatedDetail := ""
 	for _, delegation := range claim.delegations {
 		if delegation.task != "" {
 			if len(index[delegation.task]) == 0 {
@@ -288,9 +295,12 @@ func classifyRedEvidence(claim testsClaim, index map[string][]string) (string, s
 						"around it: name a sub-task whose Red was recorded, or record one.",
 					claim.number, delegation.task, delegation.task)
 			}
-			return redVerdictDelegated, fmt.Sprintf(
-				"field names %s; Red delegated to task %s and recorded against %s",
-				redFieldFiles(claim), delegation.task, strings.Join(index[delegation.task], ", "))
+			if delegatedDetail == "" {
+				delegatedDetail = fmt.Sprintf(
+					"field names %s; Red delegated to task %s and recorded against %s",
+					redFieldFiles(claim), delegation.task, strings.Join(index[delegation.task], ", "))
+			}
+			continue
 		}
 
 		if !containsPath(own, delegation.path) {
@@ -308,9 +318,14 @@ func classifyRedEvidence(claim testsClaim, index map[string][]string) (string, s
 					"Red must have been taken beside the work, or the field names the wrong file.",
 				claim.number, delegation.path, redFieldFiles(claim))
 		}
-		return redVerdictDelegated, fmt.Sprintf(
-			"field names %s; Red recorded against the sibling %s, declared",
-			redFieldFiles(claim), delegation.path)
+		if delegatedDetail == "" {
+			delegatedDetail = fmt.Sprintf(
+				"field names %s; Red recorded against the sibling %s, declared",
+				redFieldFiles(claim), delegation.path)
+		}
+	}
+	if delegatedDetail != "" {
+		return redVerdictDelegated, delegatedDetail
 	}
 
 	return redVerdictMismatch, redEvidenceFault(claim, own)
@@ -557,6 +572,16 @@ func TestRedEvidenceSelectorCanFail(t *testing.T) {
 		body:    "Unit · `internal/common/report/boundary_test.go` — Red: `internal/common/report/boundary_fields_test.go`",
 		want:    redVerdictMismatch,
 		mustSay: []string{"backticks"},
+	}, {
+		// The loop over delegations used to return on its first pass, so this body
+		// went green on the resolving token alone and 9.9 was never read. Two
+		// tokens on one line is not hypothetical: redEvidenceToken is a FindAll,
+		// and a sub-task that names its Red twice gets both.
+		name:    "a SECOND delegation that resolves to nothing is refused",
+		number:  "1.2",
+		body:    "Unit · `internal/common/report/boundary_test.go` — Red: internal/common/report/boundary_fields_test.go and also Red: Task 9.9",
+		want:    redVerdictMismatch,
+		mustSay: []string{"1.2", "9.9"},
 	}}
 
 	for _, testCase := range cases {
