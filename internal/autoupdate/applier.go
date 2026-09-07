@@ -1964,8 +1964,8 @@ func (a *Applier) runManifestWithFix(cand candidatePaths, pkg, version string, r
 // with nothing changed (S030-M3a). The fixer was billed against quota for a
 // condition that had already stopped existing.
 //
-// The precedent is promptRegistryFixes, which already refuses to offer a repair
-// unless the failure wraps ErrFetchFailed (cmd/bentoo/overlay_autoupdate_fixregistry.go:89).
+// The precedent is overlay_autoupdate_fixregistry.go's `func promptRegistryFixes`,
+// which already refuses to offer a repair unless the failure wraps ErrFetchFailed.
 // This is the same rule moved to the manifest path, keyed on a classification
 // rather than on a single sentinel.
 //
@@ -2499,10 +2499,11 @@ func (a *Applier) compileOnce(cand candidatePaths, pkg, version, privTool string
 //
 // The attribution gate runs on FREE evidence first — the transcript this run
 // already holds — and its verdict is reported whether or not a fixer is wired.
-// That is refuseFixOnEnvironmentFailure's argument (applier.go:1450) and its
-// precondition in one: the verdict is a fact about the failure and not about the
-// configuration, and it may be taken unconditionally exactly while nothing is
-// spent to get it, or two machines would give the same failure two diagnoses.
+// That is the argument applier.go's `func refuseFixOnEnvironmentFailure` makes,
+// and its precondition in one: the verdict is a fact about the failure and not
+// about the configuration, and it may be taken unconditionally exactly while
+// nothing is spent to get it, or two machines would give the same failure two
+// diagnoses.
 //
 // The two rungs that DO spend something — a pretend `emerge -p` resolve, and a
 // probe write into PORTAGE_TMPDIR — are asked only once a fixer is about to be
