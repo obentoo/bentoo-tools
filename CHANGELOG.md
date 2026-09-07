@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-09-07
+
 ### Changed
 - **The review budget is a measured number now, not an inherited one.**
   `DefaultReviewTimeout` goes from 120 to 300 seconds. The old value was chosen
@@ -57,6 +59,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   config.probeConfig` to stderr on every command. Nesting inherits the mirror.
   An absent block, a half-written block and a nil pointer all resolve to the
   documented default.
+
+- **Every `claude` invocation records what it cost.** `run` emits one line per
+  invocation carrying the outcome and the wall-clock time it took, for every
+  outcome including success. A budget cannot be set from the failures alone —
+  those are precisely the runs that hit the ceiling — so the successful
+  durations are recorded too, and the cost of a review is now recoverable from
+  a run's own output instead of by instrumenting again.
 
 ### Fixed
 - **The auxiliary variable substitution can no longer bleed past the assignment
@@ -118,14 +127,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   review path consume. What is shared is the order and nothing else: the four
   existing fixer messages are byte for byte what they were, because a review
   told "claude fixer aborted" would be told about an operation it never ran.
-
-### Added
-- **Every `claude` invocation records what it cost.** `run` emits one line per
-  invocation carrying the outcome and the wall-clock time it took, for every
-  outcome including success. A budget cannot be set from the failures alone —
-  those are precisely the runs that hit the ceiling — so the successful
-  durations are recorded too, and the cost of a review is now recoverable from
-  a run's own output instead of by instrumenting again.
 
 ## [0.29.1] - 2026-09-06
 
@@ -4972,7 +4973,8 @@ Validated with `go test -race ./...`, `golangci-lint run`,
 - Initial release after versioning restructure. Prior history archived;
   project restarts at 0.1.0 following SemVer from this milestone forward.
 
-[Unreleased]: https://github.com/obentoo/bentoolkit/compare/v0.29.1...HEAD
+[Unreleased]: https://github.com/obentoo/bentoolkit/compare/v0.30.0...HEAD
+[0.30.0]: https://github.com/obentoo/bentoolkit/compare/v0.29.1...v0.30.0
 [0.29.1]: https://github.com/obentoo/bentoolkit/compare/v0.29.0...v0.29.1
 [0.29.0]: https://github.com/obentoo/bentoolkit/compare/v0.28.2...v0.29.0
 [0.28.2]: https://github.com/obentoo/bentoolkit/compare/v0.28.1...v0.28.2
