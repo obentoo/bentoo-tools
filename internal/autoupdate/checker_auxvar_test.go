@@ -86,6 +86,39 @@ func TestSubstituteAuxVar_AlreadyCorrect(t *testing.T) {
 	}
 }
 
+// TestSubstituteAuxVar_Anchored pins the aux-var half of the lesson
+// substituteCommitHash already learned: QuoteMeta pins the variable NAME but not
+// its POSITION, so an unanchored regex also matches a longer name that merely
+// ends in the target one, and a commented-out assignment. ReplaceAllString then
+// rewrites every match, corrupting lines the bump has no business touching.
+func TestSubstituteAuxVar_Anchored(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pkg-1.0.ebuild")
+	body := "EAPI=8\n" +
+		"# MY_BUILD=\"old\"  # superseded, kept for the record\n" +
+		"VENDORED_MY_BUILD=\"vendor-7\"\n" +
+		"\tMY_BUILD=\"1\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write ebuild: %v", err)
+	}
+
+	if err := substituteAuxVar(path, "MY_BUILD", "2"); err != nil {
+		t.Fatalf("substituteAuxVar: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	want := "EAPI=8\n" +
+		"# MY_BUILD=\"old\"  # superseded, kept for the record\n" +
+		"VENDORED_MY_BUILD=\"vendor-7\"\n" +
+		"\tMY_BUILD=\"2\"\n"
+	if string(got) != want {
+		t.Errorf("substitution bled past the package's own assignment:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 // TestValidate_AuxVar covers the parser-agnostic validation: both fields are
 // mutually required, the pattern must compile, and a regex/html parser is
 // explicitly allowed (that is the whole point of the feature).

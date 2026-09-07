@@ -1761,9 +1761,9 @@ func substituteCommitHash(ebuildPath, newHash string) error {
 // substituteAuxVar replaces the quoted assignment of a free-text auxiliary
 // variable in an ebuild (e.g. MY_BUILD="esr-bb23" → MY_BUILD="esr-bb24"). It is
 // the sibling of substituteCommitHash but without the 40-hex-SHA lock, so it can
-// carry any value captured from a regex/html upstream page. The variable name is
-// anchored exactly (QuoteMeta) and the value is bounded by the surrounding double
-// quotes, so the substitution cannot bleed past the assignment.
+// carry any value captured from a regex/html upstream page. The value is bounded
+// by the surrounding double quotes, so the substitution cannot bleed past the
+// assignment.
 func substituteAuxVar(ebuildPath, varName, newValue string) error {
 	if varName == "" {
 		return fmt.Errorf("empty aux_var name for %s", ebuildPath)
@@ -1773,7 +1773,12 @@ func substituteAuxVar(ebuildPath, varName, newValue string) error {
 		return fmt.Errorf("failed to read ebuild for aux var substitution: %w", err)
 	}
 
-	re := regexp.MustCompile(`(` + regexp.QuoteMeta(varName) + `=")[^"]*(")`)
+	// Anchored to the start of a line (leading indentation allowed) for the same
+	// reason substituteCommitHash is: QuoteMeta pins the name but not its
+	// position, so an unanchored match also fires on a longer name that merely
+	// ends in it (MY_BUILD inside VENDORED_MY_BUILD) and on a commented-out
+	// assignment -- and ReplaceAllString would rewrite every one of them.
+	re := regexp.MustCompile(`(?m)^([ \t]*` + regexp.QuoteMeta(varName) + `=")[^"]*(")`)
 
 	// "Nothing changed" has two very different causes, and conflating them
 	// reports a missing variable that is sitting right there. Decide on presence

@@ -59,6 +59,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented default.
 
 ### Fixed
+- **The auxiliary variable substitution can no longer bleed past the assignment
+  it means.** `regexp.QuoteMeta` pins the variable's name but not its position,
+  so the unanchored pattern also matched a longer name merely ending in the
+  target one, and a commented-out assignment — and `ReplaceAllString` rewrote
+  every match. A single bump could corrupt three lines it had no business
+  touching.
+
+  This is the `aux_var` half of the lesson `substituteCommitHash` already
+  learned when an unanchored match clobbered a vendored revision; the two were
+  asymmetric, and only one of them was anchored. Latent rather than live: all
+  six ebuilds declaring `aux_var` put the assignment at column zero with no
+  colliding name in the file, so this is a guard against the next ebuild.
+
 - **An auxiliary variable that already holds the right value no longer fails the
   bump.** `substituteAuxVar` decided on difference: when the rewritten ebuild
   came out equal to the original it reported the variable as absent. But
