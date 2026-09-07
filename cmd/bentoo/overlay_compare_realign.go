@@ -394,7 +394,19 @@ func (r *claudeRealignReviewer) ReviewRealignment(ctx context.Context, req overl
 
 	reply, err := r.asker.AskJSON(realignReviewInstruction(req), realignReviewPayload(req), realignReviewSchema)
 	if err != nil {
-		return overlay.RealignNote{}, fmt.Errorf("the claude CLI could not read the two ebuilds: %w", err)
+		// The realignment half of the rule claudeDivergenceReviewer states, and
+		// it is repeated here because the WRONG sentence was: one claim about
+		// unread ebuilds sat in both files, so answering it in one and not the
+		// other would leave this path — the one the realignment pass takes —
+		// still making it.
+		//
+		// This seam opens no file either: Ours and Baseline arrive as bytes,
+		// read upstream, and all this function does with them is put them on
+		// the CLI's stdin. So it names its own operation and passes the
+		// classified cause through unaltered, leaving the difference between a
+		// budget that elapsed, a process that never started and a non-zero exit
+		// to the one classifier that decides it (S048-R1.4, S048-R1.3).
+		return overlay.RealignNote{}, fmt.Errorf("the realignment review failed: %w", err)
 	}
 
 	// Decoded straight into the consumer's own type: RealignNote carries the three

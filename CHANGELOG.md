@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Neither review wrapper blames the ebuilds any more.** `overlay compare`'s
+  divergence and realignment reviewers both wrapped every failure as `the claude
+  CLI could not read the two ebuilds`. Neither seam opens a file: both ebuilds
+  arrive as bytes, read upstream, and all the wrapper does is put them on the
+  CLI's stdin — so the sentence was false for every failure it could ever
+  report, on both paths. Each now names its own review and lets the classified
+  cause through unaltered. The one place that still says the ebuilds could not
+  be read is the one where that is what happened.
+
 - **A `claude` invocation killed by its own deadline now says so.** Every failed
   review of `overlay compare --realign` was reported as `the claude CLI could
   not read the two ebuilds: ... claude CLI failed: signal: killed`. Reading the

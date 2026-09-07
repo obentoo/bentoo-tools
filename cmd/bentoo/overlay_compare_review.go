@@ -38,8 +38,8 @@ import (
 //
 // It is a package var for the same narrow reason internal/overlay's warnLogf is
 // one — logger binds its io.Writer at first use and exposes no setter
-// (logger.go:44-52), so without a seam the only way to assert on this line would
-// be to read the process's stderr. Production never assigns it.
+// (logger.go's `func Default`), so without a seam the only way to assert on this
+// line would be to read the process's stderr. Production never assigns it.
 var reviewWarnf = logger.Warn
 
 // claudeAsker is the slice of *autoupdate.ClaudeCodeClient this adapter uses: one
@@ -131,7 +131,7 @@ func compareDivergenceReviewer(ctx context.Context, noReview bool) overlay.Diver
 //
 // The CONTEXT is threaded into the client rather than applied per call, because
 // that is where autoupdate puts it: ClaudeCodeClient combines c.ctx with
-// c.timeout for every invocation (claude_code.go:342), so a run cancelled with
+// c.timeout on entry to claude_code.go's `func run`, so a run cancelled with
 // Ctrl-C kills the `claude` process it is waiting on instead of holding the
 // terminal for the rest of the 120s budget.
 func newDivergenceReviewer(ctx context.Context) (overlay.DivergenceReviewer, error) {
@@ -169,11 +169,11 @@ var _ overlay.DivergenceReviewer = (*claudeDivergenceReviewer)(nil)
 //
 // The context is checked on ENTRY and then not again: the deadline that bounds
 // the call belongs to the client (DefaultClaudeCodeTimeout, 120s, combined with
-// the same ctx at claude_code.go:342), so a second one here would be a second
-// thing to tune for one round trip. What the entry check buys is the interrupted
-// run: AnnotateReviews walks its findings in order, and after Ctrl-C the
-// remaining ones fail here instead of each spawning a process that is about to
-// be killed.
+// the same ctx by claude_code.go's `func run`), so a second one here would be a
+// second thing to tune for one round trip. What the entry check buys is the
+// interrupted run: AnnotateReviews walks its findings in order, and after Ctrl-C
+// the remaining ones fail here instead of each spawning a process that is about
+// to be killed.
 func (r *claudeDivergenceReviewer) ReviewDivergence(ctx context.Context, req overlay.ReviewRequest) (overlay.ReviewNote, error) {
 	if err := ctx.Err(); err != nil {
 		return overlay.ReviewNote{}, fmt.Errorf("the review was not started: %w", err)
@@ -181,7 +181,20 @@ func (r *claudeDivergenceReviewer) ReviewDivergence(ctx context.Context, req ove
 
 	reply, err := r.asker.AskJSON(divergenceReviewInstruction(req), divergenceReviewPayload(req), divergenceReviewSchema)
 	if err != nil {
-		return overlay.ReviewNote{}, fmt.Errorf("the claude CLI could not read the two ebuilds: %w", err)
+		// IT NAMES THIS OPERATION AND CLAIMS NOTHING ELSE. This seam opens no
+		// file: both ebuilds arrive as bytes in req, read upstream before
+		// ReviewDivergence was called, and all this function does with them is
+		// put them on the CLI's stdin. The sentence that used to be here — "the
+		// claude CLI could not read the two ebuilds" — was therefore false for
+		// every failure it could ever report, and it sent whoever read it to the
+		// filesystem to debug a deadline in this program's own code (S048-R1.4).
+		//
+		// THE CAUSE TRAVELS UNALTERED. Which failure this was — a budget that
+		// elapsed, a process that never started, a non-zero exit — is decided
+		// once, by autoupdate's own classifier, and every caller inherits that
+		// one answer. Re-wording or re-classifying it here would be a second
+		// answer free to drift from the first (S048-R1.3).
+		return overlay.ReviewNote{}, fmt.Errorf("the divergence review failed: %w", err)
 	}
 
 	// Decoded straight into the consumer's own type. ReviewNote carries the three
