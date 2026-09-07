@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A `claude` invocation killed by its own deadline now says so.** Every failed
+  review of `overlay compare --realign` was reported as `the claude CLI could
+  not read the two ebuilds: ... claude CLI failed: signal: killed`. Reading the
+  ebuilds was never what failed. `run` in `claude_code.go` never read its own
+  context, so a SIGKILL from this program's 120-second budget arrived
+  indistinguishable from any other spawn failure, and the message sent whoever
+  debugged it to the filesystem.
+
+  The context is now read before anything frames the failure, and the three
+  outcomes get three sentences: an elapsed deadline names the budget actually in
+  force, a process that never started says that, and a process that ran and
+  exited keeps the exit-code framing it always had. A run ended by a parent
+  rather than by this client's own budget claims no number — quoting one would
+  assert that a value ran out when it had not.
+
+- **One precedence, consulted once, instead of two that could drift.** The
+  ordering that decides which of the three failures happened — a context error
+  outranks any exit-code framing — was written only inside `formatFixerError` in
+  `manifest_fixer.go`. It is now a classifier that both the fixers and the
+  review path consume. What is shared is the order and nothing else: the four
+  existing fixer messages are byte for byte what they were, because a review
+  told "claude fixer aborted" would be told about an operation it never ran.
+
+### Added
+- **Every `claude` invocation records what it cost.** `run` emits one line per
+  invocation carrying the outcome and the wall-clock time it took, for every
+  outcome including success. A budget cannot be set from the failures alone —
+  those are precisely the runs that hit the ceiling — so the successful
+  durations are recorded too, and the cost of a review is now recoverable from
+  a run's own output instead of by instrumenting again.
+
 ## [0.29.1] - 2026-09-06
 
 ### Fixed

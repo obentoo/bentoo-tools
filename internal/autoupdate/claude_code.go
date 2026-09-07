@@ -335,9 +335,20 @@ func (c *ClaudeCodeClient) buildArgs(instruction string, structured bool, schema
 // is bound to a child context derived from c.ctx with c.timeout, so a cancelled
 // parent or an elapsed timeout kills the child (S003-R7.1). In bare mode the API key
 // is injected ONLY through the child environment (never argv/logs — S003-R2.1, S003-R2.4).
-// stdout and stderr are captured separately. A non-zero exit, an is_error
-// envelope, or non-JSON stdout each yield an error that includes the envelope
+// stdout and stderr are captured separately.
+//
+// A FAILED invocation is classified before any exit-code framing, in the
+// precedence the package keeps in one place (S048-R1.1, S048-R1.2, S048-R1.3):
+// a run this client's own deadline ended says so and names the budget that
+// elapsed, a process that never started says that, and only a process that ran
+// and exited with a status is framed by that status. An is_error envelope or
+// non-JSON stdout on a zero exit each yield an error that includes the envelope
 // errors/subtype and stderr but NEVER the API key.
+//
+// EVERY invocation, by any outcome including success, records its wall-clock
+// duration alongside that outcome as one Info line through the package's
+// infoLogf sink, so the cost of a `claude` call is recoverable from a run's own
+// output without instrumenting for it again (S048-R2.1, S048-R5.1).
 func (c *ClaudeCodeClient) run(instruction string, content []byte, schema string) (string, error) {
 	ctx, cancel := context.WithTimeout(c.ctx, c.timeout)
 	defer cancel()
@@ -356,7 +367,56 @@ func (c *ClaudeCodeClient) run(instruction string, content []byte, schema string
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	startedAt := time.Now()
 	runErr := cmd.Run()
+
+	// The context is read HERE, before anything frames this failure, because the
+	// exit status of a child our own deadline SIGKILLed is only what the kernel
+	// left behind: "signal: killed" names neither the deadline nor the budget,
+	// and a message built from it sends whoever reads it looking for a broken
+	// CLI. Reading the context afterwards would print that noise first and reach
+	// the cause too late to say it (S048-R1.1).
+	ctxErr := ctx.Err()
+
+	// The elapsed time is taken at the same boundary and for a related reason:
+	// what S048-R2.1 asks to record is what the CLI COST, not what this function
+	// spends afterwards parsing the envelope and composing a sentence.
+	elapsed := time.Since(startedAt)
+
+	// WHICH outcome this was is decided ONCE, here, and read twice: by the line
+	// below and by the failure switch further down. Classifying separately for
+	// the record and for the message would be two answers free to drift, which
+	// is the shape of defect lifting the classifier out removed in the first
+	// place (S048-R1.3). Both errors nil is claudeRanToCompletion — the success
+	// case — so this names every ending, not only the bad ones.
+	outcome := classifyClaudeFailure(ctxErr, runErr)
+
+	// EVERY outcome is recorded, and `defer` is what makes "every" a fact rather
+	// than a claim. run has ten exits below this point — the failure switch's,
+	// the exit-code framing's, the two output-shape paths' and the success
+	// path's — and the runtime executes a deferred call on each one, on a panic
+	// unwinding through it, and on any return a later edit adds. A statement
+	// written in the straight line would have to be re-checked against every
+	// exit each time the function grows one, and the exit it missed would be
+	// silence rather than an error.
+	//
+	// The success case is the one this exists for: a budget cannot be derived
+	// from the failures, because the failures are exactly the runs that hit the
+	// ceiling, and the value a new ceiling must clear is the distribution of the
+	// runs that did not (S048-R2.1, S048-R5.1). `run` returns (string, error),
+	// so a successful call has no return channel for a duration and widening the
+	// signature would publish a number no caller consumes — a log line at the
+	// boundary of the external call is the sink, as this project's convention
+	// for external calls already asks (D5).
+	//
+	// Info, not Warn: a call that finished at its ordinary cost is an event, not
+	// a degradation, and sending the failures to a different sink would split
+	// one measurement across two readers. The line carries a duration and an
+	// outcome and nothing else — never the API key this client injects through
+	// the child environment (S003-R2.4, G5).
+	defer func() {
+		infoLogf("claude CLI invocation finished: outcome=%s elapsed=%s", outcome, elapsed)
+	}()
 
 	// Attempt to parse the envelope regardless of exit code: a non-zero exit
 	// often still carries a structured error envelope on stdout.
@@ -369,8 +429,50 @@ func (c *ClaudeCodeClient) run(instruction string, content []byte, schema string
 	stderrStr := strings.TrimSpace(stderr.String())
 
 	if runErr != nil {
-		// Non-zero exit (or spawn failure). Prefer the structured errors/subtype
-		// from the envelope when available; fall back to stderr.
+		// WHICH failure this is, is decided once by the classifier the fixers use
+		// too, so the two cannot drift apart on the order; only the words below
+		// are this client's own, because a review told "claude fixer aborted"
+		// would be told about an operation it never ran (S048-R1.3).
+		switch outcome {
+		case claudeCutShort:
+			// WHOSE clock ran out decides what may be claimed. A parent that is
+			// already done ended this run from OUTSIDE — cancelled, or out of a
+			// budget of its own — and this client's budget is then not what
+			// elapsed, so quoting it would quote a number that never ran out.
+			endedBy := c.ctx.Err()
+			if endedBy == nil && errors.Is(ctxErr, context.DeadlineExceeded) {
+				// S048-R1.1: the budget is read from the client's own field —
+				// the value ACTUALLY in force — and never from the package
+				// default, because a caller that passed WithClaudeCodeTimeout
+				// makes the two differ, and the remedy for this failure is to
+				// raise the number that elapsed and not the one that did not.
+				// `func formatBumpReviewSkipTimeout` is the precedent this
+				// follows.
+				return "", fmt.Errorf("%w: claude CLI ran out of time: its %s budget elapsed before it answered",
+					ErrLLMRequestFailed, c.timeout)
+			}
+			// Ended by anything other than this client's own budget: the cause
+			// travels verbatim and no number is claimed. One sentence, written
+			// once, because two spellings of one outcome is the shape of defect
+			// this story exists to remove.
+			if endedBy == nil {
+				endedBy = ctxErr
+			}
+			return "", fmt.Errorf("%w: claude CLI was stopped before it answered: %v", ErrLLMRequestFailed, endedBy)
+		case claudeCouldNotStart:
+			// S048-R1.2, S040-R5.6: the process never reached its first
+			// instruction, so there is no exit status to frame it with and none
+			// may be implied. The remedy is on the host — a missing binary, an
+			// unreachable working directory — and it is the opposite of the
+			// deadline's, which is why the two sentences must not be one.
+			return "", fmt.Errorf("%w: claude CLI could not start: %v", ErrLLMRequestFailed, runErr)
+		}
+
+		// claudeExitedNonZero: the process ran and exited with a status. This is
+		// the outcome S048 does not touch, and its three messages are byte for
+		// byte the ones four existing tests and every operator already read
+		// (S048-R4.2). Prefer the structured errors/subtype from the envelope
+		// when available; fall back to stderr.
 		if jsonErr == nil && (len(env.Errors) > 0 || env.Subtype != "") {
 			return "", fmt.Errorf("%w: claude CLI failed (%s): %s", ErrLLMRequestFailed, env.Subtype, strings.Join(env.Errors, "; "))
 		}
