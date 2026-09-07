@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The review budget is configurable, and for the first time it is connected.**
+  `autoupdate.review.timeout` (an integer of seconds, default 120) sets the
+  deadline one `overlay compare` divergence review runs under, documented in
+  `config.example.yaml` alongside `cache_ttl` and `http_timeout`.
+
+  The option it feeds was never the missing piece: `WithClaudeCodeTimeout` and
+  the client's `timeout` field both already existed. What was missing is that
+  `newClaudeAsker` never passed the option — so every review this tool has ever
+  run used the package default, and no configuration could have changed it. The
+  budget now travels through the one construction seam the divergence and
+  realignment reviews already share.
+
+  The key is nested under `autoupdate` rather than given a top-level block of
+  its own, which is semantically off by one command and deliberate: the strict
+  config probe mirrors top-level keys by hand and nothing tests that mirror, so
+  a new top-level key would print `field <key> not found in type
+  config.probeConfig` to stderr on every command. Nesting inherits the mirror.
+  An absent block, a half-written block and a nil pointer all resolve to the
+  documented default.
+
 ### Fixed
 - **Neither review wrapper blames the ebuilds any more.** `overlay compare`'s
   divergence and realignment reviewers both wrapped every failure as `the claude

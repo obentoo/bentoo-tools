@@ -113,6 +113,12 @@ type AutoupdateConfig struct {
 	// here rather than at the top level because everything it governs happens
 	// during an autoupdate.
 	Validate ValidateConfig `yaml:"validate,omitempty"`
+	// Review is the budget one `overlay compare` divergence review runs under
+	// (S048-R3.4). It is nested here rather than in a top-level `compare:`
+	// block — where the name would fit better — because a top-level block has
+	// to be mirrored into probeConfig by hand and a nested one inherits that
+	// mirror for free. ReviewConfig carries the whole of that reasoning.
+	Review ReviewConfig `yaml:"review,omitempty"`
 }
 
 // ValidateConfig is the staged-bump validation policy: how much of a bump gets
@@ -228,6 +234,48 @@ type ValidatePackageOverride struct {
 	// Reason is why this package departs from its class depth. It is required:
 	// see OverrideErrors.
 	Reason string `yaml:"reason"`
+}
+
+// ReviewConfig is the `autoupdate.review` block: the budget one `overlay
+// compare` divergence review runs under (S048-R3).
+//
+// IT IS NOT autoupdate.validate.review, which is a different key doing a
+// different job — a tri-state bool deciding WHETHER the staged-bump validation
+// asks a model at all. This block decides HOW LONG one review of a divergence
+// between two ebuilds may take before it is cut off. Neither reads the other.
+//
+// WHY IT IS NOT A TOP-LEVEL `compare:` BLOCK, which is where a review run by
+// `overlay compare` belongs semantically. probeConfig lists Config's top-level
+// keys BY HAND: a block missing from that list makes every command print "field
+// <key> not found in type config.probeConfig" on stderr while loading the value
+// anyway, and no test catches it. probeConfig reuses AutoupdateConfig verbatim,
+// so a key nested here inherits the mirror for free (S048-R3.4).
+//
+// WHY IT IS NOT UNDER autoupdate.llm, where the name would suggest. The compare
+// path deliberately ignores the operator's llm block and asks the CLI with a
+// fixed subscription shape carrying no credential (cmd/bentoo's
+// reviewLLMConfig). A budget nested in a block that this path refuses to read
+// would be a key the operator sets correctly and the code declines to see.
+//
+// The cost is stated rather than hidden: the key is off by one command. It is
+// paid because the client the budget configures is internal/autoupdate's, and
+// because the alternative trades an awkward name for a stderr warning on every
+// command that nothing would have caught (S048-D3).
+//
+// The default is answered by a getter and never by a struct literal, so an
+// absent block, a half-written block and a nil pointer all resolve to the same
+// documented table:
+//
+//	timeout    120 (seconds, DefaultReviewTimeout)
+type ReviewConfig struct {
+	// Timeout bounds one review invocation, in SECONDS — the same unit and
+	// shape as cache_ttl, http_timeout and autoupdate.validate.timeout, because
+	// YAML has no duration literal and an int of seconds is what this file
+	// already speaks (S048-R3.3). Unset, zero or negative means the default: a
+	// budget of zero seconds would kill every review the instant it started,
+	// which is the failure this key exists to bound and not a way to configure
+	// it (S048-R3.2).
+	Timeout int `yaml:"timeout,omitempty"`
 }
 
 // LLMConfig holds LLM provider configuration for autoupdate
@@ -961,4 +1009,34 @@ func (c *ValidateConfig) normalize() {
 			c.Packages[name] = override
 		}
 	}
+}
+
+// DefaultReviewTimeout is the default budget for one `overlay compare`
+// divergence review, in seconds.
+//
+// IT IS THE NUMBER THAT GOVERNS THE REVIEW — not internal/autoupdate's
+// DefaultClaudeCodeTimeout. The client takes a caller-supplied budget whenever
+// that budget is positive, and GetTimeout below never returns anything else, so
+// once the compare path passes this value the client's own default is only the
+// fallback for a caller that passes none. Tuning the review means tuning this
+// constant, or the key that defaults to it.
+//
+// It starts at the budget the review already effectively had, so introducing
+// the key changes no run by itself. Whether that budget is the right one is a
+// measurement, and this constant is where its answer lands.
+const DefaultReviewTimeout = 120
+
+// GetTimeout returns the review budget as a duration, defaulting to
+// DefaultReviewTimeout when unset or non-positive. The stored key is an int of
+// seconds and the duration is what the caller needs; this getter is the one
+// place the conversion happens (S048-R3.1, S048-R3.3).
+//
+// A nil receiver answers the default exactly as an absent block does: the
+// config is threaded through call sites that predate this block, and a getter
+// that panicked there would turn an unwritten key into a crash (S048-R3.2).
+func (c *ReviewConfig) GetTimeout() time.Duration {
+	if c == nil || c.Timeout <= 0 {
+		return DefaultReviewTimeout * time.Second
+	}
+	return time.Duration(c.Timeout) * time.Second
 }

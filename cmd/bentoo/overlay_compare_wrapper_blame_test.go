@@ -198,13 +198,14 @@ func TestRealignReviewWrapperDoesNotBlameTheEbuilds(t *testing.T) {
 // production cannot produce — the same reason reviewerOver exists for the
 // divergence side.
 //
-// NOTE for sub-task 3.3: newRealignReviewer is one of the consumers whose
-// signature moves when the budget joins the seam, so this call site moves with
-// the other five.
+// Sub-task 3.3 moved newRealignReviewer's signature: it is one of the consumers
+// that carry the review budget now that it enters through the seam, so this call
+// site passes one too (cmdReviewBudget). Nothing this file asserts depends on the
+// value — the asker is scripted and no client is built.
 func realignReviewerOverAsker(t *testing.T, asker claudeAsker) overlay.RealignReviewer {
 	t.Helper()
 	stubClaudeAsker(t, func() (claudeAsker, error) { return asker, nil })
-	reviewer, err := newRealignReviewer(context.Background())
+	reviewer, err := newRealignReviewer(context.Background(), cmdReviewBudget)
 	if err != nil {
 		t.Fatalf("newRealignReviewer returned %v, want nil", err)
 	}

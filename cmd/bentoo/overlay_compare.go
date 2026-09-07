@@ -425,6 +425,21 @@ func runCompare(cmd *cobra.Command, args []string) {
 		annotateOtherRepositories(report, realignLocalRepos(cfg))
 	}
 
+	// The budget every review invocation on this run is bounded by, read ONCE
+	// from the operator's configuration and handed to both passes below
+	// (S048-R3.1, S048-R4.1).
+	//
+	// ONCE, because one read is what keeps them the same number. Two calls could
+	// not disagree today, but two call sites are two places for a later edit to
+	// move one and not the other, and a run whose divergence review and
+	// realignment review died at different deadlines would give two reasons for
+	// one configuration.
+	//
+	// Through the GETTER, never the raw key: unset, zero and negative all become
+	// DefaultReviewTimeout there, and newClaudeAsker states what forwarding a raw
+	// zero past it would cost.
+	reviewBudget := cfg.Autoupdate.Review.GetTimeout()
+
 	// What a MODEL makes of the differences the report cannot settle: where each
 	// one came from, what it does, and — where it is ours — the `patched` text
 	// that would declare it (R5.2-R5.4). It is commentary and nothing else: the
@@ -445,7 +460,7 @@ func runCompare(cmd *cobra.Command, args []string) {
 	// instead of two conditions that could disagree. Nothing here can fail the
 	// run: every way of not getting a reading costs one warning and the report is
 	// printed unchanged.
-	overlay.AnnotateReviews(report, compareDivergenceReviewer(runCtx, compareNoReview), prov, opts)
+	overlay.AnnotateReviews(report, compareDivergenceReviewer(runCtx, compareNoReview, reviewBudget), prov, opts)
 
 	// A model's JUDGEMENT of what the baseline review found: is each undeclared
 	// divergence still justified, and what would replace it if not (R4.1, R4.2).
@@ -464,7 +479,7 @@ func runCompare(cmd *cobra.Command, args []string) {
 	// was judged and none objected".
 	realignJudged := false
 	if realignRan {
-		reviewer := compareRealignReviewer(runCtx, compareNoReview)
+		reviewer := compareRealignReviewer(runCtx, compareNoReview, reviewBudget)
 		realignJudged = reviewer != nil
 		overlay.AnnotateRealignVerdicts(report, reviewer, prov, opts)
 	}

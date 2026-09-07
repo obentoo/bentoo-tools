@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/obentoo/bentoolkit/internal/autoupdate"
 	"github.com/obentoo/bentoolkit/internal/common/logger"
@@ -57,12 +58,37 @@ type claudeAsker interface {
 // the only way to assert something did not happen is to have the thing that
 // would have recorded it.
 //
+// THE BUDGET ENTERS HERE AND NOWHERE ELSE. Both review paths are built through
+// this one seam, so the operator's configured value bounds the divergence review
+// and the realignment review as ONE number that cannot disagree with itself —
+// which is why the parameter is here rather than on each of the two passes
+// (S048-R4.1). Until it was passed the option was never applied at all: every
+// review this program has ever run was bounded by
+// autoupdate.DefaultClaudeCodeTimeout, whatever the operator had configured
+// (S048-R3.1).
+//
+// IT ARRIVES AS A DURATION ALREADY RESOLVED BY THE CONFIG GETTER
+// (`func GetTimeout` on the review block), never as the raw seconds from the
+// file. WithClaudeCodeTimeout ignores a NON-POSITIVE duration, so a zero
+// forwarded from an unwritten key would be dropped in silence and leave the
+// client's own default governing a run that reads as configured — a defect
+// shaped exactly like the one this change fixes. The getter is the one place
+// "unset, zero or negative" becomes the documented default, and this seam takes
+// the value from nowhere else.
+//
+// It is set ON THE CLIENT rather than per call, beside the context and for the
+// same reason: autoupdate combines the two on entry to every invocation, so one
+// value here bounds each round trip the reviewers make and there is no second
+// deadline to keep in step with this one.
+//
 // A construction FAILURE returns an untyped nil rather than the (*ClaudeCodeClient)(nil)
 // the constructor hands back beside its error. Boxed into this interface that
 // pointer would be non-nil, and every `!= nil` check downstream would wave it
 // through to a dereference.
-var newClaudeAsker = func(ctx context.Context) (claudeAsker, error) {
-	client, err := autoupdate.NewClaudeCodeClient(reviewLLMConfig(), autoupdate.WithClaudeCodeContext(ctx))
+var newClaudeAsker = func(ctx context.Context, budget time.Duration) (claudeAsker, error) {
+	client, err := autoupdate.NewClaudeCodeClient(reviewLLMConfig(),
+		autoupdate.WithClaudeCodeContext(ctx),
+		autoupdate.WithClaudeCodeTimeout(budget))
 	if err != nil {
 		return nil, err
 	}
@@ -104,12 +130,12 @@ func reviewLLMConfig() autoupdate.LLMConfig {
 // and is not getting one, which is worth a line — and then the run proceeds
 // without commentary, because the report they asked for is already complete
 // without it.
-func compareDivergenceReviewer(ctx context.Context, noReview bool) overlay.DivergenceReviewer {
+func compareDivergenceReviewer(ctx context.Context, noReview bool, budget time.Duration) overlay.DivergenceReviewer {
 	if noReview {
 		return nil
 	}
 
-	reviewer, err := newDivergenceReviewer(ctx)
+	reviewer, err := newDivergenceReviewer(ctx, budget)
 	if err != nil {
 		// The error is an ARGUMENT and never a format string: it may carry the
 		// CLI's own text.
@@ -133,9 +159,12 @@ func compareDivergenceReviewer(ctx context.Context, noReview bool) overlay.Diver
 // that is where autoupdate puts it: ClaudeCodeClient combines c.ctx with
 // c.timeout on entry to claude_code.go's `func run`, so a run cancelled with
 // Ctrl-C kills the `claude` process it is waiting on instead of holding the
-// terminal for the rest of the 120s budget.
-func newDivergenceReviewer(ctx context.Context) (overlay.DivergenceReviewer, error) {
-	asker, err := newClaudeAsker(ctx)
+// terminal for the rest of the budget.
+//
+// The BUDGET is threaded the same way and for the same reason, and this
+// function does nothing with it but carry it to the seam (S048-R4.1).
+func newDivergenceReviewer(ctx context.Context, budget time.Duration) (overlay.DivergenceReviewer, error) {
+	asker, err := newClaudeAsker(ctx, budget)
 	if err != nil {
 		if errors.Is(err, autoupdate.ErrClaudeCodeUnavailable) {
 			return nil, nil
@@ -168,12 +197,14 @@ var _ overlay.DivergenceReviewer = (*claudeDivergenceReviewer)(nil)
 // what it was about.
 //
 // The context is checked on ENTRY and then not again: the deadline that bounds
-// the call belongs to the client (DefaultClaudeCodeTimeout, 120s, combined with
-// the same ctx by claude_code.go's `func run`), so a second one here would be a
-// second thing to tune for one round trip. What the entry check buys is the
-// interrupted run: AnnotateReviews walks its findings in order, and after Ctrl-C
-// the remaining ones fail here instead of each spawning a process that is about
-// to be killed.
+// the call belongs to the client — the budget the seam was given, combined with
+// the same ctx by claude_code.go's `func run` — so a second one here would be a
+// second thing to tune for one round trip, and a second answer to a question the
+// operator now configures in exactly one place (S048-R3.1).
+//
+// What the entry check buys is the interrupted run: AnnotateReviews walks its
+// findings in order, and after Ctrl-C the remaining ones fail here instead of
+// each spawning a process that is about to be killed.
 func (r *claudeDivergenceReviewer) ReviewDivergence(ctx context.Context, req overlay.ReviewRequest) (overlay.ReviewNote, error) {
 	if err := ctx.Err(); err != nil {
 		return overlay.ReviewNote{}, fmt.Errorf("the review was not started: %w", err)

@@ -53,6 +53,21 @@ autoupdate:
   http_timeout: 30
 
   # --------------------------------------------------------------------------
+  # review — limite de tempo da revisão de divergências do
+  # `bentoo overlay compare`.
+  #
+  # O ajuste é do `compare`, mas mora dentro de `autoupdate` de propósito:
+  # chaves de nível superior precisam ser listadas à mão no carregador, e uma
+  # chave nova esquecida nessa lista faz todos os comandos imprimirem um aviso
+  # em stderr. Aninhada aqui, ela já entra nessa lista.
+  # --------------------------------------------------------------------------
+  review:
+    # Timeout de UMA revisão de divergência, em segundos (default: 120).
+    # NÃO existe flag para ele: o `--timeout` do `overlay compare` é o das
+    # requisições HTTP, e esta chave é o único jeito de ajustar o da revisão.
+    timeout: 120
+
+  # --------------------------------------------------------------------------
   # llm — provedor de IA usado pelos reparos automáticos:
   #   * auto-fix de Manifest no --apply (SRC_URI/manifest quebrado)
   #   * reparo de entradas de registry ao final do --check
