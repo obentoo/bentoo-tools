@@ -103,10 +103,19 @@ func AnnotateReviews(report *CompareReport, reviewer DivergenceReviewer, prov pr
 	// network round trip behind a CLI, so cancelling the compare must abort it —
 	// that is what this carries. The per-invocation TIMEOUT belongs to the
 	// adapter, which knows what it is invoking: autoupdate.ClaudeCodeClient
-	// already wraps every call in one (DefaultClaudeCodeTimeout, 120s). A second
-	// deadline here would be a second thing to tune for one round trip, and R5.5's
-	// "exceeds its timeout" needs none — an expired deadline surfaces as an error
-	// from ReviewDivergence and is handled below with every other error.
+	// already wraps every call in one.
+	//
+	// WHERE that budget comes from is cmd/'s to answer and not this package's: it
+	// resolves the operator's configured review timeout — the
+	// `autoupdate.review.timeout` key, falling back to config.DefaultReviewTimeout
+	// when it is unset, zero or negative — and sets that value on the client it
+	// builds (S048-R3.1). Naming a number here would name one this package cannot
+	// see and a configuration file can move.
+	//
+	// A second deadline here would be a second thing to tune for one round trip,
+	// and R5.5's "exceeds its timeout" needs none — an expired deadline surfaces
+	// as an error from ReviewDivergence and is handled below with every other
+	// error.
 	ctx := opts.Ctx
 	if ctx == nil {
 		ctx = context.Background() // SAFE: CompareOptions.Ctx is an additive field; nil means "no cancellation requested", exactly as CompareWithProvider reads it

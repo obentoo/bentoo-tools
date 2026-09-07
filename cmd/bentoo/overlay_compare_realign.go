@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/obentoo/bentoolkit/internal/autoupdate"
 	"github.com/obentoo/bentoolkit/internal/common/config"
@@ -320,12 +321,12 @@ func realignIsTree(path string) bool {
 // nothing is constructed, no PATH is consulted and no process is spawned.
 //
 // _Requirements: R4, R4.1_
-func compareRealignReviewer(ctx context.Context, noReview bool) overlay.RealignReviewer {
+func compareRealignReviewer(ctx context.Context, noReview bool, budget time.Duration) overlay.RealignReviewer {
 	if noReview {
 		return nil
 	}
 
-	reviewer, err := newRealignReviewer(ctx)
+	reviewer, err := newRealignReviewer(ctx, budget)
 	if err != nil {
 		// The error is an ARGUMENT and never a format string: it may carry the
 		// CLI's own text.
@@ -346,9 +347,11 @@ func compareRealignReviewer(ctx context.Context, noReview bool) overlay.RealignR
 //
 // It reuses newClaudeAsker, the same seam the divergence review is built through,
 // so `--no-review` reaching it zero times stays ONE assertable property rather
-// than two that could disagree.
-func newRealignReviewer(ctx context.Context) (overlay.RealignReviewer, error) {
-	asker, err := newClaudeAsker(ctx)
+// than two that could disagree — and so the operator's configured budget bounds
+// this review and the divergence review as the same number, carried through here
+// and read from nothing local (S048-R4.1).
+func newRealignReviewer(ctx context.Context, budget time.Duration) (overlay.RealignReviewer, error) {
+	asker, err := newClaudeAsker(ctx, budget)
 	if err != nil {
 		if errors.Is(err, autoupdate.ErrClaudeCodeUnavailable) {
 			return nil, nil
@@ -394,7 +397,19 @@ func (r *claudeRealignReviewer) ReviewRealignment(ctx context.Context, req overl
 
 	reply, err := r.asker.AskJSON(realignReviewInstruction(req), realignReviewPayload(req), realignReviewSchema)
 	if err != nil {
-		return overlay.RealignNote{}, fmt.Errorf("the claude CLI could not read the two ebuilds: %w", err)
+		// The realignment half of the rule claudeDivergenceReviewer states, and
+		// it is repeated here because the WRONG sentence was: one claim about
+		// unread ebuilds sat in both files, so answering it in one and not the
+		// other would leave this path — the one the realignment pass takes —
+		// still making it.
+		//
+		// This seam opens no file either: Ours and Baseline arrive as bytes,
+		// read upstream, and all this function does with them is put them on
+		// the CLI's stdin. So it names its own operation and passes the
+		// classified cause through unaltered, leaving the difference between a
+		// budget that elapsed, a process that never started and a non-zero exit
+		// to the one classifier that decides it (S048-R1.4, S048-R1.3).
+		return overlay.RealignNote{}, fmt.Errorf("the realignment review failed: %w", err)
 	}
 
 	// Decoded straight into the consumer's own type: RealignNote carries the three

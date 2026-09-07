@@ -7,6 +7,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The review budget is a measured number now, not an inherited one.**
+  `DefaultReviewTimeout` goes from 120 to 300 seconds. The old value was chosen
+  by another story for a tool-free extraction path and never checked against the
+  agentic round trip it ended up bounding.
+
+  Measured 2026-09-06/07 over the maintainer's own overlay — 268 packages, 126
+  invocations, budget lifted to 1800s so nothing was cut short. 122 succeeded, 4
+  exited non-zero, none reached the deadline. The successful reviews spread from
+  7.4s to 124.6s, with a median of 14.3s and a p99 of 112.0s.
+
+  So 120s was wrong by 4.6 seconds on one review out of 122 — which is the worst
+  kind of wrong, because a ceiling sitting just inside the distribution looks
+  adequate and still takes the tail off. 300s is 2.4x the largest measured
+  success and 2.7x the p99, and it stays finite on purpose: a review that
+  genuinely hangs must still end.
+
+  The constant's documentation carries the readings, the date and the machine,
+  because nothing automated re-derives them. It also records what the
+  measurement does NOT establish — the original five-of-five failure this story
+  was opened for is not reproduced by it, and the duration log does not record
+  which package an invocation belonged to, so the expensive population cannot be
+  separated back out. Raising the number further to cover an unmeasured case
+  would reintroduce exactly the unmeasured constant this story removed.
+
+- **Comments no longer state a budget the configuration can change.** Four
+  in-tree comments restated `120s` away from the constant that defines it, and
+  one of them had already become false when the budget started reaching the
+  client. Each now names where the budget comes from instead of what it is.
+
+### Added
+- **The review budget is configurable, and for the first time it is connected.**
+  `autoupdate.review.timeout` (an integer of seconds, default 300) sets the
+  deadline one `overlay compare` divergence review runs under, documented in
+  `config.example.yaml` alongside `cache_ttl` and `http_timeout`.
+
+  The option it feeds was never the missing piece: `WithClaudeCodeTimeout` and
+  the client's `timeout` field both already existed. What was missing is that
+  `newClaudeAsker` never passed the option — so every review this tool has ever
+  run used the package default, and no configuration could have changed it. The
+  budget now travels through the one construction seam the divergence and
+  realignment reviews already share.
+
+  The key is nested under `autoupdate` rather than given a top-level block of
+  its own, which is semantically off by one command and deliberate: the strict
+  config probe mirrors top-level keys by hand and nothing tests that mirror, so
+  a new top-level key would print `field <key> not found in type
+  config.probeConfig` to stderr on every command. Nesting inherits the mirror.
+  An absent block, a half-written block and a nil pointer all resolve to the
+  documented default.
+
+### Fixed
+- **Neither review wrapper blames the ebuilds any more.** `overlay compare`'s
+  divergence and realignment reviewers both wrapped every failure as `the claude
+  CLI could not read the two ebuilds`. Neither seam opens a file: both ebuilds
+  arrive as bytes, read upstream, and all the wrapper does is put them on the
+  CLI's stdin — so the sentence was false for every failure it could ever
+  report, on both paths. Each now names its own review and lets the classified
+  cause through unaltered. The one place that still says the ebuilds could not
+  be read is the one where that is what happened.
+
+- **A `claude` invocation killed by its own deadline now says so.** Every failed
+  review of `overlay compare --realign` was reported as `the claude CLI could
+  not read the two ebuilds: ... claude CLI failed: signal: killed`. Reading the
+  ebuilds was never what failed. `run` in `claude_code.go` never read its own
+  context, so a SIGKILL from this program's 120-second budget arrived
+  indistinguishable from any other spawn failure, and the message sent whoever
+  debugged it to the filesystem.
+
+  The context is now read before anything frames the failure, and the three
+  outcomes get three sentences: an elapsed deadline names the budget actually in
+  force, a process that never started says that, and a process that ran and
+  exited keeps the exit-code framing it always had. A run ended by a parent
+  rather than by this client's own budget claims no number — quoting one would
+  assert that a value ran out when it had not.
+
+- **One precedence, consulted once, instead of two that could drift.** The
+  ordering that decides which of the three failures happened — a context error
+  outranks any exit-code framing — was written only inside `formatFixerError` in
+  `manifest_fixer.go`. It is now a classifier that both the fixers and the
+  review path consume. What is shared is the order and nothing else: the four
+  existing fixer messages are byte for byte what they were, because a review
+  told "claude fixer aborted" would be told about an operation it never ran.
+
+### Added
+- **Every `claude` invocation records what it cost.** `run` emits one line per
+  invocation carrying the outcome and the wall-clock time it took, for every
+  outcome including success. A budget cannot be set from the failures alone —
+  those are precisely the runs that hit the ceiling — so the successful
+  durations are recorded too, and the cost of a review is now recoverable from
+  a run's own output instead of by instrumenting again.
+
 ## [0.29.1] - 2026-09-06
 
 ### Fixed

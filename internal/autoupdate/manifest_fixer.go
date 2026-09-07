@@ -31,7 +31,10 @@ import (
 // DefaultManifestFixTimeout bounds a single agentic `claude` fix invocation. The
 // fixer performs a multi-turn agentic loop (read the ebuild, inspect the upstream,
 // edit, self-verify with pkgdev), so it gets a far larger budget than the
-// tool-free extraction path (DefaultClaudeCodeTimeout = 120s).
+// tool-free extraction path, which passes no timeout option and therefore runs
+// under DefaultClaudeCodeTimeout. The contrast names that CONSTANT rather than
+// quoting its value: a number repeated here would be a second place to change
+// it, and nothing would report the two had diverged.
 const DefaultManifestFixTimeout = 10 * time.Minute
 
 // manifestFixMaxTurns caps the agent's internal tool-turn loop. It bounds cost and
@@ -425,12 +428,96 @@ func couldNotStart(runErr error) bool {
 	return runErr != nil && !errors.As(runErr, &exitErr)
 }
 
+// claudeFailure names WHICH of the ways a `claude` invocation can end badly
+// happened, as a value rather than as a sentence.
+//
+// Two call sites need the same ORDER — a context error outranks any exit-code
+// framing — but must not share the same WORDS. The fixers say "claude fixer
+// aborted"; a review that said that would name the wrong operation, which is
+// the very defect S048 exists to remove. So the answer travels as an outcome
+// and each caller supplies the noun for its own operation (S048-R1.3).
+type claudeFailure int
+
+const (
+	// claudeRanToCompletion is the zero value on purpose, and that ordering is
+	// load-bearing. classifyClaudeFailure is total over its two inputs, and both
+	// nil means the process ran and exited zero — whatever went wrong afterwards
+	// (a self-reported error envelope, stdout that did not parse) is not an
+	// invocation failure and has no exit code. Were this position held by
+	// claudeExitedNonZero instead, a caller that forgot to classify would print
+	// "exit " plus whatever a nil error renders as, promising a number and
+	// delivering a sentence.
+	claudeRanToCompletion claudeFailure = iota
+	// claudeCutShort — the run was ended by its context: the caller's own budget
+	// elapsed (DeadlineExceeded) or a parent was cancelled (Canceled). Both land
+	// here because they answer the operator the same way — nothing is wrong with
+	// the host or the binary — while a caller that wants to name them apart is
+	// still free to, from the ctxErr it already holds.
+	claudeCutShort
+	// claudeCouldNotStart — the process never reached its first instruction, so
+	// there is no exit code to speak of and none may be printed (S040-R5.6).
+	claudeCouldNotStart
+	// claudeExitedNonZero — the process ran and exited with a status. This is the
+	// only outcome for which an exit code exists.
+	claudeExitedNonZero
+)
+
+// String renders an outcome as a readable name, in the kebab-case this package's
+// other kinds already use.
+//
+// Its only reader is a diagnostic: the guard that keeps the three outcomes apart
+// prints the value it got when two of them collapse, and "2" does not tell a
+// maintainer WHICH two. The default arm names the type and the number, so an
+// outcome added without a case here is visible rather than silently blank.
+func (f claudeFailure) String() string {
+	switch f {
+	case claudeRanToCompletion:
+		return "ran-to-completion"
+	case claudeCutShort:
+		return "cut-short"
+	case claudeCouldNotStart:
+		return "could-not-start"
+	case claudeExitedNonZero:
+		return "exited-non-zero"
+	default:
+		return fmt.Sprintf("claudeFailure(%d)", int(f))
+	}
+}
+
+// classifyClaudeFailure answers which of the three failures a finished `claude`
+// invocation suffered, in the precedence order this package has always applied
+// but had only ever expressed inside one message switch. Lifting it out is what
+// lets a second call site inherit the order instead of restating it, so the two
+// cannot drift apart (S048-R1.2, S048-R1.3). couldNotStart is reused verbatim,
+// so the "no *exec.ExitError means it never started" test exists exactly once.
+//
+// THE CONTEXT ERROR WINS THE COLLISION, and the collision is not hypothetical:
+// when the deadline elapses before Start, exec.CommandContext returns the
+// context error itself, so no *exec.ExitError is present and couldNotStart is
+// true at the same moment ctxErr is non-nil. A process this program's own budget
+// killed before it ran is a deadline. Reporting it as an unstartable binary
+// sends the operator to check a PATH that is fine, when the remedy is a number
+// in a config file.
+func classifyClaudeFailure(ctxErr, runErr error) claudeFailure {
+	switch {
+	case ctxErr != nil:
+		return claudeCutShort
+	case couldNotStart(runErr):
+		return claudeCouldNotStart
+	case runErr != nil:
+		return claudeExitedNonZero
+	default:
+		return claudeRanToCompletion
+	}
+}
+
 // exitCodeString renders a process exit status for an error message by
 // extracting the numeric code from an *exec.ExitError (AD5: errors.As +
-// ExitCode). Both call sites sit behind formatFixerError's could-not-start case
-// (S040-R5.6), so an ExitError is guaranteed present by the time this runs; the
-// fallback keeps the cause text visible anyway rather than trusting that
-// guarantee with a blank.
+// ExitCode). Both call sites sit behind the claudeExitedNonZero outcome, which
+// classifyClaudeFailure returns only where couldNotStart was already false
+// (S040-R5.6, S048-R1.3) — so an ExitError is guaranteed present by the time
+// this runs. The fallback keeps the cause text visible anyway rather than
+// trusting that guarantee with a blank.
 func exitCodeString(runErr error) string {
 	var exitErr *exec.ExitError
 	if errors.As(runErr, &exitErr) {
@@ -443,8 +530,16 @@ func exitCodeString(runErr error) string {
 // failure path of FixManifest. Funneling all four former fmt.Errorf sites through
 // one formatter guarantees each failure carries a consistent, complete set of
 // signals and removes the class of bug where one branch forgets one (the empty
-// "claude fixer failed (success): " was exactly that). It reports, in precedence
-// order:
+// "claude fixer failed (success): " was exactly that).
+//
+// The first three cases below are no longer decided here: classifyClaudeFailure
+// decides them, and this function only supplies the fixer's words for the answer
+// it gets (S048-R1.3). What is shared with the review path is that order and
+// nothing else — every sentence below still says "claude fixer" because it
+// speaks for the fixers, and the four spawn sites that funnel through it read
+// exactly the messages they did before (S048-R4.2).
+//
+// It reports, in precedence order:
 //
 //   - ctxErr (caller context cancelled or deadline elapsed) — AD4/S009-R1.3, takes
 //     precedence over any exit-code framing;
@@ -465,11 +560,17 @@ func exitCodeString(runErr error) string {
 func formatFixerError(ctxErr, runErr error, env claudeCodeEnvelope, jsonErr error, stdout, stderr string) error {
 	var sb strings.Builder
 
+	// One classification, consulted once, so the branches below choose only their
+	// wording. claudeRanToCompletion — both errors nil — reaches neither of the
+	// three cases that name it and falls through to the envelope/parse cases,
+	// which is where a zero exit with a bad answer belongs (S048-R1.3).
+	outcome := classifyClaudeFailure(ctxErr, runErr)
+
 	switch {
-	case ctxErr != nil:
+	case outcome == claudeCutShort:
 		// AD4/S009-R1.3: cancellation or deadline takes precedence over exit framing.
 		sb.WriteString(fmt.Sprintf("claude fixer aborted: %v", ctxErr))
-	case couldNotStart(runErr):
+	case outcome == claudeCouldNotStart:
 		// S040-R5.6: the process never ran, so there is no exit code to print.
 		// Rendering the raw error where a number was promised produced the
 		// measured garble "failed: exit chdir …: no such file or directory" — an
@@ -478,11 +579,11 @@ func formatFixerError(ctxErr, runErr error, env claudeCodeEnvelope, jsonErr erro
 		// contradiction case because a command that never started cannot have
 		// reported anything: an envelope here would be stale bytes.
 		sb.WriteString(fmt.Sprintf("claude fixer could not start: %v", runErr))
-	case runErr != nil && jsonErr == nil && !env.IsError && env.Subtype == "success":
+	case outcome == claudeExitedNonZero && jsonErr == nil && !env.IsError && env.Subtype == "success":
 		// AD3/S009-R1.2: non-zero exit but a self-reported success envelope.
 		sb.WriteString(fmt.Sprintf("claude fixer exited %s but reported success (subtype=%s)",
 			exitCodeString(runErr), env.Subtype))
-	case runErr != nil:
+	case outcome == claudeExitedNonZero:
 		// S009-R1.1: generic non-zero exit (envelope may or may not have parsed).
 		sb.WriteString(fmt.Sprintf("claude fixer failed: exit %s", exitCodeString(runErr)))
 		if jsonErr == nil && env.Subtype != "" {

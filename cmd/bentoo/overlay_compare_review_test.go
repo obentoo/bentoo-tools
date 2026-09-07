@@ -10,11 +10,23 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/obentoo/bentoolkit/internal/autoupdate"
 	"github.com/obentoo/bentoolkit/internal/common/provider"
 	"github.com/obentoo/bentoolkit/internal/overlay"
 )
+
+// cmdReviewBudget is the review budget these construction cases hand the seam.
+//
+// Its VALUE is immaterial to every assertion in this file: each case replaces
+// newClaudeAsker, so no client is ever built and no deadline is ever reached.
+// What matters is that a real one is passed rather than a zero — the parameter
+// is where the operator's configured budget travels (S048-R4.1), and a zero is
+// the one value WithClaudeCodeTimeout ignores, so a zero here would model a call
+// production never makes. The deadline itself is measured end to end by
+// TestConfiguredReviewBudgetIsTheDeadlineInForce, not here.
+const cmdReviewBudget = 90 * time.Second
 
 // captureCompareReviewWarnings redirects the one warning this file is allowed to
 // emit and returns an accessor for what was said.
@@ -44,7 +56,7 @@ func stubClaudeAsker(t *testing.T, build func() (claudeAsker, error)) func() int
 	t.Helper()
 	attempts := 0
 	previous := newClaudeAsker
-	newClaudeAsker = func(context.Context) (claudeAsker, error) {
+	newClaudeAsker = func(context.Context, time.Duration) (claudeAsker, error) {
 		attempts++
 		return build()
 	}
@@ -88,7 +100,7 @@ var _ claudeAsker = (*fakeAsker)(nil)
 func reviewerOver(t *testing.T, asker claudeAsker) overlay.DivergenceReviewer {
 	t.Helper()
 	stubClaudeAsker(t, func() (claudeAsker, error) { return asker, nil })
-	reviewer, err := newDivergenceReviewer(context.Background())
+	reviewer, err := newDivergenceReviewer(context.Background(), cmdReviewBudget)
 	if err != nil {
 		t.Fatalf("newDivergenceReviewer returned %v, want nil", err)
 	}
@@ -204,7 +216,7 @@ func TestNewDivergenceReviewer(t *testing.T) {
 		warnings := captureCompareReviewWarnings(t)
 		stubClaudeAsker(t, func() (claudeAsker, error) { return nil, autoupdate.ErrClaudeCodeUnavailable })
 
-		reviewer, err := newDivergenceReviewer(context.Background())
+		reviewer, err := newDivergenceReviewer(context.Background(), cmdReviewBudget)
 		if err != nil {
 			t.Fatalf("newDivergenceReviewer returned %v, want nil: an absent CLI is a machine without the reviewer, not a failed run (R5.5)", err)
 		}
@@ -219,7 +231,7 @@ func TestNewDivergenceReviewer(t *testing.T) {
 	t.Run("the nil it returns is a nil INTERFACE, not a boxed nil pointer", func(t *testing.T) {
 		stubClaudeAsker(t, func() (claudeAsker, error) { return nil, autoupdate.ErrClaudeCodeUnavailable })
 
-		reviewer, _ := newDivergenceReviewer(context.Background())
+		reviewer, _ := newDivergenceReviewer(context.Background(), cmdReviewBudget)
 		// `reviewer != nil` above is already this assertion; reflect states it
 		// again in the terms that make the failure legible. A boxed
 		// (*claudeDivergenceReviewer)(nil) is a NON-nil interface with a nil
@@ -243,11 +255,11 @@ func TestNewDivergenceReviewer(t *testing.T) {
 		broken := errors.New("the secrets file is unreadable")
 		attempts := stubClaudeAsker(t, func() (claudeAsker, error) { return nil, broken })
 
-		if reviewer, err := newDivergenceReviewer(context.Background()); reviewer != nil || !errors.Is(err, broken) {
+		if reviewer, err := newDivergenceReviewer(context.Background(), cmdReviewBudget); reviewer != nil || !errors.Is(err, broken) {
 			t.Fatalf("newDivergenceReviewer returned (%#v, %v), want (nil, the construction error)", reviewer, err)
 		}
 
-		reviewer := compareDivergenceReviewer(context.Background(), false)
+		reviewer := compareDivergenceReviewer(context.Background(), false, cmdReviewBudget)
 		if reviewer != nil {
 			t.Fatalf("compareDivergenceReviewer returned %#v after a failed construction, want nil", reviewer)
 		}
@@ -270,7 +282,7 @@ func TestNewDivergenceReviewer(t *testing.T) {
 			return nil, errors.New("unreachable")
 		})
 
-		reviewer := compareDivergenceReviewer(context.Background(), true)
+		reviewer := compareDivergenceReviewer(context.Background(), true, cmdReviewBudget)
 		if reviewer != nil {
 			t.Fatalf("--no-review returned %#v, want nil", reviewer)
 		}
@@ -286,7 +298,7 @@ func TestNewDivergenceReviewer(t *testing.T) {
 		warnings := captureCompareReviewWarnings(t)
 		attempts := stubClaudeAsker(t, func() (claudeAsker, error) { return &fakeAsker{reply: `{"origin":"upstream","summary":"s"}`}, nil })
 
-		reviewer := compareDivergenceReviewer(context.Background(), false)
+		reviewer := compareDivergenceReviewer(context.Background(), false, cmdReviewBudget)
 		if reviewer == nil {
 			t.Fatal("compareDivergenceReviewer returned nil over a constructible CLI")
 		}
