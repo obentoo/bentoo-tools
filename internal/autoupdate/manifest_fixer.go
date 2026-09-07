@@ -31,7 +31,10 @@ import (
 // DefaultManifestFixTimeout bounds a single agentic `claude` fix invocation. The
 // fixer performs a multi-turn agentic loop (read the ebuild, inspect the upstream,
 // edit, self-verify with pkgdev), so it gets a far larger budget than the
-// tool-free extraction path (DefaultClaudeCodeTimeout = 120s).
+// tool-free extraction path, which passes no timeout option and therefore runs
+// under DefaultClaudeCodeTimeout. The contrast names that CONSTANT rather than
+// quoting its value: a number repeated here would be a second place to change
+// it, and nothing would report the two had diverged.
 const DefaultManifestFixTimeout = 10 * time.Minute
 
 // manifestFixMaxTurns caps the agent's internal tool-turn loop. It bounds cost and

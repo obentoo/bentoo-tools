@@ -62,10 +62,10 @@ autoupdate:
   # em stderr. Aninhada aqui, ela já entra nessa lista.
   # --------------------------------------------------------------------------
   review:
-    # Timeout de UMA revisão de divergência, em segundos (default: 120).
+    # Timeout de UMA revisão de divergência, em segundos (default: 300).
     # NÃO existe flag para ele: o `--timeout` do `overlay compare` é o das
     # requisições HTTP, e esta chave é o único jeito de ajustar o da revisão.
-    timeout: 120
+    timeout: 300
 
   # --------------------------------------------------------------------------
   # llm — provedor de IA usado pelos reparos automáticos:

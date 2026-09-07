@@ -7,9 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The review budget is a measured number now, not an inherited one.**
+  `DefaultReviewTimeout` goes from 120 to 300 seconds. The old value was chosen
+  by another story for a tool-free extraction path and never checked against the
+  agentic round trip it ended up bounding.
+
+  Measured 2026-09-06/07 over the maintainer's own overlay — 268 packages, 126
+  invocations, budget lifted to 1800s so nothing was cut short. 122 succeeded, 4
+  exited non-zero, none reached the deadline. The successful reviews spread from
+  7.4s to 124.6s, with a median of 14.3s and a p99 of 112.0s.
+
+  So 120s was wrong by 4.6 seconds on one review out of 122 — which is the worst
+  kind of wrong, because a ceiling sitting just inside the distribution looks
+  adequate and still takes the tail off. 300s is 2.4x the largest measured
+  success and 2.7x the p99, and it stays finite on purpose: a review that
+  genuinely hangs must still end.
+
+  The constant's documentation carries the readings, the date and the machine,
+  because nothing automated re-derives them. It also records what the
+  measurement does NOT establish — the original five-of-five failure this story
+  was opened for is not reproduced by it, and the duration log does not record
+  which package an invocation belonged to, so the expensive population cannot be
+  separated back out. Raising the number further to cover an unmeasured case
+  would reintroduce exactly the unmeasured constant this story removed.
+
+- **Comments no longer state a budget the configuration can change.** Four
+  in-tree comments restated `120s` away from the constant that defines it, and
+  one of them had already become false when the budget started reaching the
+  client. Each now names where the budget comes from instead of what it is.
+
 ### Added
 - **The review budget is configurable, and for the first time it is connected.**
-  `autoupdate.review.timeout` (an integer of seconds, default 120) sets the
+  `autoupdate.review.timeout` (an integer of seconds, default 300) sets the
   deadline one `overlay compare` divergence review runs under, documented in
   `config.example.yaml` alongside `cache_ttl` and `http_timeout`.
 

@@ -227,9 +227,16 @@ func childEnv(bareMode bool, apiKeyEnv string, key string) []string {
 
 // NewClaudeCodeClient constructs a ClaudeCodeClient from configuration (S003-R1, S003-R1.1,
 // S003-R7.3, AD6). It resolves the model (defaulting to sonnet) and the auth mode,
-// applies defaults (exec.CommandContext seam, context.Background, a >=120s
-// timeout), then applies any options. If the `claude` CLI is not on PATH it
-// returns ErrClaudeCodeUnavailable (S003-R6.1) so callers can fall back.
+// applies defaults (exec.CommandContext seam, context.Background,
+// DefaultClaudeCodeTimeout), then applies any options. If the `claude` CLI is
+// not on PATH it returns ErrClaudeCodeUnavailable (S003-R6.1) so callers can
+// fall back.
+//
+// The timeout it applies is a DEFAULT and not the budget every caller runs
+// under. Options are applied last, so a caller handing WithClaudeCodeTimeout a
+// POSITIVE duration — as the `overlay compare` review does, with the operator's
+// configured value — runs under that one instead (S048-R3.1). A non-positive one
+// is ignored and the default stands, which is the option's own documented rule.
 func NewClaudeCodeClient(cfg LLMConfig, opts ...ClaudeCodeOption) (*ClaudeCodeClient, error) {
 	if !claudeAvailable() {
 		return nil, ErrClaudeCodeUnavailable

@@ -266,7 +266,7 @@ type ValidatePackageOverride struct {
 // absent block, a half-written block and a nil pointer all resolve to the same
 // documented table:
 //
-//	timeout    120 (seconds, DefaultReviewTimeout)
+//	timeout    DefaultReviewTimeout (seconds)
 type ReviewConfig struct {
 	// Timeout bounds one review invocation, in SECONDS — the same unit and
 	// shape as cache_ttl, http_timeout and autoupdate.validate.timeout, because
@@ -1021,10 +1021,54 @@ func (c *ValidateConfig) normalize() {
 // fallback for a caller that passes none. Tuning the review means tuning this
 // constant, or the key that defaults to it.
 //
-// It starts at the budget the review already effectively had, so introducing
-// the key changes no run by itself. Whether that budget is the right one is a
-// measurement, and this constant is where its answer lands.
-const DefaultReviewTimeout = 120
+// WHERE 300 COMES FROM (S048-R2.2). Measured 2026-09-06 23:39 to 2026-09-07
+// 00:39 -03:00, on Linux 7.2.3-gentoo-dist x86_64 with Go go1.27.1 and claude
+// CLI 2.1.263, by running `bentoo overlay compare --realign` over the
+// maintainer's own overlay — 268 packages — with the budget raised to 1800s so
+// that nothing was cut short and the real cost was visible. 126 invocations:
+// 122 ran to completion, 4 exited non-zero, and NOT ONE reached the deadline.
+// The 122 that succeeded are the population a budget has to cover, and they
+// spread like this, in seconds:
+//
+//	min 7.4 · p50 14.3 · p90 64.8 · p95 76.6 · p99 112.0 · max 124.6
+//
+// The case that drove the value is that maximum: one review costing 124.6s,
+// which the previous 120s ceiling cut off by 4.6 seconds. That is the entire
+// measured harm of the old number — one review lost out of 122 — and it is also
+// why the old number was the worst kind of wrong. It sat just inside the
+// distribution: close enough to look adequate, low enough to take the tail off.
+// The longest invocation of the whole run, 178.8s, is deliberately NOT counted
+// here; it exited non-zero, and a call that fails for its own reason is not a
+// call a larger budget would have saved.
+//
+// 300 is 2.4x the largest measured success and 2.7x the p99 of that same
+// population, and the headroom is deliberate rather than fitted to the single
+// reading that forced the change. The distribution is heavily skewed — half
+// the reviews finish inside 15s, the slowest tenth take over four times that —
+// so a ceiling set just above one run's maximum is a ceiling fitted to one
+// sample of a long tail. 180 would have lost nothing measured either; what 300
+// buys over it costs nothing on this data, because no invocation in the run
+// reached its deadline at all. The budget stays finite on purpose: the point is
+// not to remove the deadline — a review that genuinely hangs must still end —
+// but to stop the deadline landing inside the normal distribution.
+//
+// WHAT THE MEASUREMENT DOES NOT ESTABLISH (S048-R2.3). The observation that
+// opened this story — 2026-08-27, five undeclared-divergence reviews submitted,
+// ZERO returning a reading, every one dying at the deadline — is NOT reproduced
+// by the run above. That run is overwhelmingly realignment reviews, which are
+// cheap; the overlay held only three undeclared divergences when it was
+// measured, and the duration log records an outcome and an elapsed time but not
+// the PACKAGE, so the expensive population cannot be separated back out of the
+// data. Three explanations fit both observations — a different population, a
+// changed CLI or model, or different load — and this measurement tells none of
+// them apart.
+//
+// So 300 is supported for the population that was measured, and it is NOT
+// established that it fixes the 2026-08-27 case. Raising it further to cover a
+// case nobody has measured would reintroduce the unmeasured constant this story
+// was opened to remove, wearing a bigger number; what would settle it is a run
+// that reproduces that failure.
+const DefaultReviewTimeout = 300
 
 // GetTimeout returns the review budget as a duration, defaulting to
 // DefaultReviewTimeout when unset or non-positive. The stored key is an int of
