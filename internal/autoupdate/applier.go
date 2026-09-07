@@ -1774,10 +1774,22 @@ func substituteAuxVar(ebuildPath, varName, newValue string) error {
 	}
 
 	re := regexp.MustCompile(`(` + regexp.QuoteMeta(varName) + `=")[^"]*(")`)
-	updated := re.ReplaceAllString(string(content), "${1}"+newValue+"${2}")
 
-	if updated == string(content) {
+	// "Nothing changed" has two very different causes, and conflating them
+	// reports a missing variable that is sitting right there. Decide on presence
+	// first: an ebuild that already carries the target value is correct, not
+	// broken.
+	//
+	// Reachable whenever an upstream keeps the auxiliary value across two
+	// releases -- net-misc/nxplayer shipped 10.0.59 and 10.0.60 both as build
+	// _1, and the bump died claiming MY_BUILD was absent.
+	if !re.Match(content) {
 		return fmt.Errorf("aux var %q not found in %s", varName, ebuildPath)
+	}
+
+	updated := re.ReplaceAllString(string(content), "${1}"+newValue+"${2}")
+	if updated == string(content) {
+		return nil
 	}
 
 	if err := os.WriteFile(ebuildPath, []byte(updated), 0o600); err != nil {
