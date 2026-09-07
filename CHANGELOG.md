@@ -59,6 +59,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented default.
 
 ### Fixed
+- **The auxiliary variable substitution can no longer bleed past the assignment
+  it means.** `regexp.QuoteMeta` pins the variable's name but not its position,
+  so the unanchored pattern also matched a longer name merely ending in the
+  target one, and a commented-out assignment — and `ReplaceAllString` rewrote
+  every match. A single bump could corrupt three lines it had no business
+  touching.
+
+  This is the `aux_var` half of the lesson `substituteCommitHash` already
+  learned when an unanchored match clobbered a vendored revision; the two were
+  asymmetric, and only one of them was anchored. Latent rather than live: all
+  six ebuilds declaring `aux_var` put the assignment at column zero with no
+  colliding name in the file, so this is a guard against the next ebuild.
+
+- **An auxiliary variable that already holds the right value no longer fails the
+  bump.** `substituteAuxVar` decided on difference: when the rewritten ebuild
+  came out equal to the original it reported the variable as absent. But
+  "nothing changed" has two causes and only one of them is a fault, so a bump
+  died naming a variable that was sitting right there in the file, leaving the
+  staged tree behind.
+
+  Reachable whenever an upstream keeps the auxiliary value across two releases.
+  `net-misc/nxplayer` shipped 10.0.59 and 10.0.60 both as build `_1`, so there
+  was nothing to substitute and the apply aborted. Every package declaring
+  `aux_var` was exposed to the same stall. Presence decides now, which is what
+  the sibling `substituteCommitHash` has done since it met the same conflation
+  on a pure base correction: absence is the error, a no-op is a successful
+  nothing.
+
 - **Neither review wrapper blames the ebuilds any more.** `overlay compare`'s
   divergence and realignment reviewers both wrapped every failure as `the claude
   CLI could not read the two ebuilds`. Neither seam opens a file: both ebuilds

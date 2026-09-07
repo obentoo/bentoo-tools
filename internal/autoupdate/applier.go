@@ -1761,9 +1761,9 @@ func substituteCommitHash(ebuildPath, newHash string) error {
 // substituteAuxVar replaces the quoted assignment of a free-text auxiliary
 // variable in an ebuild (e.g. MY_BUILD="esr-bb23" → MY_BUILD="esr-bb24"). It is
 // the sibling of substituteCommitHash but without the 40-hex-SHA lock, so it can
-// carry any value captured from a regex/html upstream page. The variable name is
-// anchored exactly (QuoteMeta) and the value is bounded by the surrounding double
-// quotes, so the substitution cannot bleed past the assignment.
+// carry any value captured from a regex/html upstream page. The value is bounded
+// by the surrounding double quotes, so the substitution cannot bleed past the
+// assignment.
 func substituteAuxVar(ebuildPath, varName, newValue string) error {
 	if varName == "" {
 		return fmt.Errorf("empty aux_var name for %s", ebuildPath)
@@ -1773,11 +1773,28 @@ func substituteAuxVar(ebuildPath, varName, newValue string) error {
 		return fmt.Errorf("failed to read ebuild for aux var substitution: %w", err)
 	}
 
-	re := regexp.MustCompile(`(` + regexp.QuoteMeta(varName) + `=")[^"]*(")`)
-	updated := re.ReplaceAllString(string(content), "${1}"+newValue+"${2}")
+	// Anchored to the start of a line (leading indentation allowed) for the same
+	// reason substituteCommitHash is: QuoteMeta pins the name but not its
+	// position, so an unanchored match also fires on a longer name that merely
+	// ends in it (MY_BUILD inside VENDORED_MY_BUILD) and on a commented-out
+	// assignment -- and ReplaceAllString would rewrite every one of them.
+	re := regexp.MustCompile(`(?m)^([ \t]*` + regexp.QuoteMeta(varName) + `=")[^"]*(")`)
 
-	if updated == string(content) {
+	// "Nothing changed" has two very different causes, and conflating them
+	// reports a missing variable that is sitting right there. Decide on presence
+	// first: an ebuild that already carries the target value is correct, not
+	// broken.
+	//
+	// Reachable whenever an upstream keeps the auxiliary value across two
+	// releases -- net-misc/nxplayer shipped 10.0.59 and 10.0.60 both as build
+	// _1, and the bump died claiming MY_BUILD was absent.
+	if !re.Match(content) {
 		return fmt.Errorf("aux var %q not found in %s", varName, ebuildPath)
+	}
+
+	updated := re.ReplaceAllString(string(content), "${1}"+newValue+"${2}")
+	if updated == string(content) {
+		return nil
 	}
 
 	if err := os.WriteFile(ebuildPath, []byte(updated), 0o600); err != nil {
@@ -1964,8 +1981,8 @@ func (a *Applier) runManifestWithFix(cand candidatePaths, pkg, version string, r
 // with nothing changed (S030-M3a). The fixer was billed against quota for a
 // condition that had already stopped existing.
 //
-// The precedent is promptRegistryFixes, which already refuses to offer a repair
-// unless the failure wraps ErrFetchFailed (cmd/bentoo/overlay_autoupdate_fixregistry.go:89).
+// The precedent is overlay_autoupdate_fixregistry.go's `func promptRegistryFixes`,
+// which already refuses to offer a repair unless the failure wraps ErrFetchFailed.
 // This is the same rule moved to the manifest path, keyed on a classification
 // rather than on a single sentinel.
 //
@@ -2499,10 +2516,11 @@ func (a *Applier) compileOnce(cand candidatePaths, pkg, version, privTool string
 //
 // The attribution gate runs on FREE evidence first — the transcript this run
 // already holds — and its verdict is reported whether or not a fixer is wired.
-// That is refuseFixOnEnvironmentFailure's argument (applier.go:1450) and its
-// precondition in one: the verdict is a fact about the failure and not about the
-// configuration, and it may be taken unconditionally exactly while nothing is
-// spent to get it, or two machines would give the same failure two diagnoses.
+// That is the argument applier.go's `func refuseFixOnEnvironmentFailure` makes,
+// and its precondition in one: the verdict is a fact about the failure and not
+// about the configuration, and it may be taken unconditionally exactly while
+// nothing is spent to get it, or two machines would give the same failure two
+// diagnoses.
 //
 // The two rungs that DO spend something — a pretend `emerge -p` resolve, and a
 // probe write into PORTAGE_TMPDIR — are asked only once a fixer is about to be

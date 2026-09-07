@@ -41,7 +41,8 @@ func TestSubstituteAuxVar(t *testing.T) {
 
 // TestSubstituteAuxVar_Errors covers the two refusal paths: an empty variable
 // name (would otherwise produce a dangerously broad regex) and a variable that
-// is absent from the ebuild (no-op write must surface as an error).
+// is absent from the ebuild (absence must surface as an error; a no-op must not
+// -- see TestSubstituteAuxVar_AlreadyCorrect).
 func TestSubstituteAuxVar_Errors(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x-1.0.ebuild")
@@ -54,6 +55,67 @@ func TestSubstituteAuxVar_Errors(t *testing.T) {
 	}
 	if err := substituteAuxVar(path, "NOPE", "v"); err == nil {
 		t.Error("expected error when aux_var not found in ebuild")
+	}
+}
+
+// TestSubstituteAuxVar_AlreadyCorrect covers an upstream that keeps the
+// auxiliary value across two releases: net-misc/nxplayer shipped 10.0.59 and
+// 10.0.60 both as build _1, so the value to write is the one already in the
+// file. That used to be reported as "aux var not found" -- naming a variable
+// that is sitting right there, and failing a bump that had nothing wrong with
+// it. Mirrors TestSubstituteCommitHash_AlreadyCorrect for the sibling.
+func TestSubstituteAuxVar_AlreadyCorrect(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nxplayer-10.0.60.ebuild")
+	body := "EAPI=8\nMY_BUILD=\"1\"\n" +
+		"MY_P=\"nomachine-personal-edition_${PV}_${MY_BUILD}\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write ebuild: %v", err)
+	}
+
+	if err := substituteAuxVar(path, "MY_BUILD", "1"); err != nil {
+		t.Fatalf("substituteAuxVar with an already-correct value: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if string(got) != body {
+		t.Errorf("file was rewritten; want it left byte-for-byte identical")
+	}
+}
+
+// TestSubstituteAuxVar_Anchored pins the aux-var half of the lesson
+// substituteCommitHash already learned: QuoteMeta pins the variable NAME but not
+// its POSITION, so an unanchored regex also matches a longer name that merely
+// ends in the target one, and a commented-out assignment. ReplaceAllString then
+// rewrites every match, corrupting lines the bump has no business touching.
+func TestSubstituteAuxVar_Anchored(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pkg-1.0.ebuild")
+	body := "EAPI=8\n" +
+		"# MY_BUILD=\"old\"  # superseded, kept for the record\n" +
+		"VENDORED_MY_BUILD=\"vendor-7\"\n" +
+		"\tMY_BUILD=\"1\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write ebuild: %v", err)
+	}
+
+	if err := substituteAuxVar(path, "MY_BUILD", "2"); err != nil {
+		t.Fatalf("substituteAuxVar: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	want := "EAPI=8\n" +
+		"# MY_BUILD=\"old\"  # superseded, kept for the record\n" +
+		"VENDORED_MY_BUILD=\"vendor-7\"\n" +
+		"\tMY_BUILD=\"2\"\n"
+	if string(got) != want {
+		t.Errorf("substitution bled past the package's own assignment:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
 
