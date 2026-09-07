@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/PuerkitoBio/goquery v1.12.0
+	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/antchfx/htmlquery v1.3.6
 	github.com/antchfx/xpath v1.3.8
 	github.com/aymanbagabas/go-udiff v0.4.1
