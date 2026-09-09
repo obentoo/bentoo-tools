@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **The `golang-x` Dependabot group had been silently dropping every update
+  since 2026-08-24, and nothing reported it.** Dependabot kept running and kept
+  opening PRs for everything else, so only the *absent* group PR recorded the
+  stall — `golang.org/x/time` sat 21 days behind.
+
+  The cause is the `go` directive. Every `golang.org/x` release from late August
+  on declares `go 1.26.0` in its own go.mod, and Go ranks a bare `1.26` BELOW
+  `1.26.0`; `go get` states it outright: `upgraded go 1.26 => 1.26.0`. Taking
+  any of them required raising this module's directive, which Dependabot will
+  not do, so it discarded the whole group without a word.
+
+  Two likelier-looking explanations were wrong, and the note in
+  `dependabot.yml` records both so they are not re-investigated. Cooldown was
+  not blocking the group: #128 shipped `x/mod` v0.40.0 while v0.41.0 was still
+  in quarantine, so per-dependency cooldown picks an older eligible version
+  rather than holding the group. Nor was it the missing-semver-tag failure the
+  two `charmbracelet/x/exp` entries already document: the same #128 bumped
+  `x/telemetry`, which has no semver tag at all, without trouble.
+
+- **The fix carried a security regression, and the `toolchain` line is what
+  stops it.** `actions/setup-go` reads a patch-qualified `go` directive as an
+  *exact* version, so `go 1.26.0` alone would have frozen CI on the unpatched
+  1.26.0 while 1.26.8 is current — a downgrade arriving disguised as a
+  dependency update. setup-go prefers `toolchain` when present; `act -j audit`
+  confirms the runner installs Go 1.26.8. The pin needs a manual bump on each Go
+  patch release, which is the cost of a `go` directive that now carries a patch
+  component.
+
+- **A reachable stdlib CVE no longer passes CI.** Excluding stdlib findings was
+  sound while the directive read `go 1.26` and setup-go fetched the newest patch
+  every run — the runner healed itself and there was nothing here to do. Pinning
+  the toolchain ends that, so the Go version became this repo's to bump and the
+  finding became actionable. Both counts now come from one jq helper
+  parameterised on which side of the split to keep, so the two paths cannot
+  drift, and each message names the file to change.
+
+- **Six dependency bumps, none carrying an advisory.** `x/time` v0.16.0 (the
+  only direct one), `x/sys` v0.48.0, `x/mod` v0.41.0, `x/sync` v0.23.0,
+  `mattn/go-runewidth` v0.0.29 and `go-json-experiment/json` to its 2026-08-20
+  snapshot. They were the updates outside the 7-day release quarantine when the
+  chain was audited; `andybalholm/cascadia` v1.3.5 and the 2026-09-08 `x/`
+  releases were published inside that window and are left for Dependabot, which
+  can now see them again.
+
+### Fixed
+
+- **`make audit` never ran govulncheck, and said so in a line nobody read.** It
+  probed `command -v govulncheck`, printed "govulncheck not installed, skipping
+  vulnerability check" and exited 0 — so `make audit`, and `make check` through
+  it, reported success while scanning nothing. The tool comes from the `tool`
+  directive in go.mod, which places it inside the module rather than on PATH; it
+  is reachable only as `go tool govulncheck`, exactly how `ci.yml` has always
+  invoked it. The local target was the one lying, and the install hint it
+  offered was for a tool the module already carries. The fallback is gone on
+  purpose: the tool is a module dependency, so its absence is a broken checkout
+  and should fail loudly rather than degrade to a green.
+
 ## [0.30.0] - 2026-09-07
 
 ### Changed
