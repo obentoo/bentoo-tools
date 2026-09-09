@@ -146,17 +146,33 @@ jobs:
             else
               go tool govulncheck -tags "$tag" -json ./... > "/tmp/vulncheck-${label}.json"
             fi
-            # Count REACHABLE vulnerabilities (trace frame with a called function)
-            # in third-party modules. stdlib/toolchain issues require a Go update,
-            # not a dependency bump, so they don't fail this job.
-            THIRD_PARTY=$(jq -s '
-              [ .[] | .finding // empty
-                | select(.trace[0].function != null)
-                | .trace[0].module
-                | select(. != "stdlib" and . != "toolchain")
-              ] | unique | length' "/tmp/vulncheck-${label}.json")
-            if [ "$THIRD_PARTY" -gt 0 ]; then
-              echo "::error::${THIRD_PARTY} third-party vulnerability(ies) found (${label})"
+            # Count REACHABLE vulnerabilities (trace frame with a called
+            # function), split by where the fix lives.
+            #
+            # stdlib/toolchain findings used to be excluded on the grounds that
+            # they "require a Go update, not a dependency bump" -- true when the
+            # `go` directive read `go 1.26` and setup-go resolved the newest
+            # patch on every run, so the runner healed itself. That stopped being
+            # true when the directive gained a patch component and go.mod pinned
+            # `toolchain go1.26.8`: the Go version is now this repo's to bump, so
+            # a reachable stdlib CVE is actionable here and fails the job.
+            COUNT_MODULES() {
+              jq -s --argjson stdlib "$1" '
+                [ .[] | .finding // empty
+                  | select(.trace[0].function != null)
+                  | .trace[0].module
+                  | select((. == "stdlib" or . == "toolchain") == $stdlib)
+                ] | unique | length' "/tmp/vulncheck-${label}.json"
+            }
+            THIRD_PARTY=$(COUNT_MODULES false)
+            STDLIB=$(COUNT_MODULES true)
+            if [ "$THIRD_PARTY" -gt 0 ] || [ "$STDLIB" -gt 0 ]; then
+              if [ "$THIRD_PARTY" -gt 0 ]; then
+                echo "::error::${THIRD_PARTY} third-party vulnerability(ies) found (${label}) -- bump the dependency"
+              fi
+              if [ "$STDLIB" -gt 0 ]; then
+                echo "::error::${STDLIB} stdlib/toolchain vulnerability(ies) found (${label}) -- bump the toolchain directive in go.mod"
+              fi
               if [ -z "$tag" ]; then
                 go tool govulncheck ./... || true
               else
@@ -164,15 +180,15 @@ jobs:
               fi
               failed="${failed} ${label}"
             else
-              echo "No third-party vulnerabilities (${label})"
+              echo "No reachable vulnerabilities (${label})"
             fi
             echo "::endgroup::"
           done
           if [ -n "$failed" ]; then
-            echo "::error::govulncheck found third-party vulnerabilities under:${failed}"
+            echo "::error::govulncheck found reachable vulnerabilities under:${failed}"
             exit 1
           fi
-          echo "No third-party vulnerabilities under any build tag (stdlib-only issues require a Go update)"
+          echo "No reachable vulnerabilities under any build tag"
 
   secrets:
     name: Secret Scan
