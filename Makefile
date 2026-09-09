@@ -104,12 +104,10 @@ audit-ctx:
 audit: audit-ctx
 	$(GOMOD) verify
 	@echo "Module verification passed"
-	@if command -v govulncheck >/dev/null 2>&1; then \
-		govulncheck ./...; \
-	else \
-		echo "govulncheck not installed, skipping vulnerability check"; \
-		echo "Install with: go install golang.org/x/vuln/cmd/govulncheck@latest"; \
-	fi
+	@# govulncheck is supplied by the `tool` directive in go.mod, so it lives in
+	@# the module -- not on PATH. The old `command -v` probe therefore never found
+	@# it and this target printed "skipping" and went green without ever scanning.
+	go tool govulncheck ./...
 
 # Clean build artifacts
 .PHONY: clean

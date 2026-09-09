@@ -21,6 +21,21 @@ updates:
     cooldown:
       default-days: 7
     groups:
+      # This group went silent after #128 (2026-08-24) and the cause is not
+      # visible from the PR list -- Dependabot kept running and kept opening PRs
+      # for everything else, so only the missing group PR recorded it.
+      #
+      # Every golang.org/x release from late August 2026 on declares `go 1.26.0`
+      # in its own go.mod. This module declared `go 1.26`, and Go ranks a bare
+      # `1.26` BELOW `1.26.0` -- so taking any of them required raising the main
+      # module's `go` directive, which Dependabot will not do. It dropped the
+      # whole group without a word. Cooldown was not the cause: #128 shipped
+      # while x/mod v0.41.0 was still in quarantine, so per-dependency cooldown
+      # demonstrably picks an older eligible version rather than blocking.
+      #
+      # Fixed on the module side (go.mod now says `go 1.26.0` plus a `toolchain`
+      # line). If the group falls silent again, compare the `go` directive of the
+      # candidate version against this module's before looking anywhere else.
       golang-x:
         patterns:
           - "golang.org/x/*"
